@@ -1,0 +1,688 @@
+<!--nosemgrep-->
+{{define "title"}}settings — fitbase{{end}} {{define "content"}} {{$imperial := .Imperial}}
+<div class="page-header">
+  <h1>settings</h1>
+</div>
+
+<!-- Sync progress overlay (reuses bulk upload modal styles) -->
+<div class="bulk-overlay" id="sync-overlay" hidden>
+  <div class="bulk-modal">
+    <div class="bulk-title" id="sync-title"></div>
+    <div class="bulk-filename" id="sync-subtitle">working…</div>
+    <div class="bulk-progress-track">
+      <div class="bulk-progress-bar" id="sync-bar"></div>
+    </div>
+    <div class="bulk-counts">
+      <span id="sync-counter"></span>
+      <span class="bulk-results" id="sync-results"></span>
+    </div>
+    <button class="bulk-done" id="sync-done" hidden>done</button>
+  </div>
+</div>
+
+<section class="card athlete-card">
+  <h2 class="card-title">athlete profile</h2>
+  <form method="POST" action="/settings/athlete" class="athlete-form">
+    <div class="athlete-field">
+      <label for="ftp_watts"> FTP <span class="muted">functional threshold power</span> </label>
+      <div class="form-control-group">
+        <input
+          type="number"
+          id="ftp_watts"
+          name="ftp_watts"
+          class="form-input"
+          value="{{.Athlete.FTPWatts}}"
+          min="1"
+          max="600"
+          required
+        />
+        <span class="form-unit">W</span>
+      </div>
+    </div>
+    <div class="athlete-field">
+      <label for="weight">weight</label>
+      <div class="form-control-group">
+        <input
+          type="number"
+          id="weight"
+          name="weight"
+          class="form-input"
+          value="{{formatFloat1 .WeightDisplay}}"
+          min="1"
+          max="{{if $imperial}}500{{else}}250{{end}}"
+          step="0.1"
+          required
+        />
+        <span class="form-unit">{{if $imperial}}lbs{{else}}kg{{end}}</span>
+      </div>
+    </div>
+    <div class="athlete-field">
+      <label for="threshold_hr"> threshold HR <span class="muted">lactate threshold</span> </label>
+      <div class="form-control-group">
+        <input
+          type="number"
+          id="threshold_hr"
+          name="threshold_hr"
+          class="form-input"
+          value="{{if .Athlete.ThresholdHR}}{{.Athlete.ThresholdHR}}{{end}}"
+          min="0"
+          max="250"
+          placeholder="—"
+        />
+        <span class="form-unit">bpm</span>
+      </div>
+    </div>
+    <div class="athlete-field">
+      <label for="max_hr">max HR</label>
+      <div class="form-control-group">
+        <input
+          type="number"
+          id="max_hr"
+          name="max_hr"
+          class="form-input"
+          value="{{if .Athlete.MaxHR}}{{.Athlete.MaxHR}}{{end}}"
+          min="0"
+          max="250"
+          placeholder="—"
+        />
+        <span class="form-unit">bpm</span>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn-primary">save</button>
+    </div>
+  </form>
+</section>
+
+<div class="zones-grid">
+  <section class="card">
+    <h2 class="card-title">power zones <span class="muted">based on {{.Athlete.FTPWatts}}W FTP</span></h2>
+    <table class="zone-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>zone</th>
+          <th>% FTP</th>
+          <th>watts</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .PowerZones}}
+        <tr class="zone-row zone-power-{{.Label | lower}}">
+          <td class="zone-label">{{.Label}}</td>
+          <td class="zone-name">{{.Name}}</td>
+          <td class="zone-pct">{{if eq .PctHigh 0}}{{.PctLow}}%+{{else}}{{.PctLow}}–{{.PctHigh}}%{{end}}</td>
+          <td class="zone-range">{{if eq .WattsHigh 0}}{{.WattsLow}}w+{{else}}{{.WattsLow}}–{{.WattsHigh}}w{{end}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="card">
+    <h2 class="card-title">
+      heart rate zones {{if .HRZonesCustom}}
+      <span class="muted">custom</span>
+      {{else if .Athlete.ThresholdHR}}
+      <span class="muted">based on {{.Athlete.ThresholdHR}} bpm threshold</span>
+      {{end}}
+    </h2>
+    {{if or .Athlete.ThresholdHR .HRZonesCustom}}
+    <table class="zone-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>zone</th>
+          {{if not .HRZonesCustom}}
+          <th>% threshold</th>
+          {{end}}
+          <th>bpm</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .HRZones}}
+        <tr class="zone-row zone-hr-{{.Label | lower}}">
+          <td class="zone-label">{{.Label}}</td>
+          <td class="zone-name">{{.Name}}</td>
+          {{if not $.HRZonesCustom}}
+          <td class="zone-pct">{{if eq .PctHigh 0}}{{.PctLow}}%+{{else}}{{.PctLow}}–{{.PctHigh}}%{{end}}</td>
+          {{end}}
+          <td class="zone-range">{{if eq .BPMHigh 0}}{{.BPMLow}}+{{else}}{{.BPMLow}}–{{.BPMHigh}}{{end}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    <details class="credentials-details">
+      <summary class="credentials-summary">
+        {{if .HRZonesCustom}}update custom zones{{else}}override zones{{end}}
+      </summary>
+      <form method="POST" action="/settings/hr-zones" class="hr-zones-form">
+        <div class="hr-zones-grid">
+          {{range $i, $z := .HRZones}} {{if ne $z.BPMHigh 0}}
+          <div class="hr-zone-row">
+            <span class="hr-zone-label">{{$z.Label}} max</span>
+            <input
+              type="number"
+              name="z{{add1 $i}}_max"
+              class="form-input hr-zone-input"
+              value="{{$z.BPMHigh}}"
+              min="1"
+              max="300"
+              required
+            />
+            <span class="form-unit">bpm</span>
+          </div>
+          {{end}} {{end}}
+        </div>
+        <div class="hr-zones-actions">
+          <button type="submit" class="btn-primary">save custom zones</button>
+          {{if .HRZonesCustom}}
+          <form method="POST" action="/settings/hr-zones/reset" style="display: inline">
+            <button type="submit" class="btn-secondary">reset to calculated</button>
+          </form>
+          {{end}}
+        </div>
+      </form>
+    </details>
+    {{else}}
+    <p class="muted" style="font-size: 13px">set a threshold HR above to see your heart rate zones.</p>
+    {{end}}
+  </section>
+</div>
+
+<section class="card">
+  <h2 class="card-title">dropbox</h2>
+  {{if .DropboxConnected}}
+  <div class="integration-row">
+    <div class="integration-status">
+      <span class="status-dot connected"></span>
+      <span>connected — syncing from <code>{{.DropboxFolder}}</code></span>
+    </div>
+    <div class="integration-actions">
+      <button
+        class="btn-secondary"
+        onclick="runSync('/api/integrations/dropbox/sync?stream=1', 'syncing from dropbox')"
+      >
+        sync now
+      </button>
+      <button class="btn-danger" id="dropbox-disconnect">disconnect</button>
+    </div>
+  </div>
+  <label class="longpoll-label">
+    {{if .DropboxLongpoll}}
+    <input type="checkbox" id="dropbox-longpoll-toggle" checked />
+    {{else}}
+    <input type="checkbox" id="dropbox-longpoll-toggle" />
+    {{end}} sync future workouts
+  </label>
+  <details class="credentials-details">
+    <summary class="credentials-summary">update settings</summary>
+    <form method="POST" action="/settings/integrations/dropbox/credentials" class="credentials-form">
+      <input type="password" name="access_token" placeholder="access token" class="form-input" required />
+      <input
+        type="text"
+        name="folder_path"
+        placeholder="Dropbox folder (e.g. /Apps/WahooFitness)"
+        class="form-input"
+        value="{{.DropboxFolder}}"
+      />
+      <button type="submit" class="btn-secondary">save</button>
+    </form>
+  </details>
+  {{else}}
+  <p class="muted" style="font-size: 13px; margin-bottom: 12px">
+    Create a Dropbox app at
+    <a href="https://www.dropbox.com/developers/apps" target="_blank" rel="noopener">dropbox.com/developers/apps</a>. On
+    the <strong>Permissions</strong> tab, enable <code>files.metadata.read</code> and <code>files.content.read</code>.
+    Then under <strong>Settings → OAuth 2</strong>, set token expiration to <strong>No expiration</strong> and click
+    <strong>Generate</strong>
+    to get a permanent access token. Paste it below — no OAuth flow needed.
+  </p>
+  <form method="POST" action="/settings/integrations/dropbox/credentials" class="credentials-form">
+    <input type="password" name="access_token" placeholder="access token" class="form-input" required />
+    <input
+      type="text"
+      name="folder_path"
+      value="/Apps/WahooFitness"
+      class="form-input"
+      style="color: var(--text-muted)"
+      oninput="this.style.color = ''"
+    />
+    <button type="submit" class="btn-primary">connect dropbox</button>
+  </form>
+  {{end}}
+</section>
+
+<section class="card">
+  <h2 class="card-title">google drive <span class="muted">backup</span></h2>
+  {{if .GDriveConnected}}
+  <div class="integration-row">
+    <div class="integration-status">
+      <span class="status-dot connected"></span>
+      <span>connected — FIT files are backed up automatically</span>
+    </div>
+    <div class="integration-actions">
+      <button
+        class="btn-secondary"
+        onclick="runSync('/api/integrations/gdrive/sync?stream=1', 'syncing to google drive')"
+      >
+        sync now
+      </button>
+      <button class="btn-danger" id="gdrive-disconnect">disconnect</button>
+    </div>
+  </div>
+  <details class="credentials-details">
+    <summary class="credentials-summary">update credentials</summary>
+    <form method="POST" action="/settings/integrations/gdrive/credentials" class="credentials-form">
+      <div class="credentials-hint">Client ID: <code>{{.GDriveClientID}}</code></div>
+      <input type="text" name="client_id" placeholder="Client ID" class="form-input" required />
+      <input type="password" name="client_secret" placeholder="Client Secret" class="form-input" required />
+      <button type="submit" class="btn-secondary">save</button>
+    </form>
+  </details>
+  {{else if .GDriveConfigured}}
+  <div class="integration-row">
+    <div class="integration-status">
+      <span class="status-dot"></span>
+      <span class="muted">credentials saved — authorize fitbase to access your Google Drive</span>
+    </div>
+    <div class="integration-actions">
+      <a href="/api/integrations/gdrive/connect" class="btn-primary">connect google drive</a>
+    </div>
+  </div>
+  <details class="credentials-details">
+    <summary class="credentials-summary">update credentials</summary>
+    <form method="POST" action="/settings/integrations/gdrive/credentials" class="credentials-form">
+      <div class="credentials-hint">Client ID: <code>{{.GDriveClientID}}</code></div>
+      <input type="text" name="client_id" placeholder="client id" class="form-input" required />
+      <input type="password" name="client_secret" placeholder="Client Secret" class="form-input" required />
+      <button type="submit" class="btn-secondary">save</button>
+    </form>
+  </details>
+  {{else}}
+  <p class="muted" style="font-size: 13px; margin-bottom: 12px">
+    Create an OAuth app in
+    <a href="https://console.cloud.google.com" target="_blank" rel="noopener">Google Cloud Console</a>
+    (Desktop application type), then enter your credentials below.
+  </p>
+  <form method="POST" action="/settings/integrations/gdrive/credentials" class="credentials-form">
+    <input type="text" name="client_id" placeholder="client id" class="form-input" required />
+    <input type="password" name="client_secret" placeholder="client secret" class="form-input" required />
+    <button type="submit" class="btn-primary">save credentials</button>
+  </form>
+  {{end}}
+</section>
+
+<section class="card">
+  <h2 class="card-title">intervals.icu</h2>
+  {{if .IntervalsConnected}}
+  <div class="integration-row">
+    <div class="integration-status">
+      <span class="status-dot connected"></span>
+      <span>connected — athlete <code>{{.IntervalsAthleteID}}</code></span>
+    </div>
+    <div class="integration-actions">
+      <button
+        class="btn-secondary"
+        onclick="runSync('/api/integrations/intervals/sync?stream=1', 'syncing from intervals.icu')"
+      >
+        sync now
+      </button>
+      <button class="btn-danger" id="intervals-disconnect">disconnect</button>
+    </div>
+  </div>
+  <label class="longpoll-label">
+    {{if .IntervalsAutoSync}}
+    <input type="checkbox" id="intervals-autosync-toggle" checked />
+    {{else}}
+    <input type="checkbox" id="intervals-autosync-toggle" />
+    {{end}} sync future workouts
+  </label>
+  <form method="POST" action="/settings/integrations/intervals/sync-range" class="sync-range-form">
+    <label class="sync-range-label">sync from</label>
+    <input
+      type="date"
+      name="sync_oldest"
+      class="form-input sync-range-input"
+      value="{{.IntervalsSyncOldest}}"
+      placeholder="all time"
+    />
+    <button type="submit" class="btn-secondary">save</button>
+    {{if .IntervalsSyncOldest}}
+    <button type="submit" name="sync_oldest" value="" class="btn-link">clear</button>
+    {{end}}
+  </form>
+  <details class="credentials-details">
+    <summary class="credentials-summary">update credentials</summary>
+    <form method="POST" action="/settings/integrations/intervals/credentials" class="credentials-form">
+      <input
+        type="text"
+        name="athlete_id"
+        placeholder="athlete id (e.g. i12345)"
+        class="form-input"
+        value="{{.IntervalsAthleteID}}"
+        required
+      />
+      <input type="password" name="api_key" placeholder="api key" class="form-input" required />
+      <button type="submit" class="btn-secondary">save</button>
+    </form>
+  </details>
+  {{else}}
+  <p class="muted" style="font-size: 13px; margin-bottom: 12px">
+    Find your Athlete ID in your intervals.icu profile URL. Generate an API key at
+    <strong>Settings → API</strong> in intervals.icu.
+  </p>
+  <form method="POST" action="/settings/integrations/intervals/credentials" class="credentials-form">
+    <input type="text" name="athlete_id" placeholder="athlete id (e.g. i12345)" class="form-input" required />
+    <input type="password" name="api_key" placeholder="api key" class="form-input" required />
+    <button type="submit" class="btn-primary">connect intervals.icu</button>
+  </form>
+  {{end}}
+</section>
+
+<section class="card danger-zone-card">
+  <h2 class="card-title">danger zone</h2>
+  <div class="danger-row">
+    <div>
+      <div class="danger-label">delete all workouts</div>
+      <div class="muted" style="font-size: 13px">
+        permanently removes every workout, stream, and power curve from the database. the archive folder is not touched.
+      </div>
+    </div>
+    <button class="btn-danger" id="delete-all-workouts">delete all workouts</button>
+  </div>
+</section>
+{{end}} {{define "scripts"}}
+<style>
+  @keyframes sync-slide {
+    0% {
+      transform: translateX(-160%);
+    }
+    100% {
+      transform: translateX(260%);
+    }
+  }
+  .bulk-progress-bar.indeterminate {
+    width: 60% !important;
+    transition: none !important;
+    animation: sync-slide 1.4s ease-in-out infinite;
+  }
+</style>
+<style>
+  .longpoll-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-top: 12px;
+    cursor: pointer;
+  }
+  .longpoll-label input[type="checkbox"] {
+    accent-color: var(--accent);
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+  }
+  .sync-range-form {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .sync-range-label {
+    font-size: 13px;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  .sync-range-input {
+    width: 160px;
+    font-size: 13px;
+  }
+  .btn-link {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+    text-decoration: underline;
+    padding: 0;
+  }
+</style>
+<script>
+  async function runSync(url, title) {
+    const overlay = document.getElementById("sync-overlay");
+    const titleEl = document.getElementById("sync-title");
+    const subtitleEl = document.getElementById("sync-subtitle");
+    const bar = document.getElementById("sync-bar");
+    const counterEl = document.getElementById("sync-counter");
+    const resultsEl = document.getElementById("sync-results");
+    const doneBtn = document.getElementById("sync-done");
+
+    titleEl.textContent = title;
+    subtitleEl.textContent = "enumerating files…";
+    counterEl.textContent = "";
+    resultsEl.textContent = "";
+    resultsEl.style.color = "";
+    bar.style.width = "0%";
+    bar.classList.add("indeterminate");
+    doneBtn.hidden = true;
+    overlay.hidden = false;
+
+    function finish(errMsg) {
+      bar.classList.remove("indeterminate");
+      if (errMsg) {
+        subtitleEl.textContent = "";
+        resultsEl.textContent = errMsg;
+        resultsEl.style.color = "#ef4444";
+      }
+      doneBtn.hidden = false;
+      doneBtn.onclick = () => {
+        overlay.hidden = true;
+      };
+    }
+
+    let res;
+    try {
+      res = await fetch(url);
+    } catch (e) {
+      finish("network error: " + e.message);
+      return;
+    }
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      finish(j.error || "sync failed");
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "",
+      done = false;
+
+    function handleEvent(name, raw) {
+      let d;
+      try {
+        d = JSON.parse(raw);
+      } catch {
+        return;
+      }
+      if (name === "start") {
+        bar.classList.remove("indeterminate");
+        bar.style.width = "0%";
+        if (d.pending === 0) {
+          subtitleEl.textContent = "nothing new to sync";
+          counterEl.textContent = d.total > 0 ? d.total + " already up to date" : "";
+          bar.style.width = "100%";
+        } else {
+          subtitleEl.textContent = "";
+          counterEl.textContent = "0 / " + d.pending;
+        }
+      } else if (name === "file") {
+        subtitleEl.textContent = d.name;
+        counterEl.textContent = d.index + " / " + d.total;
+        bar.style.width = (d.index / d.total) * 100 + "%";
+      } else if (name === "done") {
+        bar.style.width = "100%";
+        subtitleEl.textContent = "";
+        counterEl.textContent = "";
+        const parts = [];
+        if (d.imported > 0) parts.push(d.imported + " imported");
+        if (d.uploaded > 0) parts.push(d.uploaded + " uploaded");
+        if (d.skipped > 0) parts.push(d.skipped + " already up to date");
+        if (d.failed > 0) parts.push(d.failed + " failed");
+        resultsEl.textContent = parts.length ? parts.join(" · ") : "already up to date";
+        done = true;
+        finish();
+      } else if (name === "error") {
+        done = true;
+        finish(d.error || "sync failed");
+      }
+    }
+
+    try {
+      while (!done) {
+        const { done: streamDone, value } = await reader.read();
+        if (streamDone) break;
+        buffer += decoder.decode(value, { stream: true });
+        let idx;
+        while ((idx = buffer.indexOf("\n\n")) !== -1) {
+          const chunk = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 2);
+          let evtName = "message",
+            evtData = "";
+          for (const line of chunk.split("\n")) {
+            if (line.startsWith("event: ")) evtName = line.slice(7).trim();
+            else if (line.startsWith("data: ")) evtData = line.slice(6);
+          }
+          handleEvent(evtName, evtData);
+        }
+      }
+    } catch (e) {
+      finish("stream error: " + e.message);
+    }
+  }
+</script>
+{{if .GDriveConnected}}
+<script>
+  document.getElementById("gdrive-disconnect").addEventListener("click", async () => {
+    if (!confirm("Disconnect Google Drive? Backed-up files on Drive will not be deleted.")) return;
+    const res = await fetch("/api/integrations/gdrive", { method: "DELETE" });
+    if (res.ok) {
+      window.location.reload();
+    } else {
+      const json = await res.json().catch(() => ({}));
+      alert("Disconnect failed: " + (json.error || "unknown error"));
+    }
+  });
+</script>
+{{end}} {{if .DropboxConnected}}
+<script>
+  document.getElementById("dropbox-disconnect").addEventListener("click", async () => {
+    if (!confirm("Disconnect Dropbox? Your imported workouts will not be deleted.")) return;
+    const res = await fetch("/api/integrations/dropbox", { method: "DELETE" });
+    if (res.ok) {
+      window.location.reload();
+    } else {
+      const json = await res.json().catch(() => ({}));
+      alert("Disconnect failed: " + (json.error || "unknown error"));
+    }
+  });
+</script>
+{{end}} {{if .IntervalsConnected}}
+<script>
+  document.getElementById("intervals-disconnect").addEventListener("click", async () => {
+    if (!confirm("Disconnect intervals.icu? Your imported workouts will not be deleted.")) return;
+    const res = await fetch("/api/integrations/intervals", { method: "DELETE" });
+    if (res.ok) {
+      window.location.reload();
+    } else {
+      const json = await res.json().catch(() => ({}));
+      alert("Disconnect failed: " + (json.error || "unknown error"));
+    }
+  });
+</script>
+{{end}}
+<style>
+  .danger-zone-card {
+    border-color: rgba(239, 68, 68, 0.35);
+  }
+  .danger-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .danger-label {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .autosync-notice {
+    font-size: 12px;
+    color: var(--accent);
+    margin-top: 4px;
+    transition: opacity 0.3s;
+  }
+</style>
+<script>
+  // Mutual exclusivity for auto-sync toggles.
+  (function () {
+    const dbxToggle = document.getElementById("dropbox-longpoll-toggle");
+    const intToggle = document.getElementById("intervals-autosync-toggle");
+
+    function setupToggle(toggle, url, peerToggle, peerName) {
+      if (!toggle) return;
+      toggle.addEventListener("change", async () => {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled: toggle.checked }),
+        });
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}));
+          alert("Failed: " + (j.error || "unknown error"));
+          toggle.checked = !toggle.checked;
+          return;
+        }
+        if (toggle.checked && peerToggle && peerToggle.checked) {
+          peerToggle.checked = false;
+          const msg = document.createElement("div");
+          msg.className = "autosync-notice";
+          msg.textContent = peerName + " auto-sync has been disabled — only one source can sync future workouts.";
+          peerToggle.parentElement.after(msg);
+          setTimeout(() => {
+            msg.style.opacity = "0";
+            setTimeout(() => msg.remove(), 300);
+          }, 4000);
+        }
+      });
+    }
+
+    setupToggle(dbxToggle, "/api/integrations/dropbox/longpoll", intToggle, "intervals.icu");
+    setupToggle(intToggle, "/api/integrations/intervals/autosync", dbxToggle, "Dropbox");
+  })();
+</script>
+<script>
+  document.getElementById("delete-all-workouts").addEventListener("click", () => {
+    const answer = prompt('Type "delete all workouts" to confirm. This cannot be undone.');
+    if (answer === null) return;
+    if (answer !== "delete all workouts") {
+      alert("Confirmation text did not match. Nothing was deleted.");
+      return;
+    }
+    fetch("/api/workouts", { method: "DELETE" })
+      .then((res) => {
+        if (res.ok) {
+          window.location.href = "/";
+        } else {
+          res
+            .json()
+            .catch(() => ({}))
+            .then((j) => alert("Delete failed: " + (j.error || "unknown error")));
+        }
+      })
+      .catch((e) => alert("Delete failed: " + e.message));
+  });
+</script>
+{{end}}

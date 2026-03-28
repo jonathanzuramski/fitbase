@@ -1,0 +1,39 @@
+{{define "base"}}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{block "title" .}}fitbase{{end}}</title>
+    <link rel="stylesheet" href="/static/css/style.css" />
+    <link rel="stylesheet" href="/static/css/workout.css" />
+    <link rel="stylesheet" href="/static/css/settings.css" />
+    <link rel="stylesheet" href="/static/css/mobile.css" />
+    {{block "head" .}}{{end}}
+  </head>
+  <body data-imperial="{{.Imperial}}">
+    <nav class="nav">
+      <a href="/" class="nav-brand">fitbase</a>
+      <div class="nav-links">
+        <a href="/">dashboard</a>
+        <a href="/calendar">calendar</a>
+        <a href="/settings">settings</a>
+        <form method="POST" action="/settings/units" class="units-toggle">
+          {{if .Imperial}}
+          <input type="hidden" name="units" value="metric" />
+          <button type="submit" class="units-btn active" title="Switch to metric">mi</button>
+          {{else}}
+          <input type="hidden" name="units" value="imperial" />
+          <button type="submit" class="units-btn" title="Switch to imperial">km</button>
+          {{end}}
+        </form>
+      </div>
+    </nav>
+    <main class="container">{{block "content" .}}{{end}}</main>
+    <script src="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.iife.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.min.css" />
+    <script src="/static/js/charts.js"></script>
+    {{block "scripts" .}}{{end}}
+  </body>
+</html>
+{{end}}

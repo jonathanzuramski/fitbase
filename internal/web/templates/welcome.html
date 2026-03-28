@@ -1,0 +1,323 @@
+{{define "welcome"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>welcome — fitbase</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body class="welcome-body">
+
+<div class="welcome-wrap">
+  <div class="welcome-card">
+
+    <header class="welcome-header">
+      <span class="welcome-logo">fitbase</span>
+      <h1>welcome</h1>
+      <p class="welcome-sub">set up your profile to get started. everything can be changed later in settings.</p>
+    </header>
+
+    <form method="POST" action="/welcome">
+
+      <section class="welcome-section">
+        <h2 class="welcome-section-title">about you</h2>
+        <div class="welcome-grid">
+
+          <div class="welcome-field">
+            <label for="wf-age">age</label>
+            <input id="wf-age" type="number" name="age" min="1" max="120" placeholder="years" autocomplete="off">
+          </div>
+
+          <div class="welcome-field">
+            <label for="wf-location">location</label>
+            <div class="autocomplete-wrap">
+              <input id="wf-location" type="text" name="location" placeholder="start typing a city…" autocomplete="off">
+              <ul class="location-suggestions" id="location-suggestions" hidden></ul>
+            </div>
+          </div>
+
+          <div class="welcome-field">
+            <label for="wf-language">language</label>
+            <select id="wf-language" name="language">
+              <option value="en">English</option>
+              <option value="es">Español</option>
+              <option value="fr">Français</option>
+              <option value="de">Deutsch</option>
+              <option value="it">Italiano</option>
+              <option value="pt">Português</option>
+              <option value="nl">Nederlands</option>
+              <option value="sv">Svenska</option>
+              <option value="da">Dansk</option>
+              <option value="no">Norsk</option>
+              <option value="ja">日本語</option>
+              <option value="zh">中文</option>
+              <option value="ko">한국어</option>
+            </select>
+          </div>
+
+          <div class="welcome-field">
+            <label for="wf-timezone">
+              timezone
+              <span class="tz-status" id="tz-status"></span>
+            </label>
+            <select id="wf-timezone" name="timezone">
+              <optgroup label="UTC">
+                <option value="UTC">UTC</option>
+              </optgroup>
+              <optgroup label="Americas">
+                <option value="America/New_York">Eastern (New York)</option>
+                <option value="America/Chicago">Central (Chicago)</option>
+                <option value="America/Denver">Mountain (Denver)</option>
+                <option value="America/Los_Angeles">Pacific (Los Angeles)</option>
+                <option value="America/Anchorage">Alaska (Anchorage)</option>
+                <option value="America/Honolulu">Hawaii (Honolulu)</option>
+                <option value="America/Toronto">Toronto</option>
+                <option value="America/Vancouver">Vancouver</option>
+                <option value="America/Mexico_City">Mexico City</option>
+                <option value="America/Sao_Paulo">São Paulo</option>
+                <option value="America/Buenos_Aires">Buenos Aires</option>
+                <option value="America/Bogota">Bogotá</option>
+                <option value="America/Santiago">Santiago</option>
+              </optgroup>
+              <optgroup label="Europe">
+                <option value="Europe/London">London</option>
+                <option value="Europe/Dublin">Dublin</option>
+                <option value="Europe/Lisbon">Lisbon</option>
+                <option value="Europe/Paris">Paris</option>
+                <option value="Europe/Berlin">Berlin</option>
+                <option value="Europe/Rome">Rome</option>
+                <option value="Europe/Madrid">Madrid</option>
+                <option value="Europe/Amsterdam">Amsterdam</option>
+                <option value="Europe/Brussels">Brussels</option>
+                <option value="Europe/Stockholm">Stockholm</option>
+                <option value="Europe/Copenhagen">Copenhagen</option>
+                <option value="Europe/Oslo">Oslo</option>
+                <option value="Europe/Helsinki">Helsinki</option>
+                <option value="Europe/Warsaw">Warsaw</option>
+                <option value="Europe/Prague">Prague</option>
+                <option value="Europe/Vienna">Vienna</option>
+                <option value="Europe/Athens">Athens</option>
+                <option value="Europe/Istanbul">Istanbul</option>
+                <option value="Europe/Moscow">Moscow</option>
+                <option value="Europe/Zurich">Zurich</option>
+              </optgroup>
+              <optgroup label="Africa / Middle East">
+                <option value="Africa/Cairo">Cairo</option>
+                <option value="Africa/Johannesburg">Johannesburg</option>
+                <option value="Africa/Lagos">Lagos</option>
+                <option value="Africa/Nairobi">Nairobi</option>
+                <option value="Asia/Dubai">Dubai</option>
+                <option value="Asia/Riyadh">Riyadh</option>
+              </optgroup>
+              <optgroup label="Asia">
+                <option value="Asia/Karachi">Karachi</option>
+                <option value="Asia/Kolkata">Kolkata</option>
+                <option value="Asia/Dhaka">Dhaka</option>
+                <option value="Asia/Bangkok">Bangkok</option>
+                <option value="Asia/Singapore">Singapore</option>
+                <option value="Asia/Kuala_Lumpur">Kuala Lumpur</option>
+                <option value="Asia/Shanghai">Shanghai</option>
+                <option value="Asia/Hong_Kong">Hong Kong</option>
+                <option value="Asia/Tokyo">Tokyo</option>
+                <option value="Asia/Seoul">Seoul</option>
+                <option value="Asia/Taipei">Taipei</option>
+              </optgroup>
+              <optgroup label="Oceania">
+                <option value="Australia/Sydney">Sydney</option>
+                <option value="Australia/Melbourne">Melbourne</option>
+                <option value="Australia/Brisbane">Brisbane</option>
+                <option value="Australia/Adelaide">Adelaide</option>
+                <option value="Australia/Perth">Perth</option>
+                <option value="Pacific/Auckland">Auckland</option>
+                <option value="Pacific/Fiji">Fiji</option>
+              </optgroup>
+            </select>
+          </div>
+
+        </div>
+      </section>
+
+      <section class="welcome-section">
+        <h2 class="welcome-section-title">body &amp; training</h2>
+        <div class="welcome-grid">
+
+          <div class="welcome-field welcome-field-wide">
+            <label>units</label>
+            <div class="units-radio-group">
+              <label class="units-radio">
+                <input type="radio" name="units" value="imperial" checked>
+                <span>imperial <span class="units-detail">lbs · mi · °F</span></span>
+              </label>
+              <label class="units-radio">
+                <input type="radio" name="units" value="metric">
+                <span>metric <span class="units-detail">kg · km · °C</span></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="welcome-field">
+            <label for="wf-weight">weight <span id="weight-unit-label" class="field-unit">lbs</span></label>
+            <input id="wf-weight" type="number" name="weight" step="0.1" min="0" placeholder="0">
+          </div>
+
+          <div class="welcome-field">
+            <label for="wf-ftp">
+              FTP <span class="field-unit">watts</span>
+              <span class="field-hint">functional threshold power</span>
+            </label>
+            <input id="wf-ftp" type="number" name="ftp_watts" min="50" max="600" placeholder="e.g. 200">
+          </div>
+
+          <div class="welcome-field">
+            <label for="wf-resting-hr">resting hr <span class="field-unit">bpm</span></label>
+            <input id="wf-resting-hr" type="number" name="resting_hr" min="30" max="120" placeholder="55">
+          </div>
+
+          <div class="welcome-field">
+            <label for="wf-threshold-hr">threshold hr <span class="field-unit">bpm</span></label>
+            <input id="wf-threshold-hr" type="number" name="threshold_hr" min="100" max="230" placeholder="174">
+          </div>
+
+          <div class="welcome-field">
+            <label for="wf-max-hr">max hr <span class="field-unit">bpm</span></label>
+            <input id="wf-max-hr" type="number" name="max_hr" min="100" max="250" placeholder="190">
+          </div>
+
+        </div>
+      </section>
+
+      {{if .GDriveEnabled}}
+      <section class="welcome-section">
+        <h2 class="welcome-section-title">integrations</h2>
+        <div class="welcome-gdrive">
+          <div class="welcome-gdrive-info">
+            <img src="/static/images/google_drive_logo_icon_189245.webp" width="20" height="20" alt="Google Drive">
+            <div>
+              <div class="welcome-gdrive-title">Google Drive</div>
+              <div class="welcome-gdrive-desc">Automatically back up your FIT archives to Google Drive.</div>
+            </div>
+          </div>
+          {{if .GDriveConnected}}
+            <span class="welcome-gdrive-status connected">&#10003; connected</span>
+          {{else}}
+            <a href="/auth/gdrive" class="welcome-gdrive-btn">connect</a>
+          {{end}}
+        </div>
+      </section>
+      {{end}}
+
+      <div class="welcome-actions">
+        <button type="submit" class="welcome-submit">get started →</button>
+        <a href="/welcome/skip" class="welcome-skip">skip for now</a>
+      </div>
+
+    </form>
+  </div>
+</div>
+
+<script>
+(function() {
+  // ── Units toggle ────────────────────────────────────────────────────────────
+  document.querySelectorAll('input[name="units"]').forEach(function(radio) {
+    radio.addEventListener('change', function() {
+      document.getElementById('weight-unit-label').textContent =
+        this.value === 'metric' ? 'kg' : 'lbs';
+    });
+  });
+
+  // ── Timezone: pre-select from browser ──────────────────────────────────────
+  function selectTimezone(tz) {
+    const sel = document.getElementById('wf-timezone');
+    for (let i = 0; i < sel.options.length; i++) {
+      if (sel.options[i].value === tz) { sel.selectedIndex = i; return true; }
+    }
+    // Not in list — add it
+    const opt = new Option(tz, tz, true, true);
+    sel.insertBefore(opt, sel.firstChild);
+    return true;
+  }
+
+  try {
+    selectTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  } catch(e) {}
+
+  // ── Location autocomplete (Nominatim) ──────────────────────────────────────
+  const input  = document.getElementById('wf-location');
+  const list   = document.getElementById('location-suggestions');
+  const status = document.getElementById('tz-status');
+  let debounce = null;
+
+  function formatPlace(r) {
+    const a = r.address || {};
+    const city    = a.city || a.town || a.village || a.hamlet || a.county;
+    const country = a.country;
+    if (city && country) return city + ', ' + country;
+    if (country)         return country;
+    return r.display_name.split(',').slice(0, 2).join(',').trim();
+  }
+
+  function hideList() {
+    list.hidden = true;
+    list.innerHTML = '';
+  }
+
+  input.addEventListener('input', function() {
+    clearTimeout(debounce);
+    const q = this.value.trim();
+    if (q.length < 3) { hideList(); return; }
+    debounce = setTimeout(() => fetchPlaces(q), 500);
+  });
+
+  input.addEventListener('blur', () => setTimeout(hideList, 150));
+
+  async function fetchPlaces(q) {
+    try {
+      const res = await fetch(
+        'https://nominatim.openstreetmap.org/search?format=json&limit=6&addressdetails=1&q=' +
+        encodeURIComponent(q),
+        { headers: { 'Accept-Language': 'en' } }
+      );
+      const results = await res.json();
+      list.innerHTML = '';
+      if (!results.length) { hideList(); return; }
+      results.forEach(r => {
+        const li = document.createElement('li');
+        li.className = 'location-suggestion';
+        li.textContent = formatPlace(r);
+        li.addEventListener('mousedown', e => {
+          e.preventDefault();
+          input.value = formatPlace(r);
+          hideList();
+          resolveTimezone(r.lat, r.lon);
+        });
+        list.appendChild(li);
+      });
+      list.hidden = false;
+    } catch(e) { hideList(); }
+  }
+
+  // ── Timezone lookup from lat/lng (TimeAPI.io) ───────────────────────────────
+  async function resolveTimezone(lat, lon) {
+    status.textContent = 'detecting…';
+    status.className = 'tz-status detecting';
+    try {
+      const res = await fetch(
+        'https://timeapi.io/api/TimeZone/coordinate?latitude=' + lat + '&longitude=' + lon
+      );
+      const data = await res.json();
+      if (!data.timeZone) { status.textContent = ''; return; }
+      selectTimezone(data.timeZone);
+      status.textContent = '✓ ' + data.timeZone;
+      status.className = 'tz-status resolved';
+    } catch(e) {
+      status.textContent = '';
+      status.className = 'tz-status';
+    }
+  }
+})();
+</script>
+
+</body>
+</html>
+{{end}}

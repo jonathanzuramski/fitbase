@@ -1,0 +1,287 @@
+/* fitbase — Responsive / mobile styles */
+
+/* ── Welcome screen (small phones) ───────────────────── */
+@media (max-width: 560px) {
+  .welcome-card {
+    padding: 32px 24px;
+  }
+  .welcome-grid {
+    grid-template-columns: 1fr;
+  }
+  .welcome-field-wide {
+    grid-column: 1;
+  }
+  .units-radio-group {
+    flex-direction: column;
+  }
+}
+
+/* ── Main mobile breakpoint ──────────────────────────── */
+@media (max-width: 640px) {
+  .hide-mobile {
+    display: none;
+  }
+  .container {
+    padding: 16px;
+  }
+  .nav {
+    padding: 0 12px;
+  }
+  .nav-links {
+    gap: 12px;
+  }
+  .api-link {
+    display: none;
+  }
+
+  /* ── Dashboard stats & table ── */
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .workout-table th:nth-child(n + 5),
+  .workout-table td:nth-child(n + 5) {
+    display: none;
+  }
+
+  /* ── Settings ── */
+  .athlete-card {
+    max-width: 100%;
+  }
+  .athlete-form {
+    flex-direction: column;
+  }
+  .zones-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* ── Workout detail: stats row (HR / Cadence / Training Load) ── */
+  .stats-row {
+    grid-template-columns: 1fr 1fr;
+    gap: 0 10px;
+  }
+  .stats-row .card {
+    padding: 10px 12px;
+  }
+  .stats-row .card-title {
+    font-size: 11px;
+    margin-bottom: 8px;
+  }
+  .stats-row .metric-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+    gap: 8px 8px;
+    align-items: start;
+  }
+  .stats-row .metric-value {
+    font-size: 26px;
+  }
+  .stats-row .metric-label {
+    font-size: 9px;
+    margin-bottom: 1px;
+  }
+  .stats-row .metric-unit {
+    font-size: 9px;
+  }
+  /* Training load card spans full width */
+  .stats-row > :last-child {
+    grid-column: 1 / -1;
+  }
+  .stats-row > :last-child .metric-row {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  /* ── Alerts & modals ── */
+  .alert-banner {
+    flex-wrap: wrap;
+  }
+  .alert-link {
+    margin-left: 0;
+  }
+  .bulk-modal {
+    width: calc(100vw - 32px);
+  }
+
+  /* ── Cards ── */
+  .card {
+    padding: 12px 14px;
+    margin-bottom: 10px;
+  }
+  .card-title {
+    font-size: 12px;
+    margin-bottom: 10px;
+  }
+
+  /* ── Workout detail: metric grid ── */
+  .metric-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px 6px;
+    align-items: start;
+  }
+  .metric-cell {
+    padding: 0;
+    margin-bottom: 0;
+    min-width: 0;
+  }
+  .metric-cell-highlight {
+    background: none;
+    border: none;
+    border-radius: 0;
+    margin-right: 0;
+    padding: 0;
+  }
+  .metric-value {
+    font-size: 22px;
+  }
+  .metric-label {
+    font-size: 8px;
+    margin-bottom: 1px;
+  }
+  .metric-unit {
+    font-size: 10px;
+  }
+  .route-map {
+    height: 240px;
+  }
+
+  /* ── Homepage header ── */
+  .page-header {
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+  }
+  .upload-group {
+    margin-left: auto;
+  }
+  .upload-btn,
+  .upload-option {
+    padding: 5px 10px;
+    font-size: 11px;
+  }
+  .upload-more {
+    padding: 0 7px;
+    font-size: 9px;
+  }
+
+  /* ── Activities card header ── */
+  .card-header-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .filter-tabs {
+    width: 100%;
+  }
+  .filter-tab {
+    flex: 1;
+    text-align: center;
+  }
+
+  /* ── TSB legend ── */
+  .tsb-legend-row {
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
+  .tsb-legend {
+    gap: 4px 10px;
+    justify-content: center;
+    flex: none;
+  }
+  .tsb-legend-item {
+    font-size: clamp(12px, 2.5vw, 12px);
+    gap: 4px;
+  }
+  .tsb-swatch {
+    width: 9px;
+    height: 9px;
+  }
+  .tsb-legend-desc {
+    display: none;
+  }
+  .rec-badge {
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: center;
+    gap: 6px;
+    text-align: center;
+    flex-wrap: wrap;
+  }
+  .rec-label {
+    font-size: clamp(14px, 4vw, 18px);
+  }
+  .rec-detail {
+    max-width: none;
+    text-align: center;
+    font-size: clamp(9px, 2.5vw, 11px);
+  }
+  .rec-tsb {
+    font-size: clamp(9px, 2.5vw, 11px);
+  }
+
+  /* ── Zone distribution (time in zone) ── */
+  .zd-row {
+    grid-template-columns: 1fr auto auto;
+    grid-template-rows: auto auto;
+    gap: 2px 10px;
+  }
+  .zd-label {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .zd-time {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .zd-pct {
+    grid-column: 3;
+    grid-row: 1;
+  }
+  .zd-bar-wrap {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    margin-top: 0;
+  }
+
+  /* ── Charts ── */
+  #fitness-chart,
+  #power-chart,
+  #hr-chart,
+  #cadence-chart,
+  #speed-chart,
+  #elevation-chart {
+    margin-left: -8px;
+    margin-right: -8px;
+  }
+
+  /* ── uPlot legends ── */
+  .u-legend {
+    font-size: 11px !important;
+  }
+  .u-legend .u-series {
+    padding: 0 4px !important;
+  }
+
+  /* ── Pagination ── */
+  .page-btn {
+    padding: 8px 14px;
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+  }
+}
+
+/* ── Calendar (tablets) ──────────────────────────────── */
+@media (max-width: 900px) {
+  .cal-grid {
+    grid-template-columns: repeat(7, 1fr);
+  }
+  .cal-header-week,
+  .cal-week-summary {
+    display: none;
+  }
+  .cal-day {
+    min-height: 70px;
+    padding: 4px;
+  }
+}

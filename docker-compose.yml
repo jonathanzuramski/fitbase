@@ -1,0 +1,12 @@
+services:
+  fitbase:
+    container_name: fitbase
+    environment:
+      - PUID=568
+      - PGID=568
+    image: ghcr.io/jonathanzuramski/fitbase:latest
+    ports:
+      - "8780:8780"
+    restart: unless-stopped
+    volumes:
+      - /mnt/tank/fitbase:/data

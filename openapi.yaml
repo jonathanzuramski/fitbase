@@ -1,0 +1,747 @@
+openapi: 3.1.0
+info:
+  title: fitbase API
+  description: |
+    Self-hosted cycling fitness data API. Designed for LLM agent consumption.
+    All responses use a consistent `{"data": ..., "error": ...}` envelope.
+    Field names always include units (e.g., `duration_secs`, `power_watts`).
+
+    Many sync endpoints support `?stream=1` which switches the response to
+    Server-Sent Events (`text/event-stream`) for real-time progress updates.
+    SSE event types: `start` (total/pending counts), `file` (per-file progress),
+    `done` (final counts), `error` (on failure).
+  version: 0.2.0
+
+servers:
+  - url: http://localhost:8080
+
+paths:
+  /api/workouts:
+    get:
+      summary: List workouts
+      description: Returns workouts ordered by date descending.
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, maximum: 200 }
+        - name: offset
+          in: query
+          schema: { type: integer, default: 0 }
+      responses:
+        "200":
+          description: List of workouts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkoutListResponse"
+    delete:
+      summary: Delete all workouts
+      description: Wipes all workouts and resets the imported files tracker.
+      responses:
+        "204":
+          description: All workouts deleted
+
+  /api/workouts/{id}:
+    get:
+      summary: Get workout
+      parameters:
+        - $ref: "#/components/parameters/WorkoutID"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkoutResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: Delete workout
+      parameters:
+        - $ref: "#/components/parameters/WorkoutID"
+      responses:
+        "204":
+          description: Workout deleted
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/workouts/{id}/streams:
+    get:
+      summary: Get time-series streams
+      description: Returns per-second data points for power, HR, cadence, speed, GPS, altitude.
+      parameters:
+        - $ref: "#/components/parameters/WorkoutID"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StreamsResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/workouts/{id}/summary:
+    get:
+      summary: Get compact workout summary (LLM-optimized)
+      description: |
+        Returns a condensed, prose-friendly summary of the workout.
+        Omits raw streams. Ideal for feeding to an LLM agent as context.
+        Distances in km, duration in minutes, power in watts.
+      parameters:
+        - $ref: "#/components/parameters/WorkoutID"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SummaryResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/workouts/{id}/download:
+    get:
+      summary: Download original FIT file
+      description: Serves the original archived .fit file for the workout.
+      parameters:
+        - $ref: "#/components/parameters/WorkoutID"
+      responses:
+        "200":
+          description: FIT file binary
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/workouts/{id}/route:
+    get:
+      summary: Get route history
+      description: Returns the route ID, route name, and all workouts that share the same route.
+      parameters:
+        - $ref: "#/components/parameters/WorkoutID"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RouteResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/athlete:
+    get:
+      summary: Get athlete profile
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AthleteResponse"
+    put:
+      summary: Update athlete profile
+      description: |
+        Updates the athlete profile. `ftp_watts` and `weight_kg` are required
+        and must be positive; all other fields are optional.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Athlete"
+      responses:
+        "200":
+          description: Updated
+
+  /api/fitness:
+    get:
+      summary: Get Fitness/Fatigue/Form training load history
+      description: |
+        Returns daily fitness metrics computed from TSS.
+        - Fitness = long-term load, 42-day EMA
+        - Fatigue = short-term load, 7-day EMA
+        - Form    = Fitness minus Fatigue
+      parameters:
+        - name: days
+          in: query
+          schema: { type: integer, default: 90, maximum: 365 }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FitnessResponse"
+
+  /api/upload:
+    post:
+      summary: Upload a FIT file
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "201":
+          description: Imported
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id:     { type: string }
+                      status: { type: string, enum: [imported, already_exists] }
+        "422":
+          description: Invalid FIT file
+
+  /api/athlete/zones:
+    get:
+      summary: Get training zones
+      description: Returns power zones (Z1–Z7 + Sweet Spot) and HR zones based on the athlete's current FTP and threshold HR.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:  { $ref: "#/components/schemas/ZonesReport" }
+                  error: { type: string, nullable: true }
+
+  /api/athlete/power-curve:
+    get:
+      summary: Get all-time power curve
+      description: |
+        Returns best power for 6 standard durations (5s, 30s, 1min, 5min, 20min, 60min)
+        with watts/kg and % of FTP. Durations with no recorded effort are omitted.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:  { $ref: "#/components/schemas/PowerCurveReport" }
+                  error: { type: string, nullable: true }
+
+  /api/athlete/readiness:
+    get:
+      summary: Get today's readiness snapshot
+      description: |
+        Returns current fitness, fatigue, form, days since last workout, 4-week ramp rate,
+        and a coaching recommendation. Designed as the first call for an AI coaching agent.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:  { $ref: "#/components/schemas/ReadinessReport" }
+                  error: { type: string, nullable: true }
+
+  /api/training/weekly:
+    get:
+      summary: Get weekly training breakdown
+      description: |
+        Returns per-ISO-week totals for TSS, duration, distance, elevation, and workout count.
+        Weeks with no activity are omitted. Useful for periodization analysis.
+      parameters:
+        - name: weeks
+          in: query
+          schema: { type: integer, default: 12, maximum: 52 }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:  { type: array, items: { $ref: "#/components/schemas/WeeklyLoad" } }
+                  error: { type: string, nullable: true }
+
+  /api/workouts/{id}/analysis:
+    get:
+      summary: Get workout analysis
+      description: |
+        Returns zone distribution (power and HR), variability index (NP/AP),
+        efficiency factor (NP/avg HR), and 90-day sport-scoped averages for comparison.
+        Zone data requires the workout to have been imported with a configured FTP/threshold HR.
+      parameters:
+        - $ref: "#/components/parameters/WorkoutID"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:  { $ref: "#/components/schemas/WorkoutAnalysis" }
+                  error: { type: string, nullable: true }
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/integrations/dropbox/sync:
+    get:
+      summary: Sync FIT files from Dropbox
+      description: |
+        Pulls new FIT files from the configured Dropbox folder.
+        Without `?stream=1` starts a background sync and returns 202.
+        With `?stream=1` streams progress as Server-Sent Events.
+      parameters:
+        - $ref: "#/components/parameters/StreamMode"
+      responses:
+        "202":
+          description: Sync started in background
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncStartedResponse"
+        "200":
+          description: SSE progress stream (when stream=1)
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/integrations/dropbox/longpoll:
+    post:
+      summary: Enable or disable Dropbox longpoll auto-sync
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled: { type: boolean }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+
+  /api/integrations/dropbox:
+    delete:
+      summary: Disconnect Dropbox
+      description: Removes stored token and stops the longpoll watcher.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+
+  /api/integrations/intervals/sync:
+    get:
+      summary: Sync activities from intervals.icu
+      description: |
+        Pulls new FIT files from intervals.icu.
+        Without `?stream=1` starts a background sync and returns 202.
+        With `?stream=1` streams progress as Server-Sent Events.
+      parameters:
+        - $ref: "#/components/parameters/StreamMode"
+      responses:
+        "202":
+          description: Sync started in background
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncStartedResponse"
+        "200":
+          description: SSE progress stream (when stream=1)
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/integrations/intervals/fetch/{id}:
+    get:
+      summary: Fetch a single activity from intervals.icu
+      description: Downloads and imports one activity by its intervals.icu ID. Useful for debugging failed sync items.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+          description: intervals.icu activity ID
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      activity_id: { type: string }
+                      status:      { type: string, enum: [imported, skipped, download_failed, import_failed] }
+                      workout_id:  { type: string, nullable: true }
+                      error:       { type: string, nullable: true }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/integrations/intervals/autosync:
+    post:
+      summary: Enable or disable intervals.icu auto-sync
+      description: When enabled, polls for new activities every 15 minutes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled: { type: boolean }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+
+  /api/integrations/intervals:
+    delete:
+      summary: Disconnect intervals.icu
+      description: Removes stored credentials and stops the auto-sync poller.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+
+  /api/integrations/gdrive/connect:
+    get:
+      summary: Start Google Drive OAuth flow
+      description: Redirects to Google's consent screen. Completes via a loopback callback server.
+      responses:
+        "302":
+          description: Redirect to Google OAuth consent screen
+
+  /api/integrations/gdrive/sync:
+    get:
+      summary: Upload archived FIT files to Google Drive
+      description: |
+        Uploads all locally archived FIT files to the connected Drive folder.
+        Without `?stream=1` runs in the background and returns 202.
+        With `?stream=1` streams progress as Server-Sent Events.
+      parameters:
+        - $ref: "#/components/parameters/StreamMode"
+      responses:
+        "202":
+          description: Sync started in background
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncStartedResponse"
+        "200":
+          description: SSE progress stream (when stream=1)
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "503":
+          description: Google Drive not connected
+
+  /api/integrations/gdrive/restore:
+    post:
+      summary: Restore FIT files from Google Drive
+      description: Re-imports all FIT files found in the connected Drive folder. Runs in background.
+      responses:
+        "202":
+          description: Restore started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncStartedResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/integrations/gdrive:
+    delete:
+      summary: Disconnect Google Drive
+      description: Removes the stored OAuth token.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+
+components:
+  parameters:
+    WorkoutID:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+      description: Workout ID (first 16 hex chars of SHA-256 of FIT file content)
+
+    StreamMode:
+      name: stream
+      in: query
+      schema: { type: integer, enum: [0, 1], default: 0 }
+      description: Set to 1 to receive a Server-Sent Events progress stream instead of a background response.
+
+  schemas:
+    Workout:
+      type: object
+      properties:
+        id:                     { type: string, example: "a3f9c2d1e4b5f6a7" }
+        filename:               { type: string }
+        recorded_at:            { type: string, format: date-time }
+        sport:                  { type: string, enum: [cycling, running, swimming, hiking, other] }
+        duration_secs:          { type: integer }
+        elapsed_secs:           { type: integer }
+        distance_meters:        { type: number }
+        elevation_gain_meters:  { type: number }
+        avg_power_watts:        { type: number, nullable: true }
+        max_power_watts:        { type: number, nullable: true }
+        normalized_power_watts: { type: number, nullable: true }
+        avg_heart_rate_bpm:     { type: integer, nullable: true }
+        max_heart_rate_bpm:     { type: integer, nullable: true }
+        avg_cadence_rpm:        { type: integer, nullable: true }
+        avg_speed_mps:          { type: number }
+        tss:                    { type: number, nullable: true }
+        intensity_factor:       { type: number, nullable: true }
+        is_indoor:              { type: boolean }
+        route_id:               { type: string, nullable: true }
+        created_at:             { type: string, format: date-time }
+
+    WorkoutSummary:
+      type: object
+      properties:
+        id:                     { type: string }
+        date:                   { type: string, example: "2024-03-15" }
+        sport:                  { type: string }
+        duration_mins:          { type: number }
+        distance_km:            { type: number }
+        elevation_gain_meters:  { type: number }
+        avg_power_watts:        { type: number, nullable: true }
+        normalized_power_watts: { type: number, nullable: true }
+        avg_heart_rate_bpm:     { type: integer, nullable: true }
+        tss:                    { type: number, nullable: true }
+        intensity_factor:       { type: number, nullable: true }
+
+    Stream:
+      type: object
+      properties:
+        timestamp:       { type: string, format: date-time }
+        power_watts:     { type: integer, nullable: true }
+        heart_rate_bpm:  { type: integer, nullable: true }
+        cadence_rpm:     { type: integer, nullable: true }
+        speed_mps:       { type: number, nullable: true }
+        altitude_meters: { type: number, nullable: true }
+        lat:             { type: number, nullable: true }
+        lng:             { type: number, nullable: true }
+        distance_meters: { type: number, nullable: true }
+
+    Athlete:
+      type: object
+      properties:
+        ftp_watts:        { type: integer, example: 280 }
+        weight_kg:        { type: number, example: 72.5 }
+        threshold_hr_bpm: { type: integer }
+        max_hr_bpm:       { type: integer }
+        resting_hr_bpm:   { type: integer }
+        age:              { type: integer }
+        location:         { type: string }
+        language:         { type: string }
+        timezone:         { type: string }
+        units:            { type: string, enum: [metric, imperial] }
+        setup_complete:   { type: boolean }
+        updated_at:       { type: string, format: date-time }
+
+    FitnessPoint:
+      type: object
+      properties:
+        date:    { type: string, format: date-time }
+        fitness: { type: number }
+        fatigue: { type: number }
+        form:    { type: number }
+
+    ZonesReport:
+      type: object
+      properties:
+        ftp_watts:       { type: integer }
+        threshold_hr_bpm: { type: integer }
+        power_zones:
+          type: array
+          items:
+            type: object
+            properties:
+              label:      { type: string, example: "Z2" }
+              name:       { type: string, example: "Endurance" }
+              pct_low:    { type: integer }
+              pct_high:   { type: integer }
+              watts_low:  { type: integer }
+              watts_high: { type: integer }
+        hr_zones:
+          type: array
+          items:
+            type: object
+            properties:
+              label:    { type: string }
+              name:     { type: string }
+              pct_low:  { type: integer }
+              pct_high: { type: integer }
+              bpm_low:  { type: integer }
+              bpm_high: { type: integer }
+
+    PowerCurveEntry:
+      type: object
+      properties:
+        duration_secs:  { type: integer }
+        duration_label: { type: string, example: "20min" }
+        watts:          { type: integer }
+        watts_per_kg:   { type: number }
+        pct_ftp:        { type: number }
+        workout_id:     { type: string }
+
+    PowerCurveReport:
+      type: object
+      properties:
+        entries:   { type: array, items: { $ref: "#/components/schemas/PowerCurveEntry" } }
+        ftp_watts: { type: integer }
+        weight_kg: { type: number }
+
+    WeeklyLoad:
+      type: object
+      properties:
+        week:                  { type: string, example: "2025-W12" }
+        tss:                   { type: number }
+        duration_secs:         { type: integer }
+        distance_meters:       { type: number }
+        elevation_gain_meters: { type: number }
+        workout_count:         { type: integer }
+        load_type:             { type: string, enum: [Low, Medium, High, "Very High"] }
+
+    ZoneBreakdown:
+      type: object
+      properties:
+        label:      { type: string, example: "Z3" }
+        name:       { type: string, example: "Tempo" }
+        seconds:    { type: integer }
+        pct_time:   { type: number }
+        watts_low:  { type: integer, nullable: true }
+        watts_high: { type: integer, nullable: true }
+        bpm_low:    { type: integer, nullable: true }
+        bpm_high:   { type: integer, nullable: true }
+
+    WorkoutAnalysis:
+      type: object
+      properties:
+        workout_id:             { type: string }
+        power_zones:            { type: array, items: { $ref: "#/components/schemas/ZoneBreakdown" } }
+        hr_zones:               { type: array, items: { $ref: "#/components/schemas/ZoneBreakdown" } }
+        variability_index:      { type: number, nullable: true, description: "NP / avg power — measures execution quality (1.0 = perfectly steady)" }
+        efficiency_factor:      { type: number, nullable: true, description: "NP / avg HR — aerobic efficiency proxy" }
+        avg_np_90day_watts:     { type: number, nullable: true }
+        avg_hr_90day_bpm:       { type: number, nullable: true }
+        avg_tss_90day:          { type: number, nullable: true }
+        avg_if_90day:           { type: number, nullable: true }
+        avg_duration_90day_secs: { type: number, nullable: true }
+
+    ReadinessReport:
+      type: object
+      properties:
+        date:                   { type: string, example: "2025-03-24" }
+        fitness:                { type: number, description: "Chronic Training Load (42-day EMA of TSS)" }
+        fatigue:                { type: number, description: "Acute Training Load (7-day EMA of TSS)" }
+        form:                   { type: number, description: "Fitness minus Fatigue" }
+        days_since_last_workout: { type: integer }
+        ramp_rate:              { type: number, description: "Change in CTL (fitness) over the last 28 days" }
+        recommendation:         { type: string, example: "Go Ride" }
+        recommendation_detail:  { type: string }
+
+    OkResponse:
+      type: object
+      properties:
+        data:  { type: object, properties: { ok: { type: boolean } } }
+        error: { type: string, nullable: true }
+
+    SyncStartedResponse:
+      type: object
+      properties:
+        data:  { type: object, properties: { status: { type: string, example: "sync started" } } }
+        error: { type: string, nullable: true }
+
+    RouteResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            route_id:   { type: string, nullable: true }
+            route_name: { type: string, nullable: true }
+            workouts:   { type: array, items: { $ref: "#/components/schemas/Workout" } }
+        error: { type: string, nullable: true }
+
+    WorkoutListResponse:
+      type: object
+      properties:
+        data:  { type: array, items: { $ref: "#/components/schemas/Workout" } }
+        error: { type: string, nullable: true }
+
+    WorkoutResponse:
+      type: object
+      properties:
+        data:  { $ref: "#/components/schemas/Workout" }
+        error: { type: string, nullable: true }
+
+    SummaryResponse:
+      type: object
+      properties:
+        data:  { $ref: "#/components/schemas/WorkoutSummary" }
+        error: { type: string, nullable: true }
+
+    StreamsResponse:
+      type: object
+      properties:
+        data:  { type: array, items: { $ref: "#/components/schemas/Stream" } }
+        error: { type: string, nullable: true }
+
+    AthleteResponse:
+      type: object
+      properties:
+        data:  { $ref: "#/components/schemas/Athlete" }
+        error: { type: string, nullable: true }
+
+    FitnessResponse:
+      type: object
+      properties:
+        data:  { type: array, items: { $ref: "#/components/schemas/FitnessPoint" } }
+        error: { type: string, nullable: true }
+
+  responses:
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: { type: string }
+
+    Unauthorized:
+      description: Integration not connected
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: { type: string }

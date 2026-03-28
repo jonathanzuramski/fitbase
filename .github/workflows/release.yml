@@ -1,0 +1,37 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  release:
+    name: Build & Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build binaries
+        run: |
+          PLATFORMS="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64"
+          for PLATFORM in $PLATFORMS; do
+            GOOS=${PLATFORM%/*}
+            GOARCH=${PLATFORM#*/}
+            OUTPUT="fitbase-${GOOS}-${GOARCH}"
+            if [ "$GOOS" = "windows" ]; then OUTPUT="${OUTPUT}.exe"; fi
+            GOOS=$GOOS GOARCH=$GOARCH go build -trimpath -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o "dist/${OUTPUT}" ./cmd/fitbase
+          done
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

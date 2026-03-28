@@ -1,0 +1,25 @@
+# Binaries
+fitbase.exe
+*.exe
+
+# Build output
+/dist/
+
+# Test cache
+/tmp/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Database and user data (never commit)
+*.db
+*.db-wal
+*.db-shm
+
+# Personal claude dev files
+CLAUDE.md
+.claude

@@ -1,0 +1,250 @@
+/* fitbase — Workout detail page styles */
+
+/* ── Metric rows & cells ─────────────────────────────── */
+.metric-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0;
+}
+
+.metric-cell {
+  flex: 0 0 auto;
+  min-width: 100px;
+  padding: 0 18px 0 0;
+  margin-bottom: 4px;
+}
+
+.metric-cell-highlight {
+  background: rgba(59, 130, 246, 0.06);
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  border-radius: 6px;
+  padding: 8px 16px 8px 12px;
+  margin-right: 8px;
+}
+
+.metric-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-bottom: 3px;
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.metric-label-sub {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 10px;
+  opacity: 0.65;
+}
+
+.metric-value {
+  font-size: 22px;
+  font-weight: 600;
+  font-family: var(--mono);
+  color: var(--text);
+  line-height: 1.1;
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+}
+
+.metric-unit {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  font-family: var(--font);
+}
+
+/* ── Stats row (HR / Cadence / Training Load) ────────── */
+.stats-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0 16px;
+}
+
+/* ── Metric color accents ────────────────────────────── */
+.metric-power {
+  color: var(--power-color);
+}
+.metric-hr {
+  color: var(--hr-color);
+}
+.metric-cadence {
+  color: var(--cadence-color);
+}
+.metric-ctl {
+  color: var(--ctl-color);
+}
+.metric-atl {
+  color: var(--atl-color);
+}
+.metric-tsb-pos {
+  color: var(--tsb-color);
+}
+.metric-tsb-neg {
+  color: var(--red);
+}
+
+/* ── Power curve ──────────────────────────────────────── */
+.power-curve-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.pc-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 72px;
+  flex: 1 0 72px;
+  max-width: 110px;
+}
+
+.pc-dur {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.pc-bar-wrap {
+  position: relative;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+}
+
+.pc-bar {
+  height: 100%;
+  background: var(--power-color);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.pc-watts {
+  font-size: 18px;
+  font-weight: 600;
+  font-family: var(--mono);
+  color: var(--power-color);
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  line-height: 1;
+}
+
+.pc-unit {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-muted);
+  font-family: var(--font);
+}
+
+.pc-at-mark {
+  position: absolute;
+  top: -3px;
+  width: 2px;
+  height: calc(100% + 6px);
+  background: #64748b;
+  border-radius: 1px;
+  transform: translateX(-50%);
+}
+
+/* ── Zone distribution chart ─────────────────────────── */
+.zd-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.zd-row {
+  display: grid;
+  grid-template-columns: 160px 1fr 72px 40px;
+  align-items: start;
+  gap: 10px;
+  padding-top: 2px;
+}
+
+.zd-label {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.zd-range {
+  display: block;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+.zd-bar-wrap {
+  height: 8px;
+  background: var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 3px;
+}
+
+.zd-bar {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.zd-time {
+  font-size: 12px;
+  font-family: var(--mono);
+  color: var(--text-muted);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.zd-pct {
+  font-size: 12px;
+  font-family: var(--mono);
+  color: var(--text-muted);
+  text-align: right;
+}
+
+/* PR badge */
+.pc-pr {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 4px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  background: #78350f;
+  color: #fbbf24;
+  border-radius: 3px;
+  vertical-align: middle;
+  font-family: var(--font);
+  line-height: 1.4;
+}
+
+/* ── Route map ────────────────────────────────────────── */
+.route-map {
+  height: 360px;
+  border-radius: 6px;
+  overflow: hidden;
+  position: relative;
+  z-index: 0;
+}
+
+.route-map .leaflet-control-attribution {
+  background: rgba(15, 17, 23, 0.75);
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.route-map .leaflet-control-attribution a {
+  color: var(--text-muted);
+}

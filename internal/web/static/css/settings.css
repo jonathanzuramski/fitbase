@@ -1,0 +1,227 @@
+/* fitbase — Settings page styles */
+
+/* ── HR zone override form ────────────────────────────── */
+.hr-zones-form {
+  margin-top: 12px;
+}
+
+.hr-zones-grid {
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  gap: 8px 12px;
+  align-items: center;
+  max-width: 300px;
+  margin-bottom: 12px;
+}
+
+.hr-zone-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.hr-zone-input {
+  width: 70px;
+}
+
+.hr-zones-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* ── Credentials form ─────────────────────────────────── */
+.credentials-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 420px;
+  margin-top: 12px;
+}
+
+.credentials-details {
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.credentials-summary {
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.credentials-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.credentials-hint code {
+  color: var(--text);
+  font-family: monospace;
+}
+
+/* ── Integration row ──────────────────────────────────── */
+.integration-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.integration-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.integration-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+.status-dot.connected {
+  background: var(--green);
+}
+
+/* ── Settings layout ──────────────────────────────────── */
+.athlete-card {
+  width: 100%;
+}
+
+.athlete-form {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 16px;
+}
+
+.athlete-field {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  flex: 1;
+  min-width: 140px;
+  border-bottom: none;
+  padding: 0;
+}
+
+.athlete-field label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.athlete-field label .muted {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 11px;
+}
+
+.athlete-field .form-control-group {
+  width: 100%;
+}
+
+.athlete-field .form-input {
+  width: 100%;
+}
+
+/* ── Zone tables ──────────────────────────────────────── */
+.zones-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.zone-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.zone-table th {
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.zone-table th:first-child {
+  width: 8px;
+  padding-left: 0;
+}
+
+.zone-row td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+
+.zone-row:last-child td {
+  border-bottom: none;
+}
+
+.zone-label {
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--mono);
+  width: 28px;
+}
+
+.zone-name {
+  color: var(--text);
+}
+
+.zone-pct {
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.zone-range {
+  font-family: var(--mono);
+  font-weight: 600;
+}
+
+/* Zone accent colors — power */
+.zone-power-z1 .zone-label { color: #64748b; }
+.zone-power-z2 .zone-label { color: #22c55e; }
+.zone-power-z3 .zone-label { color: #84cc16; }
+.zone-power-z4 .zone-label { color: #eab308; }
+.zone-power-z5 .zone-label { color: #f97316; }
+.zone-power-z6 .zone-label { color: #ef4444; }
+.zone-power-z7 .zone-label { color: #a855f7; }
+.zone-power-ss .zone-label { color: #60a5fa; }
+
+/* Zone accent colors — HR */
+.zone-hr-z1 .zone-label { color: #64748b; }
+.zone-hr-z2 .zone-label { color: #22c55e; }
+.zone-hr-z3 .zone-label { color: #84cc16; }
+.zone-hr-z4 .zone-label { color: #eab308; }
+.zone-hr-z5 .zone-label { color: #f97316; }
+.zone-hr-z6 .zone-label { color: #ef4444; }
+.zone-hr-z7 .zone-label { color: #a855f7; }

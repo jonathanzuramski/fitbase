@@ -1,0 +1,48 @@
+{{define "title"}}fitbase — calendar{{end}}
+
+{{define "content"}}
+{{$cal := .Calendar}}
+{{$imperial := .Imperial}}
+<div class="page-header">
+  <h1>calendar</h1>
+  <div class="cal-nav">
+    <a href="/calendar?year={{$cal.PrevYear}}&month={{$cal.PrevMonth}}" class="cal-nav-btn" title="Previous month">&larr;</a>
+    <span class="cal-nav-label">{{$cal.MonthLabel}}</span>
+    <a href="/calendar?year={{$cal.NextYear}}&month={{$cal.NextMonth}}" class="cal-nav-btn" title="Next month">&rarr;</a>
+    <a href="/calendar" class="cal-nav-today" title="Jump to current month">today</a>
+  </div>
+</div>
+
+<div class="cal-grid">
+  {{- /* Header row */ -}}
+  <div class="cal-header">Mon</div>
+  <div class="cal-header">Tue</div>
+  <div class="cal-header">Wed</div>
+  <div class="cal-header">Thu</div>
+  <div class="cal-header">Fri</div>
+  <div class="cal-header">Sat</div>
+  <div class="cal-header">Sun</div>
+  <div class="cal-header cal-header-week">Week</div>
+
+  {{range $week := $cal.Weeks}}
+    {{range $day := $week.Days}}
+    <div class="cal-day{{if not $day.InMonth}} outside{{end}}{{if $day.IsToday}} today{{end}}">
+      <div class="cal-date">{{$day.Date.Day}}</div>
+      {{range $w := $day.Workouts}}
+      <a href="/workouts/{{$w.ID}}" class="cal-workout" title="{{$w.Sport}}">
+        <span class="cal-dot cal-dot-{{$w.Sport | lower}}"></span>
+        <span class="cal-workout-info">{{formatDuration $w.DurationSecs}}{{if gt $w.DistanceM 0.0}} · {{formatDistance $w.DistanceM $imperial}}{{end}}</span>
+      </a>
+      {{end}}
+    </div>
+    {{end}}
+    <div class="cal-week-summary">
+      {{if gt $week.TotalDurSecs 0}}
+      <div class="cal-week-stat">{{formatDuration $week.TotalDurSecs}}</div>
+      {{if gt $week.TotalDistM 0.0}}<div class="cal-week-stat">{{formatDistance $week.TotalDistM $imperial}}</div>{{end}}
+      {{if gt $week.TotalTSS 0.0}}<div class="cal-week-stat">{{printf "%.0f" $week.TotalTSS}} TSS</div>{{end}}
+      {{end}}
+    </div>
+  {{end}}
+</div>
+{{end}}

@@ -1,0 +1,342 @@
+{{define "title"}}{{.Workout.RecordedAt.Format "Jan 02, 2006"}} — fitbase{{end}} {{define "head"}} {{if hasGPS
+.Streams}}
+<link
+  rel="stylesheet"
+  href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"
+  integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H"
+  crossorigin="anonymous"
+/>
+{{end}} {{end}} {{define "content"}} {{$imperial := .Imperial}} {{$w := .Workout}}
+
+<div class="page-header">
+  <div>
+    <a href="/" class="back-link">← dashboard</a>
+    <h1>{{$w.RecordedAt.Format "Monday, Jan 02 2006"}}</h1>
+  </div>
+  <div style="display: flex; align-items: center; gap: 12px">
+    <span class="sport-badge sport-{{$w.Sport}}">{{$w.Sport}}</span>
+    <button class="delete-btn-lg" onclick="confirmDelete('{{$w.ID}}')">delete</button>
+  </div>
+</div>
+
+{{if .FTPDetected}}
+<div class="alert-banner ftp-banner">
+  <span class="alert-icon">&#9889;</span>
+  New FTP detected: <strong>{{.EFTPRounded}}W</strong> (was {{.FTPOld}}W)
+  <button class="alert-link" onclick="updateFTP({{.EFTPRounded}})">update FTP</button>
+</div>
+{{end}} {{/* ── Activity summary ─────────────────────────────── */}}
+<section class="card">
+  <h2 class="card-title">activity</h2>
+  <div class="metric-row">
+    <div class="metric-cell">
+      <div class="metric-label">{{if gt $w.ElapsedSecs $w.DurationSecs}}moving time{{else}}duration{{end}}</div>
+      <div class="metric-value">{{formatDuration $w.DurationSecs}}</div>
+    </div>
+    {{if gt $w.ElapsedSecs $w.DurationSecs}}
+    <div class="metric-cell">
+      <div class="metric-label">elapsed</div>
+      <div class="metric-value">{{formatDuration $w.ElapsedSecs}}</div>
+    </div>
+    {{end}}
+    <div class="metric-cell">
+      <div class="metric-label">distance</div>
+      <div class="metric-value">{{formatDistance $w.DistanceMeters $imperial}}</div>
+    </div>
+    <div class="metric-cell">
+      <div class="metric-label">elevation</div>
+      <div class="metric-value">{{formatElevation $w.ElevationGainMeters $imperial}}</div>
+    </div>
+    <div class="metric-cell">
+      {{if eq $w.Sport "running"}}
+      <div class="metric-label">avg pace</div>
+      <div class="metric-value">{{formatPace $w.AvgSpeedMPS $imperial}}</div>
+      {{else}}
+      <div class="metric-label">avg speed</div>
+      <div class="metric-value">{{formatSpeed $w.AvgSpeedMPS $imperial}}</div>
+      {{end}}
+    </div>
+    {{if gt .WorkKJ 0.0}}
+    <div class="metric-cell hide-mobile">
+      <div class="metric-label">work</div>
+      <div class="metric-value">{{printf "%.0f" .WorkKJ}}<span class="metric-unit">kJ</span></div>
+    </div>
+    <div class="metric-cell">
+      <div class="metric-label">calories</div>
+      <div class="metric-value">{{printf "%.0f" .Calories}}<span class="metric-unit">kcal</span></div>
+    </div>
+    {{end}}
+  </div>
+</section>
+
+{{/* ── Route map ───────────────────────────────────── */}} {{if hasGPS .Streams}}
+<section class="card">
+  <h2 class="card-title">route</h2>
+  <div id="route-map" class="route-map"></div>
+</section>
+{{end}} {{/* ── Route history ──────────────────────────────────── */}} {{if and .RouteHistory (gt (len .RouteHistory)
+1)}}
+<section class="card">
+  <h2 class="card-title">route history <span class="muted">({{len .RouteHistory}} rides)</span></h2>
+  <div class="route-history-table-wrap">
+    <table class="route-history-table">
+      <thead>
+        <tr>
+          <th>date</th>
+          <th>duration</th>
+          {{if $w.AvgPowerWatts}}
+          <th>avg power</th>
+          <th>NP</th>
+          {{end}} {{if $w.AvgHeartRate}}
+          <th>avg HR</th>
+          {{end}}
+          <th>avg speed</th>
+          {{if $w.AvgPowerWatts}}
+          <th>TSS</th>
+          {{end}}
+        </tr>
+      </thead>
+      <tbody>
+        {{range .RouteHistory}}
+        <tr class="{{if eq .ID $w.ID}}route-history-current{{end}}">
+          <td><a href="/workouts/{{.ID}}">{{.RecordedAt.Format "Jan 02, 2006"}}</a></td>
+          <td>{{formatDuration .DurationSecs}}</td>
+          {{if $w.AvgPowerWatts}}
+          <td>{{formatOptFloat .AvgPowerWatts "W"}}</td>
+          <td>{{formatOptFloat .NormalizedPower "W"}}</td>
+          {{end}} {{if $w.AvgHeartRate}}
+          <td>{{formatOptInt .AvgHeartRate "bpm"}}</td>
+          {{end}}
+          <td>{{formatSpeed .AvgSpeedMPS $imperial}}</td>
+          {{if $w.AvgPowerWatts}}
+          <td>{{formatOptFloat .TSS ""}}</td>
+          {{end}}
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+{{end}} {{/* ── Power ────────────────────────────────────────── */}} {{if $w.AvgPowerWatts}}
+<section class="card">
+  <h2 class="card-title">power</h2>
+  <div class="metric-row">
+    <div class="metric-cell">
+      <div class="metric-label">avg power</div>
+      <div class="metric-value metric-power">{{$w.AvgPowerWatts}}<span class="metric-unit">W</span></div>
+    </div>
+    {{if .MaxPower1s}}
+    <div class="metric-cell">
+      <div class="metric-label">max power</div>
+      <div class="metric-value metric-power">{{.MaxPower1s}}<span class="metric-unit">W</span></div>
+    </div>
+    {{end}} {{if $w.NormalizedPower}}
+    <div class="metric-cell metric-cell-highlight">
+      <div class="metric-label">normalized power</div>
+      <div class="metric-value metric-power">{{$w.NormalizedPower}}<span class="metric-unit">W</span></div>
+    </div>
+    {{end}} {{if $w.IntensityFactor}}
+    <div class="metric-cell">
+      <div class="metric-label">intensity factor</div>
+      <div class="metric-value">{{formatIF $w.IntensityFactor}}</div>
+    </div>
+    {{end}} {{if $w.TSS}}
+    <div class="metric-cell metric-cell-highlight">
+      <div class="metric-label">TSS</div>
+      <div class="metric-value">{{formatOptFloat $w.TSS ""}}</div>
+    </div>
+    {{end}} {{if .VI}}
+    <div class="metric-cell">
+      <div class="metric-label">variability index</div>
+      <div class="metric-value">{{printf "%.2f" .VI}}</div>
+    </div>
+    {{end}} {{if .EFTP}}
+    <div class="metric-cell">
+      <div class="metric-label">eFTP</div>
+      <div class="metric-value metric-power">{{printf "%.0f" .EFTP}}<span class="metric-unit">W</span></div>
+    </div>
+    {{end}} {{if .FTP}}
+    <div class="metric-cell">
+      <div class="metric-label">FTP</div>
+      <div class="metric-value metric-power">{{.FTP}}<span class="metric-unit">W</span></div>
+    </div>
+    {{end}} {{if .EF}}
+    <div class="metric-cell">
+      <div class="metric-label">EF</div>
+      <div class="metric-value">{{printf "%.2f" .EF}}</div>
+    </div>
+    {{end}}
+  </div>
+</section>
+{{end}}
+
+<div class="stats-row">
+  {{/* ── Heart rate ───────────────────────────────────── */}} {{if $w.AvgHeartRate}}
+  <section class="card">
+    <h2 class="card-title">heart rate</h2>
+    <div class="metric-row">
+      <div class="metric-cell">
+        <div class="metric-label">avg</div>
+        <div class="metric-value metric-hr">
+          {{formatOptInt $w.AvgHeartRate ""}}<span class="metric-unit">bpm</span>
+        </div>
+      </div>
+      {{if $w.MaxHeartRate}}
+      <div class="metric-cell">
+        <div class="metric-label">max</div>
+        <div class="metric-value metric-hr">
+          {{formatOptInt $w.MaxHeartRate ""}}<span class="metric-unit">bpm</span>
+        </div>
+      </div>
+      {{end}}
+    </div>
+  </section>
+  {{end}} {{/* ── Cadence ──────────────────────────────────────── */}} {{if $w.AvgCadenceRPM}}
+  <section class="card">
+    <h2 class="card-title">cadence</h2>
+    <div class="metric-row">
+      <div class="metric-cell">
+        <div class="metric-label">avg</div>
+        <div class="metric-value metric-cadence">
+          {{formatOptInt $w.AvgCadenceRPM ""}}<span class="metric-unit">rpm</span>
+        </div>
+      </div>
+      {{if .MaxCadence}}
+      <div class="metric-cell">
+        <div class="metric-label">max</div>
+        <div class="metric-value metric-cadence">{{.MaxCadence}}<span class="metric-unit">rpm</span></div>
+      </div>
+      {{end}}
+    </div>
+  </section>
+  {{end}} {{/* ── Training load ────────────────────────────────── */}} {{if gt .Fitness.Fitness 0.0}}
+  <section class="card">
+    <h2 class="card-title">training load <span class="muted">on this day</span></h2>
+    <div class="metric-row">
+      <div class="metric-cell">
+        <div class="metric-label">fitness</div>
+        <div class="metric-value metric-ctl">{{printf "%.1f" .Fitness.Fitness}}</div>
+      </div>
+      <div class="metric-cell">
+        <div class="metric-label">fatigue</div>
+        <div class="metric-value metric-atl">{{printf "%.1f" .Fitness.Fatigue}}</div>
+      </div>
+      <div class="metric-cell">
+        <div class="metric-label">form</div>
+        <div class="metric-value {{if lt .Fitness.Form 0.0}}metric-tsb-neg{{else}}metric-tsb-pos{{end}}">
+          {{printf "%.1f" .Fitness.Form}}
+        </div>
+      </div>
+    </div>
+  </section>
+  {{end}}
+</div>
+
+{{/* ── Power curve ──────────────────────────────────── */}} {{if $w.AvgPowerWatts}}
+<section class="card">
+  <div class="card-header-row">
+    <h2 class="card-title">power curve</h2>
+    <div class="view-toggle">
+      <button class="view-btn active" id="pc-btn-bar" onclick="setPCView('bar')">bars</button>
+      <button class="view-btn" id="pc-btn-line" onclick="setPCView('line')">line</button>
+    </div>
+  </div>
+  <div id="power-curve" class="power-curve-grid"></div>
+  <div id="power-curve-line" style="display: none"></div>
+</section>
+{{end}} {{/* ── Charts ───────────────────────────────────────── */}} {{if .Streams}} {{if $w.AvgPowerWatts}}
+<section class="card">
+  <h2 class="card-title">power</h2>
+  <div id="power-chart"></div>
+</section>
+<section class="card">
+  <h2 class="card-title">time in power zone</h2>
+  <div id="power-zone-chart" class="zd-grid"></div>
+</section>
+{{end}} {{if $w.AvgHeartRate}}
+<section class="card">
+  <h2 class="card-title">heart rate</h2>
+  <div id="hr-chart"></div>
+</section>
+<section class="card">
+  <h2 class="card-title">time in heart rate zone</h2>
+  <div id="hr-zone-chart" class="zd-grid"></div>
+</section>
+{{end}} {{if $w.AvgCadenceRPM}}
+<section class="card">
+  <h2 class="card-title">cadence</h2>
+  <div id="cadence-chart"></div>
+</section>
+{{end}}
+
+<section class="card">
+  <h2 class="card-title">{{if eq $w.Sport "running"}}pace{{else}}speed{{end}}</h2>
+  <div id="speed-chart"></div>
+</section>
+
+{{if hasGPS .Streams}}
+<section class="card">
+  <h2 class="card-title">elevation</h2>
+  <div id="elevation-chart"></div>
+</section>
+{{end}} {{end}} {{end}} {{define "scripts"}} {{if hasGPS .Streams}}
+<script
+  src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"
+  integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH"
+  crossorigin="anonymous"
+></script>
+{{end}}
+<script>
+  const streams = {{.Streams | toJSON}};
+
+  const allTimeCurve = {{.AllTimeCurve | toJSON}};
+  const powerZoneSecs = {{.PowerZoneSecs | toJSON}};
+  const hrZoneSecs = {{.HRZoneSecs | toJSON}};
+  const powerZoneRanges = {{.PowerZoneRanges | toJSON}};
+  const hrZoneRanges = {{.HRZoneRanges | toJSON}};
+  let pcData = null;
+
+  if (streams && streams.length > 0) {
+    renderWorkoutCharts(streams, {{.FTP}}, {{.ThresholdHR}});
+    {{if .WorkoutCurve}}
+    pcData = renderPowerCurve('power-curve', {{.WorkoutCurve | toJSON}}, {{.FTP}}, allTimeCurve);
+    {{end}}
+    {{if hasGPS .Streams}}
+    renderRouteMap('route-map', streams, {{.FTP}}, {{.ThresholdHR}});
+    {{end}}
+  }
+
+  if (powerZoneSecs) {
+    renderZoneDistribution('power-zone-chart', powerZoneSecs, POWER_ZONE_NAMES, POWER_ZONE_COLORS, powerZoneRanges);
+  }
+  if (hrZoneSecs)  {
+    renderZoneDistribution('hr-zone-chart',    hrZoneSecs,    HR_ZONE_NAMES,    HR_ZONE_COLORS,    hrZoneRanges);
+  }
+
+  let pcLineRendered = false;
+  function setPCView(view) {
+    document.getElementById('power-curve').style.display      = view === 'bar'  ? '' : 'none';
+    document.getElementById('power-curve-line').style.display = view === 'line' ? '' : 'none';
+    document.getElementById('pc-btn-bar').classList.toggle('active',  view === 'bar');
+    document.getElementById('pc-btn-line').classList.toggle('active', view === 'line');
+    if (view === 'line' && !pcLineRendered && pcData) {
+      renderPowerCurveLine('power-curve-line', pcData, {{.FTP}}, allTimeCurve);
+      pcLineRendered = true;
+    }
+  }
+
+  function confirmDelete(id) {
+    if (!confirm('Delete this workout? This cannot be undone.')) return;
+    fetch('/api/workouts/' + id, { method: 'DELETE' })
+      .then(r => { if (r.ok || r.status === 204) window.location.href = '/'; else alert('Delete failed.'); });
+  }
+
+  function updateFTP(watts) {
+    fetch('/api/athlete', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ftp_watts: watts, weight_kg: {{.WeightKG}}, threshold_hr_bpm: {{.ThresholdHR}}})
+    }).then(r => { if (r.ok) location.reload(); else alert('Failed to update FTP.'); });
+  }
+</script>
+{{end}}

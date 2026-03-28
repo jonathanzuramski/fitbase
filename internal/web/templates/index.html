@@ -1,0 +1,259 @@
+{{define "title"}}fitbase — dashboard{{end}}
+
+{{define "content"}}
+<div class="page-header">
+  <h1>dashboard</h1>
+  <div class="upload-group" id="upload-group">
+    <label class="upload-btn" id="upload-single-label">
+      upload .fit / .fit.gz
+      <input type="file" id="upload-input" accept=".fit,.fit.gz,.gz" hidden>
+    </label>
+    <button class="upload-more" id="upload-more" aria-label="more upload options">▾</button>
+    <div class="upload-dropdown" id="upload-dropdown">
+      <label class="upload-option" id="upload-bulk-label">
+        bulk upload
+        <input type="file" id="upload-bulk-input" accept=".fit,.fit.gz,.gz" multiple hidden>
+      </label>
+    </div>
+  </div>
+</div>
+
+<!-- Bulk upload progress overlay -->
+<div class="bulk-overlay" id="bulk-overlay" hidden>
+  <div class="bulk-modal">
+    <div class="bulk-title">importing files</div>
+    <div class="bulk-filename" id="bulk-filename"></div>
+    <div class="bulk-progress-track">
+      <div class="bulk-progress-bar" id="bulk-progress-bar"></div>
+    </div>
+    <div class="bulk-counts">
+      <span id="bulk-counter">0 / 0</span>
+      <span class="bulk-results" id="bulk-results"></span>
+    </div>
+    <button class="bulk-done" id="bulk-done" hidden>done</button>
+  </div>
+</div>
+
+{{if .FTPIsDefault}}
+<div class="alert-banner">
+  <span class="alert-icon">&#9888;</span>
+  FTP is set to the default of {{.FTPWatts}}W — your power zones and TSS may be inaccurate.
+  <a href="/settings" class="alert-link">update in settings →</a>
+</div>
+{{end}}
+
+{{if .Fitness}}
+<section class="card">
+  <h2 class="card-title">fitness <span class="muted">fitness / fatigue / form — 90 days</span></h2>
+  <div id="fitness-chart"></div>
+  <div class="tsb-legend-row">
+    <div class="tsb-legend">
+      <div class="tsb-legend-item">
+        <span class="tsb-swatch tsb-swatch-fresh"></span>
+        <span class="tsb-legend-label">form &gt; +5</span>
+        <span class="tsb-legend-desc">Fresh — race ready</span>
+      </div>
+      <div class="tsb-legend-item">
+        <span class="tsb-swatch tsb-swatch-optimal"></span>
+        <span class="tsb-legend-label">−10 to +5</span>
+        <span class="tsb-legend-desc">Optimal form</span>
+      </div>
+      <div class="tsb-legend-item">
+        <span class="tsb-swatch tsb-swatch-productive"></span>
+        <span class="tsb-legend-label">−30 to −10</span>
+        <span class="tsb-legend-desc">Productive training</span>
+      </div>
+      <div class="tsb-legend-item">
+        <span class="tsb-swatch tsb-swatch-overreach"></span>
+        <span class="tsb-legend-label">−50 to −30</span>
+        <span class="tsb-legend-desc">Overreaching — recover</span>
+      </div>
+    </div>
+    <div id="fitness-recommendation"></div>
+  </div>
+</section>
+{{end}}
+
+<section class="card">
+  <div class="card-header-row">
+    <h2 class="card-title">
+      recent activities
+      {{if .ShowPagination}}
+      <span class="muted" style="font-size:12px;font-weight:400">page {{.Page}} of {{.TotalPages}}</span>
+      {{end}}
+    </h2>
+    <div class="filter-tabs">
+      <a href="{{filterURL .Sort .Dir ""}}" class="filter-tab{{if eq .TypeFilter ""}} active{{end}}">all</a>
+      <a href="{{filterURL .Sort .Dir "outdoor"}}" class="filter-tab{{if eq .TypeFilter "outdoor"}} active{{end}}">outdoor</a>
+      <a href="{{filterURL .Sort .Dir "indoor"}}" class="filter-tab{{if eq .TypeFilter "indoor"}} active{{end}}">indoor</a>
+    </div>
+  </div>
+  {{if .Workouts}}
+  <table class="workout-table">
+    <thead>
+      <tr>
+        <th><a href="{{sortURL .Sort .Dir "date" .TypeFilter}}" class="sort-link">date {{sortArrow .Sort .Dir "date"}}</a></th>
+        <th><a href="{{sortURL .Sort .Dir "sport" .TypeFilter}}" class="sort-link">sport {{sortArrow .Sort .Dir "sport"}}</a></th>
+        <th><a href="{{sortURL .Sort .Dir "duration" .TypeFilter}}" class="sort-link">duration {{sortArrow .Sort .Dir "duration"}}</a></th>
+        <th><a href="{{sortURL .Sort .Dir "distance" .TypeFilter}}" class="sort-link">distance {{sortArrow .Sort .Dir "distance"}}</a></th>
+        <th><a href="{{sortURL .Sort .Dir "power" .TypeFilter}}" class="sort-link">power / pace {{sortArrow .Sort .Dir "power"}}</a></th>
+        <th><a href="{{sortURL .Sort .Dir "np" .TypeFilter}}" class="sort-link">NP {{sortArrow .Sort .Dir "np"}}</a></th>
+        <th><a href="{{sortURL .Sort .Dir "tss" .TypeFilter}}" class="sort-link">TSS {{sortArrow .Sort .Dir "tss"}}</a></th>
+        <th><a href="{{sortURL .Sort .Dir "hr" .TypeFilter}}" class="sort-link">avg hr {{sortArrow .Sort .Dir "hr"}}</a></th>
+        <th><a href="{{sortURL .Sort .Dir "elev" .TypeFilter}}" class="sort-link">elev {{sortArrow .Sort .Dir "elev"}}</a></th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{$imperial := .Imperial}}
+      {{range .Workouts}}
+      <tr class="workout-row" onclick="location.href='/workouts/{{.ID}}'">
+        <td class="date">{{.RecordedAt.Format "Jan 02 2006"}}</td>
+        <td><span class="sport-badge sport-{{.Sport}}">{{.Sport}}</span></td>
+        <td>{{formatDuration .DurationSecs}}</td>
+        <td>{{formatDistance .DistanceMeters $imperial}}</td>
+        <td>{{if .AvgPowerWatts}}{{formatOptFloat .AvgPowerWatts "W"}}{{else}}{{formatPace .AvgSpeedMPS $imperial}}{{end}}</td>
+        <td>{{formatOptFloat .NormalizedPower "W"}}</td>
+        <td class="tss">{{formatOptFloat .TSS ""}}</td>
+        <td>{{formatOptInt .AvgHeartRate "bpm"}}</td>
+        <td>{{formatElevation .ElevationGainMeters $imperial}}</td>
+        <td class="row-actions">
+          <button class="delete-btn" onclick="deleteWorkout(event,'{{.ID}}')" title="delete">✕</button>
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{if .ShowPagination}}
+  <div class="pagination">
+    {{if .HasPrev}}
+      <a href="{{paginationURL .PrevPage .Sort .Dir .TypeFilter}}" class="page-btn">← prev</a>
+    {{else}}
+      <span class="page-btn disabled">← prev</span>
+    {{end}}
+    <span class="page-info">{{.Page}} / {{.TotalPages}}</span>
+    {{if .HasNext}}
+      <a href="{{paginationURL .NextPage .Sort .Dir .TypeFilter}}" class="page-btn">next →</a>
+    {{else}}
+      <span class="page-btn disabled">next →</span>
+    {{end}}
+  </div>
+  {{end}}
+  {{else}}
+  <div class="empty-state">
+    <p>no workouts yet.</p>
+    <p class="muted">drop a <code>.fit</code> or <code>.fit.gz</code> file into your watch directory, or use the upload button.</p>
+  </div>
+  {{end}}
+</section>
+{{end}}
+
+{{define "scripts"}}
+<script>
+  // ── Upload dropdown ─────────────────────────────────────────────────────────
+  (function() {
+    const more     = document.getElementById('upload-more');
+    const dropdown = document.getElementById('upload-dropdown');
+    let hideTimer  = null;
+
+    function show() { dropdown.classList.add('open'); }
+    function hide() { dropdown.classList.remove('open'); }
+    function scheduleHide() { hideTimer = setTimeout(hide, 150); }
+    function cancelHide()   { clearTimeout(hideTimer); }
+
+    // Desktop: hover over the chevron or open dropdown keeps it visible.
+    more.addEventListener('mouseenter', () => { cancelHide(); show(); });
+    more.addEventListener('mouseleave', scheduleHide);
+    dropdown.addEventListener('mouseenter', cancelHide);
+    dropdown.addEventListener('mouseleave', scheduleHide);
+
+    // Mobile / click: toggle on tap.
+    more.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dropdown.classList.toggle('open');
+    });
+
+    // Close when tapping anywhere else.
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('#upload-group')) hide();
+    });
+  })();
+
+  // ── Single upload ───────────────────────────────────────────────────────────
+  document.getElementById('upload-input').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    const res = await fetch('/api/upload', { method: 'POST', body: fd });
+    const json = await res.json();
+    if (res.ok) { window.location.reload(); }
+    else { alert('Upload failed: ' + (json.error || 'unknown error')); }
+  });
+
+  // ── Bulk upload with progress overlay ──────────────────────────────────────
+  document.getElementById('upload-bulk-input').addEventListener('change', async (e) => {
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+
+    const overlay  = document.getElementById('bulk-overlay');
+    const fname    = document.getElementById('bulk-filename');
+    const bar      = document.getElementById('bulk-progress-bar');
+    const counter  = document.getElementById('bulk-counter');
+    const results  = document.getElementById('bulk-results');
+    const doneBtn  = document.getElementById('bulk-done');
+
+    overlay.hidden = false;
+    doneBtn.hidden = true;
+    results.textContent = '';
+
+    let ok = 0, fail = 0, dupes = 0;
+    for (let i = 0; i < files.length; i++) {
+      fname.textContent = files[i].name;
+      counter.textContent = (i + 1) + ' / ' + files.length;
+      bar.style.width = ((i + 1) / files.length * 100) + '%';
+
+      const fd = new FormData();
+      fd.append('file', files[i]);
+      try {
+        const res = await fetch('/api/upload', { method: 'POST', body: fd });
+        if (res.ok) {
+          const json = await res.json();
+          json.status === 'already_exists' ? dupes++ : ok++;
+        } else { fail++; }
+      } catch { fail++; }
+    }
+
+    bar.style.width = '100%';
+    fname.textContent = '';
+    counter.textContent = files.length + ' / ' + files.length;
+
+    const parts = [];
+    if (ok > 0)    parts.push(ok + ' imported');
+    if (dupes > 0) parts.push(dupes + ' already existed');
+    if (fail > 0)  parts.push(fail + ' failed');
+    results.textContent = parts.join(' · ');
+
+    doneBtn.hidden = false;
+    doneBtn.onclick = () => window.location.reload();
+  });
+
+  // ── Delete workout ──────────────────────────────────────────────────────────
+  async function deleteWorkout(e, id) {
+    e.stopPropagation();
+    if (!confirm('Delete this workout? This cannot be undone.')) return;
+    const res = await fetch('/api/workouts/' + id, { method: 'DELETE' });
+    if (res.ok || res.status === 204) {
+      e.target.closest('tr').remove();
+    } else {
+      alert('Delete failed.');
+    }
+  }
+
+  // ── Fitness chart ───────────────────────────────────────────────────────────
+  const fitnessData = {{.Fitness | toJSON}};
+  if (fitnessData && fitnessData.length > 0) {
+    renderFitnessChart('fitness-chart', fitnessData);
+  }
+</script>
+{{end}}
