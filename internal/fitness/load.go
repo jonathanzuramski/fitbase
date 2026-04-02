@@ -1,6 +1,7 @@
 package fitness
 
 import (
+	"math"
 	"time"
 
 	"github.com/fitbase/fitbase/internal/models"
@@ -24,17 +25,25 @@ func ClassifyWeeklyLoad(tss float64) string {
 // exponential moving averages. It iterates totalDays starting from start, but
 // only appends points for days at index >= skip (the warmup period).
 func ComputeLoad(tssByDay map[string]float64, start time.Time, totalDays, skip int) []models.FitnessPoint {
-	const fitnessDecay = 1.0 / 42.0
-	const fatigueDecay = 1.0 / 7.0
+	fitnessDecay := 1.0 - math.Exp(-1.0/42.0)
+	fatigueDecay := 1.0 - math.Exp(-1.0/7.0)
 	var fitness, fatigue float64
 	var points []models.FitnessPoint
+
 	for i := 0; i < totalDays; i++ {
 		d := start.AddDate(0, 0, i)
 		tss := tssByDay[d.Format("2006-01-02")]
+
 		fitness = fitness + fitnessDecay*(tss-fitness)
 		fatigue = fatigue + fatigueDecay*(tss-fatigue)
+
 		if i >= skip {
-			points = append(points, models.FitnessPoint{Date: d, Fitness: fitness, Fatigue: fatigue, Form: fitness - fatigue})
+			points = append(points, models.FitnessPoint{
+				Date:    d,
+				Fitness: fitness,
+				Fatigue: fatigue,
+				Form:    fitness - fatigue,
+			})
 		}
 	}
 	return points

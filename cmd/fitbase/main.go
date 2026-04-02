@@ -15,9 +15,9 @@ import (
 	"github.com/fitbase/fitbase/internal/config"
 	"github.com/fitbase/fitbase/internal/crypto"
 	"github.com/fitbase/fitbase/internal/db"
-	"github.com/fitbase/fitbase/internal/dropbox"
 	"github.com/fitbase/fitbase/internal/gdrive"
 	"github.com/fitbase/fitbase/internal/importer"
+	"github.com/fitbase/fitbase/internal/syncer"
 	"github.com/fitbase/fitbase/internal/web"
 )
 
@@ -68,18 +68,22 @@ func main() {
 	slog.Info("watching for FIT files", "dir", cfg.WatchDir)
 
 	handler := api.NewHandler(database, imp)
-	syncMgr := api.NewSyncManager(database)
-	dropboxHandler := api.NewDropboxHandler(database, imp, syncMgr)
-	intervalsHandler := api.NewIntervalsHandler(database, imp, syncMgr)
 	gdriveHandler := api.NewGDriveHandler(database, imp)
 
-	// Register sync sources so the manager can enforce mutual exclusivity.
-	syncMgr.Register("dropbox", dropboxHandler.StopLongpoll)
-	syncMgr.Register("intervals", intervalsHandler.StopAutoSync)
+	// Sync sources and manager — sources are created here, registered with the
+	// manager for mutual exclusivity, then passed to their HTTP handlers.
+	dropboxSource := syncer.NewDropboxSource(database, imp)
+	intervalsSource := syncer.NewIntervalsSource(database, imp)
+
+	syncMgr := syncer.NewManager(database)
+	syncMgr.Register("dropbox", dropboxSource)
+	syncMgr.Register("intervals", intervalsSource)
+	syncMgr.RestoreAll()
+
+	dropboxHandler := api.NewDropboxHandler(syncMgr, dropboxSource)
+	intervalsHandler := api.NewIntervalsHandler(syncMgr, intervalsSource)
 
 	initGDrive(database, imp)
-	initDropboxLongpoll(database, dropboxHandler)
-	intervalsHandler.StartAutoSyncIfEnabled()
 
 	var webFS fs.FS = web.FS
 	if cfg.Dev {
@@ -124,23 +128,6 @@ func main() {
 	if err := srv.Shutdown(ctx); err != nil {
 		slog.Error("shutdown error", "err", err)
 	}
-}
-
-// initDropboxLongpoll restores the Dropbox longpoll watcher on startup if it was enabled.
-func initDropboxLongpoll(database *db.DB, h *api.DropboxHandler) {
-	enabled, err := database.GetAutoSync("dropbox")
-	if err != nil || !enabled {
-		return
-	}
-	cursor, err := database.GetDropboxCursor()
-	if err != nil || cursor == "" {
-		return
-	}
-	token, err := database.GetIntegrationToken("dropbox")
-	if err != nil || token == "" {
-		return
-	}
-	h.StartLongpollIfEnabled(dropbox.New(token), cursor)
 }
 
 // initGDrive re-attaches a stored Google Drive token on startup so backup
