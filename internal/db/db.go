@@ -702,11 +702,10 @@ func (db *DB) GetFitnessOnDate(date time.Time) (models.FitnessPoint, error) {
 	today := time.Now().UTC().Truncate(24 * time.Hour)
 	// How many days from target to today, so we can slice the shared history.
 	daysAgo := max(int(today.Sub(target).Hours()/24), 0)
-	// getFitnessHistory(n) returns n points starting at today-n. With n=daysAgo
-	// the first point lands on the target date. For daysAgo=0 (today), use 1
-	// to get yesterday's closing values (today is still in progress).
-	days := max(daysAgo, 1)
-	points, err := db.getFitnessHistory(days, 0)
+	// getFitnessHistory(n, 0) ends at yesterday. Use projection=1 so that
+	// daysAgo=0 (same-day workout) returns today's values including today's TSS.
+	// points[0] always lands on the target date for any daysAgo >= 0.
+	points, err := db.getFitnessHistory(daysAgo, 1)
 	if err != nil {
 		return models.FitnessPoint{}, err
 	}
