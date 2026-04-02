@@ -104,8 +104,8 @@ func TestSkipWarmup(t *testing.T) {
 
 // TestSingleDayManual — hand-verify one step of the EMA formula.
 func TestSingleDayManual(t *testing.T) {
-	const ctlDecay = 1.0 / 42.0
-	const atlDecay = 1.0 / 7.0
+	ctlDecay := 1.0 - math.Exp(-1.0/42.0)
+	atlDecay := 1.0 - math.Exp(-1.0/7.0)
 	const tss = 150.0
 
 	// Starting from zero, after one day:

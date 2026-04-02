@@ -34,10 +34,6 @@ func ComputeLoad(tssByDay map[string]float64, start time.Time, totalDays, skip i
 		d := start.AddDate(0, 0, i)
 		tss := tssByDay[d.Format("2006-01-02")]
 
-		// Calculate Form using yesterday's Fitness and Fatigue (before today's TSS is applied)
-		form := fitness - fatigue
-
-		// Now update Fitness (CTL) and Fatigue (ATL) with today's TSS
 		fitness = fitness + fitnessDecay*(tss-fitness)
 		fatigue = fatigue + fatigueDecay*(tss-fatigue)
 
@@ -46,7 +42,7 @@ func ComputeLoad(tssByDay map[string]float64, start time.Time, totalDays, skip i
 				Date:    d,
 				Fitness: fitness,
 				Fatigue: fatigue,
-				Form:    form, // Use the pre-calculated Form
+				Form:    fitness - fatigue,
 			})
 		}
 	}
