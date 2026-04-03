@@ -24,7 +24,7 @@ func ClassifyWeeklyLoad(tss float64) string {
 // ComputeLoad computes daily Fitness/Fatigue/Form from a map of daily TSS values using
 // exponential moving averages. It iterates totalDays starting from start, but
 // only appends points for days at index >= skip (the warmup period).
-func ComputeLoad(tssByDay map[string]float64, start time.Time, totalDays, skip int) []models.FitnessPoint {
+func ComputeLoad(tssByDay map[string]float64, start time.Time, totalDays int, skip int) []models.FitnessPoint {
 	fitnessDecay := 1.0 - math.Exp(-1.0/42.0)
 	fatigueDecay := 1.0 - math.Exp(-1.0/7.0)
 	var fitness, fatigue float64
