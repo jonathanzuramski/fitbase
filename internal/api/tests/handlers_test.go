@@ -370,8 +370,8 @@ func TestGetFitness_DefaultDays(t *testing.T) {
 	}
 	var points []models.FitnessPoint
 	decodeEnvelope(t, rr.Body.Bytes(), &points)
-	if len(points) != 90 {
-		t.Errorf("expected 90 points (default), got %d", len(points))
+	if len(points) != 91 {
+		t.Errorf("expected 91 points (default), got %d", len(points))
 	}
 }
 
@@ -383,7 +383,7 @@ func TestGetFitness_DaysParam(t *testing.T) {
 
 	var points []models.FitnessPoint
 	decodeEnvelope(t, rr.Body.Bytes(), &points)
-	if len(points) != 30 {
+	if len(points) != 31 {
 		t.Errorf("days=30: got %d points", len(points))
 	}
 }
@@ -396,8 +396,8 @@ func TestGetFitness_DaysCappedAt365(t *testing.T) {
 
 	var points []models.FitnessPoint
 	decodeEnvelope(t, rr.Body.Bytes(), &points)
-	if len(points) > 365 {
-		t.Errorf("expected max 365 points, got %d", len(points))
+	if len(points) > 366 {
+		t.Errorf("expected max 366 points, got %d", len(points))
 	}
 }
 

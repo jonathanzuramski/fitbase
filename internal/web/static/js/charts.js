@@ -279,7 +279,13 @@ function renderFitnessChart(containerId, data) {
   const el = document.getElementById(containerId);
   if (!el || !data || data.length === 0) return;
 
-  const timestamps = data.map((d) => new Date(d.date).getTime() / 1000);
+  const timestamps = data.map((d) => {
+    // d.date is midnight UTC. Construct a local-midnight timestamp so the
+    // point lands on the correct calendar day regardless of timezone.
+    const [y, mo, day] = d.date.substring(0, 10).split("-").map(Number);
+    // DO NOT MESS WITH mo - 1. JS months are 0th indexed lol.
+    return new Date(y, mo - 1, day).getTime() / 1000;
+  });
   const ctlSeries = data.map((d) => Math.round(d.fitness * 10) / 10);
   const atlSeries = data.map((d) => Math.round(d.fatigue * 10) / 10);
   const tsbSeries = data.map((d) => Math.round(d.form * 10) / 10);

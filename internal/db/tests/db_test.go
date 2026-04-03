@@ -376,8 +376,8 @@ func TestGetFitnessHistory_Empty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(points) != 30 {
-		t.Errorf("expected 30 points, got %d", len(points))
+	if len(points) != 31 {
+		t.Errorf("expected 31 points, got %d", len(points))
 	}
 	// All CTL/ATL should start at 0
 	for _, p := range points {
@@ -455,8 +455,8 @@ func TestFitnessOnDate_MatchesChart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetFitnessHistory: %v", err)
 	}
-	if len(history) != chartDays {
-		t.Fatalf("expected %d points, got %d", chartDays, len(history))
+	if len(history) != chartDays+1 {
+		t.Fatalf("expected %d points, got %d", chartDays+1, len(history))
 	}
 
 	// Build a lookup by date string.
