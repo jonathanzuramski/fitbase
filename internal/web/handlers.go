@@ -197,22 +197,28 @@ func (th *templateHandler) index(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	hasFTPHistory, err := th.db.HasFTPHistory()
+	if err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+
 	renderTemplate(w, th.templates().index, "base", map[string]any{
-		"Workouts":       workouts,
-		"Fitness":        user_fitness,
-		"Imperial":       th.isImperial(),
-		"Page":           page,
-		"TotalPages":     totalPages,
-		"HasPrev":        page > 1,
-		"HasNext":        page < totalPages,
-		"PrevPage":       page - 1,
-		"NextPage":       page + 1,
-		"ShowPagination": totalPages > 1,
-		"FTPIsDefault":   athlete.FTPWatts == 250,
-		"FTPWatts":       athlete.FTPWatts,
-		"Sort":           sortKey,
-		"Dir":            sortDir,
-		"TypeFilter":     typeFilter,
+		"Workouts":          workouts,
+		"Fitness":           user_fitness,
+		"Imperial":          th.isImperial(),
+		"Page":              page,
+		"TotalPages":        totalPages,
+		"HasPrev":           page > 1,
+		"HasNext":           page < totalPages,
+		"PrevPage":          page - 1,
+		"NextPage":          page + 1,
+		"ShowPagination":    totalPages > 1,
+		"FTPIsDefault":      !hasFTPHistory,
+		"FTPWatts":          athlete.FTPWatts,
+		"Sort":              sortKey,
+		"Dir":               sortDir,
+		"TypeFilter":        typeFilter,
 	})
 }
 
@@ -379,9 +385,9 @@ func (th *templateHandler) settings(w http.ResponseWriter, r *http.Request) {
 			v, _ := th.db.GetSyncOldest("intervals")
 			return v
 		}(),
-		"GDriveConfigured": gdriveConfigured,
-		"GDriveConnected":  gdriveConnected,
-		"GDriveClientID":   gdriveClientID,
+		"GDriveConfigured":  gdriveConfigured,
+		"GDriveConnected":   gdriveConnected,
+		"GDriveClientID":    gdriveClientID,
 	})
 }
 
