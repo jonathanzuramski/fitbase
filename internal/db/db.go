@@ -678,6 +678,16 @@ func (db *DB) LogFTPChange(ftp int) error {
 	return err
 }
 
+// HasFTPHistory reports whether the athlete has ever saved an FTP value.
+// Empty history means the FTP is still the seeded default.
+func (db *DB) HasFTPHistory() (bool, error) {
+	var n int
+	if err := db.QueryRow("SELECT COUNT(*) FROM ftp_history").Scan(&n); err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
 // GetFTPAtDate returns the FTP that was active at time t.
 // Falls back to current athlete FTP if no history entry predates t.
 func (db *DB) GetFTPAtDate(t time.Time) int {
@@ -784,15 +794,16 @@ func (db *DB) GetLastWorkoutDate() (*time.Time, error) {
 func (db *DB) GetWeeklyBreakdown(weeks int) ([]models.WeeklyLoad, error) {
 	rows, err := db.Query(`
 		SELECT
-			strftime('%G-W%V', recorded_at)  AS week,
-			COALESCE(SUM(tss), 0)            AS total_tss,
-			SUM(duration_secs)               AS total_duration_secs,
-			SUM(distance_meters)             AS total_distance_meters,
-			SUM(elevation_gain_meters)       AS total_elevation_meters,
-			COUNT(*)                         AS workout_count
+			COALESCE(strftime('%G-W%V', recorded_at), '')  AS week,
+			COALESCE(SUM(tss), 0)                          AS total_tss,
+			SUM(duration_secs)                             AS total_duration_secs,
+			SUM(distance_meters)                           AS total_distance_meters,
+			SUM(elevation_gain_meters)                     AS total_elevation_meters,
+			COUNT(*)                                       AS workout_count
 		FROM workouts
 		WHERE recorded_at >= date('now', ? || ' days')
 		GROUP BY week
+		HAVING week != ''
 		ORDER BY week ASC`, fmt.Sprintf("-%d", weeks*7))
 	if err != nil {
 		return nil, err
