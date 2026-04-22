@@ -132,3 +132,26 @@ CREATE TABLE IF NOT EXISTS routes (
     cell_count INTEGER NOT NULL,
     created_at DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
+
+-- AI coach configuration: provider, model selection, and AES-256-GCM encrypted API key.
+CREATE TABLE IF NOT EXISTS ai_settings (
+    id         INTEGER PRIMARY KEY CHECK (id = 1),
+    provider   TEXT NOT NULL DEFAULT '',
+    model      TEXT NOT NULL DEFAULT '',
+    api_key    TEXT NOT NULL DEFAULT '',
+    updated_at DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+INSERT OR IGNORE INTO ai_settings (id) VALUES (1);
+
+-- Most recent AI coaching response (Markdown). Single row — regenerating overwrites it.
+-- We cache so the homepage can show insights instantly without re-calling the LLM.
+-- _v2 suffix because the original shape split prose into three columns; the new
+-- streaming markdown output is a single blob. Old table (if present) is left alone.
+CREATE TABLE IF NOT EXISTS ai_insights_cache_v2 (
+    id           INTEGER PRIMARY KEY CHECK (id = 1),
+    provider     TEXT NOT NULL DEFAULT '',
+    model        TEXT NOT NULL DEFAULT '',
+    content      TEXT NOT NULL DEFAULT '',
+    generated_at DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+DROP TABLE IF EXISTS ai_insights_cache;

@@ -105,6 +105,7 @@ func main() {
 
 	handler := api.NewHandler(database, imp)
 	gdriveHandler := api.NewGDriveHandler(database, imp)
+	coachHandler := api.NewCoachHandler(database)
 
 	// Sync sources and manager — sources are created here, registered with the
 	// manager for mutual exclusivity, then passed to their HTTP handlers.
@@ -135,7 +136,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	router := api.NewRouter(handler, dropboxHandler, intervalsHandler, gdriveHandler, http.FS(staticSub), tmplHandler)
+	router := api.NewRouter(handler, dropboxHandler, intervalsHandler, gdriveHandler, coachHandler, http.FS(staticSub), tmplHandler)
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%s", cfg.Port),

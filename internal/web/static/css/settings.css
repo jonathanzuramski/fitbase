@@ -43,6 +43,11 @@
   align-self: flex-start;
 }
 
+.credentials-form .form-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
 .credentials-details {
   margin-top: 12px;
   border-top: 1px solid var(--border);

@@ -372,6 +372,57 @@
   </section>
 </div>
 
+<!-- ── AI Coach ───────────────────────────────────────────── -->
+<div class="settings-section">
+  <div class="settings-section-header">
+    <span class="settings-section-title">AI coach</span>
+  </div>
+  <section class="card">
+    <p class="muted" style="font-size: 13px; margin-bottom: 14px">
+      Select a provider and model, then enter your API key to enable personalized coaching insights on the dashboard.
+      Your key is encrypted at rest.
+    </p>
+    {{if .AIConfigured}}
+    <div class="integration-row" style="margin-bottom: 14px">
+      <div class="integration-status">
+        <span class="status-dot connected"></span>
+        <span>{{.AIProvider}} — {{.AIModel}}</span>
+      </div>
+    </div>
+    <details class="credentials-details">
+      <summary class="credentials-summary">update settings</summary>
+      <form method="POST" action="/settings/ai" class="credentials-form" id="ai-settings-form">
+        <select name="provider" class="form-input ai-provider-select" required>
+          <option value="">select provider…</option>
+          {{range .AIProviders}}
+          <option value="{{.Name}}" {{if eq $.AIProvider .Name}}selected{{end}}>{{.Label}}</option>
+          {{end}}
+        </select>
+        <select name="model" class="form-input ai-model-select" required>
+          <option value="">select model…</option>
+        </select>
+        <input type="password" name="api_key" placeholder="API key (leave blank to keep current)" class="form-input" autocomplete="off" />
+        <button type="submit" class="btn-secondary">save</button>
+      </form>
+    </details>
+    {{else}}
+    <form method="POST" action="/settings/ai" class="credentials-form" id="ai-settings-form">
+      <select name="provider" class="form-input ai-provider-select" required>
+        <option value="">select provider…</option>
+        {{range .AIProviders}}
+        <option value="{{.Name}}">{{.Label}}</option>
+        {{end}}
+      </select>
+      <select name="model" class="form-input ai-model-select" required>
+        <option value="">select model…</option>
+      </select>
+      <input type="password" name="api_key" placeholder="API key" class="form-input" required />
+      <button type="submit" class="btn-primary">save</button>
+    </form>
+    {{end}}
+  </section>
+</div>
+
 <!-- Intervals.icu modals -->
 <dialog id="modal-intervals-connect" class="settings-modal">
   <div class="settings-modal-header">
@@ -506,6 +557,36 @@
 </div>
 
 {{end}} {{define "scripts"}}
+<script>
+  // ── AI coach model picker ─────────────────────────────────────────────────
+  (function () {
+    const providers = {{toJSON .AIProviders}};
+    const catalog = {};
+    providers.forEach(function (p) { catalog[p.name] = p.models; });
+    const savedModel = {{toJSON .AIModel}};
+
+    document.querySelectorAll('.ai-provider-select').forEach(function (providerSel) {
+      const form = providerSel.closest('form');
+      const modelSel = form.querySelector('.ai-model-select');
+
+      function populateModels(provider) {
+        modelSel.innerHTML = '<option value="">select model…</option>';
+        (catalog[provider] || []).forEach(function (m) {
+          const opt = document.createElement('option');
+          opt.value = m.value;
+          opt.textContent = m.label;
+          if (m.value === savedModel) opt.selected = true;
+          modelSel.appendChild(opt);
+        });
+      }
+
+      if (providerSel.value) populateModels(providerSel.value);
+      providerSel.addEventListener('change', function () {
+        populateModels(this.value);
+      });
+    });
+  })();
+</script>
 <style>
   @keyframes sync-slide {
     0% { transform: translateX(-160%); }

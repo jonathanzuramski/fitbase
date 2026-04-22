@@ -7,7 +7,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-func NewRouter(h *Handler, dropbox *DropboxHandler, intervalsH *IntervalsHandler, gdrive *GDriveHandler, staticFS http.FileSystem, templateHandler http.Handler) http.Handler {
+func NewRouter(h *Handler, dropbox *DropboxHandler, intervalsH *IntervalsHandler, gdrive *GDriveHandler, coach *CoachHandler, staticFS http.FileSystem, templateHandler http.Handler) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.Logger)
@@ -41,6 +41,8 @@ func NewRouter(h *Handler, dropbox *DropboxHandler, intervalsH *IntervalsHandler
 		r.Get("/training/weekly", h.GetWeeklyTraining)
 
 		r.Get("/ftp-history/recompute", h.RecomputePowerLoad)
+		r.Get("/coach/insights", coach.GetCachedInsights)
+		r.Post("/coach/insights", coach.GenerateInsights)
 
 		r.Route("/integrations/dropbox", func(r chi.Router) {
 			r.Get("/sync", dropbox.Sync)

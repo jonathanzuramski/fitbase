@@ -216,6 +216,25 @@
 
 <section class="card">
   <div class="card-header-row">
+    <h2 class="card-title">AI coach{{if .AIProviderLabel}} <span class="muted">powered by {{.AIProviderLabel}}</span>{{end}}</h2>
+    {{if .AIConfigured}}
+    <div class="ai-coach-actions">
+      <span id="ai-generated-at" class="muted" style="font-size:12px" hidden></span>
+      <button class="btn-secondary" id="ai-generate-btn" onclick="generateInsights()">generate insights</button>
+    </div>
+    {{end}}
+  </div>
+  {{if .AIConfigured}}
+  <div id="ai-empty" class="muted" style="font-size:13px" hidden>No insights yet — click generate to analyze your training.</div>
+  <div id="ai-insights" class="ai-insights markdown-body" hidden></div>
+  <div id="ai-error" class="ai-error" hidden></div>
+  {{else}}
+  <p class="muted" style="font-size:13px">Configure an AI provider in <a href="/settings">settings</a> to get personalized coaching insights.</p>
+  {{end}}
+</section>
+
+<section class="card">
+  <div class="card-header-row">
     <h2 class="card-title">
       recent activities
       {{if .ShowPagination}}
@@ -300,6 +319,7 @@
 {{end}}
 
 {{define "scripts"}}
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
 <script>
   // ── Upload dropdown ─────────────────────────────────────────────────────────
   (function() {
@@ -504,5 +524,219 @@
     applyLayout();
     window.addEventListener('resize', applyLayout);
   })();
+
+  // ── AI coach ────────────────────────────────────────────────────────────────
+  // GET returns cached markdown; POST streams fresh markdown via SSE.
+  {{if .AIConfigured}}
+  (function () {
+    const btn   = document.getElementById('ai-generate-btn');
+    const body  = document.getElementById('ai-insights');
+    const empty = document.getElementById('ai-empty');
+    const errEl = document.getElementById('ai-error');
+    const tsEl  = document.getElementById('ai-generated-at');
+
+    // marked.parse handles incomplete markdown gracefully (unclosed **, partial
+    // headings, etc.), so we can re-render on every chunk and get live preview.
+    function renderMarkdown(md) {
+      body.innerHTML = window.marked ? window.marked.parse(md) : escapeHTML(md);
+    }
+
+    function showCached(data) {
+      renderMarkdown(data.content || '');
+      body.hidden  = false;
+      empty.hidden = true;
+      if (data.generated_at) {
+        tsEl.textContent = 'generated ' + relativeTime(data.generated_at);
+        tsEl.hidden = false;
+      }
+      btn.textContent = 'regenerate';
+    }
+
+    function showError(msg) {
+      errEl.textContent = 'Error: ' + msg;
+      errEl.hidden      = false;
+    }
+
+    async function loadCached() {
+      try {
+        const res = await fetch('/api/coach/insights');
+        if (res.status === 204) {
+          empty.hidden = false;
+          return;
+        }
+        if (!res.ok) throw new Error('load failed');
+        const env = await res.json();
+        // writeJSON wraps the payload in { data: ... }
+        showCached(env.data || env);
+      } catch (e) {
+        empty.hidden = false;
+      }
+    }
+
+    // Parse a chunk of SSE text. Events in the buffer are separated by blank
+    // lines; return the unconsumed tail for the next read.
+    function parseSSE(buf, onEvent) {
+      const events = buf.split(/\n\n/);
+      const tail   = events.pop();
+      for (const raw of events) {
+        let event = 'message', data = '';
+        for (const line of raw.split('\n')) {
+          if (line.startsWith('event:')) event = line.slice(6).trim();
+          else if (line.startsWith('data:')) data += line.slice(5).trim();
+        }
+        if (data) {
+          try { onEvent(event, JSON.parse(data)); } catch (_) {}
+        }
+      }
+      return tail;
+    }
+
+    window.generateInsights = async function () {
+      btn.disabled    = true;
+      btn.textContent = 'generating…';
+      errEl.hidden    = true;
+      empty.hidden    = true;
+      body.hidden     = false;
+      tsEl.hidden     = true;
+
+      let md = '';
+      renderMarkdown('_analyzing your training…_');
+
+      try {
+        const res = await fetch('/api/coach/insights', {
+          method:  'POST',
+          headers: { 'Accept': 'text/event-stream' },
+        });
+        if (!res.ok || !res.body) {
+          const j = await res.json().catch(() => ({}));
+          throw new Error(j.error || 'request failed');
+        }
+
+        const reader  = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+        let streamErr = null;
+        let doneMeta  = null;
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          buf = parseSSE(buf, (event, data) => {
+            if (event === 'chunk' && data.text) {
+              if (md === '') body.innerHTML = ''; // clear the placeholder on first token
+              md += data.text;
+              renderMarkdown(md);
+            } else if (event === 'done') {
+              doneMeta = data;
+            } else if (event === 'error') {
+              streamErr = data.error || 'stream error';
+            }
+          });
+        }
+        if (streamErr) throw new Error(streamErr);
+
+        if (doneMeta && doneMeta.generated_at) {
+          tsEl.textContent = 'generated ' + relativeTime(doneMeta.generated_at);
+          tsEl.hidden = false;
+        }
+        btn.textContent = 'regenerate';
+      } catch (e) {
+        if (!md) body.hidden = true;
+        showError(e.message);
+        btn.textContent = 'generate insights';
+      } finally {
+        btn.disabled = false;
+      }
+    };
+
+    loadCached();
+  })();
+  {{end}}
+
+  function escapeHTML(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function relativeTime(iso) {
+    const then = new Date(iso);
+    const mins = Math.round((Date.now() - then.getTime()) / 60000);
+    if (mins < 1)    return 'just now';
+    if (mins < 60)   return mins + 'm ago';
+    const hrs = Math.round(mins / 60);
+    if (hrs < 24)    return hrs + 'h ago';
+    const days = Math.round(hrs / 24);
+    return days + 'd ago';
+  }
 </script>
+<style>
+  .ai-insights {
+    margin-top: 14px;
+    padding: 18px 20px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 14px;
+    line-height: 1.65;
+    color: var(--text);
+  }
+  .ai-insights h2 {
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    margin: 18px 0 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+  .ai-insights h2:first-child { margin-top: 0; }
+  .ai-insights h3 {
+    font-size: 13px;
+    font-weight: 600;
+    margin: 14px 0 6px;
+    color: var(--text);
+  }
+  .ai-insights p       { margin: 0 0 10px; }
+  .ai-insights p:last-child { margin-bottom: 0; }
+  .ai-insights strong  { color: var(--text); font-weight: 600; }
+  .ai-insights em      { color: var(--text-muted); font-style: italic; }
+  .ai-insights ul,
+  .ai-insights ol      { margin: 6px 0 12px; padding-left: 22px; }
+  .ai-insights li      { margin-bottom: 4px; }
+  .ai-insights code    {
+    background: var(--bg);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+  }
+  .ai-insights table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0 14px;
+    font-size: 13px;
+  }
+  .ai-insights th,
+  .ai-insights td {
+    padding: 6px 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  .ai-insights th {
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+  }
+  .ai-insights tr:last-child td { border-bottom: none; }
+  .ai-error {
+    font-size: 13px;
+    color: #ef4444;
+    margin-top: 10px;
+  }
+</style>
 {{end}}
