@@ -1,0 +1,29 @@
+{{define "title"}}heatmap — fitbase{{end}}
+
+{{define "head"}}
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
+{{end}}
+
+{{define "content"}}
+<div class="page-header">
+  <h1>heatmap</h1>
+</div>
+<div id="heatmap" class="heatmap-map"></div>
+{{end}}
+
+{{define "scripts"}}
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script>
+  fetch('/api/workouts/routes')
+    .then(r => r.json())
+    .then(j => {
+      const el = document.getElementById('heatmap');
+      if (j.data && j.data.length) {
+        renderActivitiesMap('heatmap', j.data);
+      } else {
+        el.style.cssText = 'display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:13px';
+        el.textContent = 'No outdoor activities with GPS data yet.';
+      }
+    });
+</script>
+{{end}}

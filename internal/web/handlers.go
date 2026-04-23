@@ -24,6 +24,7 @@ type pageTemplates struct {
 	settings *template.Template
 	welcome  *template.Template
 	calendar *template.Template
+	heatmap  *template.Template
 }
 
 func loadTemplatesFrom(fsys fs.FS) *pageTemplates {
@@ -38,6 +39,7 @@ func loadTemplatesFrom(fsys fs.FS) *pageTemplates {
 		settings: parse("templates/base.html", "templates/settings.html"),
 		welcome:  parse("templates/welcome.html"),
 		calendar: parse("templates/base.html", "templates/calendar.html"),
+		heatmap:  parse("templates/base.html", "templates/heatmap.html"),
 	}
 }
 
@@ -77,6 +79,7 @@ func NewTemplateHandler(database *db.DB, dev bool, webFS fs.FS) http.Handler {
 	mux.HandleFunc("POST /settings/integrations/intervals/sync-range", th.saveIntervalsSyncRange)
 	mux.HandleFunc("POST /settings/integrations/gdrive/credentials", th.saveIntegrationCredentials("gdrive"))
 	mux.HandleFunc("POST /goals/mileage", th.saveMileageGoal)
+	mux.HandleFunc("GET /heatmap", th.heatmap)
 	mux.HandleFunc("GET /calendar", th.calendar)
 	mux.HandleFunc("GET /welcome", th.welcomeGet)
 	mux.HandleFunc("POST /welcome", th.welcomePost)
@@ -807,6 +810,12 @@ func (th *templateHandler) saveIntervalsCredentials(w http.ResponseWriter, r *ht
 		return
 	}
 	http.Redirect(w, r, "/settings", http.StatusSeeOther)
+}
+
+func (th *templateHandler) heatmap(w http.ResponseWriter, r *http.Request) {
+	renderTemplate(w, th.templates().heatmap, "base", map[string]any{
+		"Imperial": th.isImperial(),
+	})
 }
 
 func (th *templateHandler) calendar(w http.ResponseWriter, r *http.Request) {

@@ -202,8 +202,13 @@
       <a href="{{filterURL .Sort .Dir "outdoor"}}" class="filter-tab{{if eq .TypeFilter "outdoor"}} active{{end}}">outdoor</a>
       <a href="{{filterURL .Sort .Dir "indoor"}}" class="filter-tab{{if eq .TypeFilter "indoor"}} active{{end}}">indoor</a>
     </div>
+    <div class="view-toggle">
+      <button class="view-btn" id="view-list-btn" title="List view">☰</button>
+      <button class="view-btn" id="view-map-btn" title="Map view">◎</button>
+    </div>
   </div>
   {{if .Workouts}}
+  <div id="activities-list">
   <table class="workout-table">
     <thead>
       <tr>
@@ -239,6 +244,8 @@
       {{end}}
     </tbody>
   </table>
+  </div>{{/* end #activities-list */}}
+  <div id="activities-map" class="activities-map" hidden></div>
   {{if .ShowPagination}}
   <div class="pagination">
     {{if .HasPrev}}
@@ -410,5 +417,40 @@
   if (fitnessData && fitnessData.length > 0) {
     renderFitnessChart('fitness-chart', fitnessData);
   }
+
+  // ── Activities view toggle (list ↔ map) ─────────────────────────────────────
+  (function () {
+    const listEl = document.getElementById('activities-list');
+    const mapEl  = document.getElementById('activities-map');
+    const listBtn = document.getElementById('view-list-btn');
+    const mapBtn  = document.getElementById('view-map-btn');
+    if (!listEl || !mapEl) return;
+
+    const workoutIds   = [{{range .Workouts}}'{{.ID}}',{{end}}];
+    const workoutsData = {{.Workouts | toJSON}};
+    let mapReady = false;
+
+    function setView(v) {
+      const isMap = v === 'map';
+      listEl.hidden = isMap;
+      mapEl.hidden  = !isMap;
+      listBtn.classList.toggle('active', !isMap);
+      mapBtn.classList.toggle('active', isMap);
+      localStorage.setItem('activities-view', v);
+      if (isMap && !mapReady) {
+        mapReady = true;
+        if (!workoutIds.length) return;
+        fetch('/api/workouts/routes?ids=' + workoutIds.join(','))
+          .then(r => r.json())
+          .then(j => renderActivityCards('activities-map', j.data || [], workoutsData));
+      }
+    }
+
+    listBtn.addEventListener('click', () => setView('list'));
+    mapBtn.addEventListener('click',  () => setView('map'));
+
+    // Restore saved preference; default to list.
+    setView(localStorage.getItem('activities-view') === 'map' ? 'map' : 'list');
+  })();
 </script>
 {{end}}

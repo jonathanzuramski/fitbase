@@ -297,6 +297,110 @@ code {
   color: var(--text);
 }
 
+/* ── Activities view toggle ───────────────────────────── */
+.view-toggle {
+  display: flex;
+  gap: 2px;
+  margin-left: 8px;
+  flex-shrink: 0;
+}
+.view-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-size: 15px;
+  line-height: 1;
+  padding: 4px 9px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+.view-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.view-btn:hover:not(.active) {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+.activities-map {
+  min-height: 200px;
+}
+
+/* ── Activity cards grid ──────────────────────────────────────────────────── */
+.activity-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  padding: 4px 0 8px;
+}
+@media (max-width: 900px) {
+  .activity-cards-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 560px) {
+  .activity-cards-grid { grid-template-columns: 1fr; }
+}
+.activity-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.activity-card:hover {
+  border-color: var(--accent);
+  background: var(--bg-hover);
+}
+.ac-thumb {
+  background: var(--bg);
+  height: 140px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.ac-thumb svg,
+.ac-thumb-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.ac-thumb-empty {
+  background: var(--bg);
+  color: var(--text-muted);
+}
+.ac-body {
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+}
+.ac-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.ac-date {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.ac-stats {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+/* ── Heatmap page ─────────────────────────────────────────────────────────── */
+.heatmap-map {
+  height: calc(100vh - 120px);
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+  z-index: 0;
+}
+
 /* ── Workout table ────────────────────────────────────── */
 .workout-table {
   width: 100%;

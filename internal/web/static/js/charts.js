@@ -1074,3 +1074,270 @@ function renderRouteMap(containerId, streams, ftp, lthr) {
     map.fitBounds(bounds, { padding: 40 });
   });
 }
+
+// ── Activities map (heatmap page) ────────────────────────────────────────────
+
+const SPORT_COLORS = {
+  cycling:  "#38bdf8",
+  running:  "#4ade80",
+  swimming: "#22d3ee",
+};
+
+function renderActivitiesMap(containerId, tracks) {
+  if (typeof maplibregl === "undefined") return;
+  const el = document.getElementById(containerId);
+  if (!el) return;
+
+  const valid = tracks.filter((t) => t.coords && t.coords.length >= 2);
+  if (!valid.length) {
+    el.textContent = "No outdoor activities with GPS data yet.";
+    el.style.cssText = "display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:13px";
+    return;
+  }
+
+  let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
+  for (const t of valid) {
+    for (const [lng, lat] of t.coords) {
+      if (lng < minLng) minLng = lng;
+      if (lng > maxLng) maxLng = lng;
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+    }
+  }
+
+  const map = new maplibregl.Map({
+    container: el,
+    style: "https://tiles.openfreemap.org/styles/liberty",
+    bounds: [[minLng, minLat], [maxLng, maxLat]],
+    fitBoundsOptions: { padding: 48 },
+    scrollZoom: true,
+    touchZoomRotate: true,
+    attributionControl: false,
+  });
+
+  map.addControl(new maplibregl.NavigationControl(), "top-right");
+  map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
+
+  map.on("load", () => {
+    const features = valid.map((t) => ({
+      type: "Feature",
+      geometry: { type: "LineString", coordinates: t.coords },
+      properties: {
+        workout_id: t.workout_id,
+        color: SPORT_COLORS[t.sport] || "#60a5fa",
+        sport: t.sport,
+        date: t.date,
+      },
+    }));
+
+    map.addSource("tracks", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features },
+    });
+
+    // Wide transparent layer for easier hover hit-testing
+    map.addLayer({
+      id: "tracks-hit",
+      type: "line",
+      source: "tracks",
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": "transparent", "line-width": 12 },
+    });
+
+    map.addLayer({
+      id: "tracks-line",
+      type: "line",
+      source: "tracks",
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: {
+        "line-color": ["get", "color"],
+        "line-width": 2.5,
+        "line-opacity": 0.65,
+      },
+    });
+
+    let hovered = null;
+
+    map.on("mousemove", "tracks-hit", (e) => {
+      if (!e.features.length) return;
+      const id = e.features[0].properties.workout_id;
+      if (id === hovered) return;
+      hovered = id;
+      map.getCanvas().style.cursor = "pointer";
+      map.setPaintProperty("tracks-line", "line-opacity", [
+        "case", ["==", ["get", "workout_id"], hovered], 1, 0.25,
+      ]);
+      map.setPaintProperty("tracks-line", "line-width", [
+        "case", ["==", ["get", "workout_id"], hovered], 4, 2,
+      ]);
+    });
+
+    map.on("mouseleave", "tracks-hit", () => {
+      hovered = null;
+      map.getCanvas().style.cursor = "";
+      map.setPaintProperty("tracks-line", "line-opacity", 0.65);
+      map.setPaintProperty("tracks-line", "line-width", 2.5);
+    });
+
+    map.on("click", "tracks-hit", (e) => {
+      if (e.features.length) window.location.href = "/workouts/" + e.features[0].properties.workout_id;
+    });
+  });
+}
+
+// ── Activity cards (homepage map toggle) ─────────────────────────────────────
+
+function mercatorY(lat) {
+  const r = lat * Math.PI / 180;
+  return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2;
+}
+
+async function drawRouteThumbnail(canvas, coords, color) {
+  const W = canvas.width, H = canvas.height;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#111827';
+  ctx.fillRect(0, 0, W, H);
+  if (!coords || coords.length < 2) return;
+
+  const lngs = coords.map(c => c[0]), lats = coords.map(c => c[1]);
+  const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+  const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+
+  const PAD = 0.18;
+  const lngSpan = (maxLng - minLng) || 0.003;
+  const latSpan = (maxLat - minLat) || 0.003;
+  const pMinLng = minLng - lngSpan * PAD, pMaxLng = maxLng + lngSpan * PAD;
+  const pMinLat = minLat - latSpan * PAD, pMaxLat = maxLat + latSpan * PAD;
+
+  const wxMin = (pMinLng + 180) / 360, wxMax = (pMaxLng + 180) / 360;
+  const wyMin = mercatorY(pMaxLat), wyMax = mercatorY(pMinLat);
+
+  // Uniform scale so routes aren't stretched — same pixels-per-unit in X and Y
+  const wSpan = wxMax - wxMin, hSpan = wyMax - wyMin;
+  const scale = Math.min(W / wSpan, H / hSpan);
+  const offX = (W - wSpan * scale) / 2;
+  const offY = (H - hSpan * scale) / 2;
+
+  const toCanvas = (lng, lat) => [
+    offX + (((lng + 180) / 360) - wxMin) * scale,
+    offY + (mercatorY(lat) - wyMin) * scale,
+  ];
+
+  // Tile range covering the full canvas (not just the route bbox)
+  const canvasWxMin = wxMin - offX / scale, canvasWxMax = canvasWxMin + W / scale;
+  const canvasWyMin = wyMin - offY / scale, canvasWyMax = canvasWyMin + H / scale;
+
+  // Find zoom where route fits in ≤3 tiles on each axis
+  let zoom = 6;
+  for (let z = 14; z >= 6; z--) {
+    const n = 1 << z;
+    if ((Math.floor(wxMax * n) - Math.floor(wxMin * n)) <= 2 &&
+        (Math.floor(wyMax * n) - Math.floor(wyMin * n)) <= 2) {
+      zoom = z; break;
+    }
+  }
+  const n = 1 << zoom;
+  const tx1 = Math.floor(canvasWxMin * n), tx2 = Math.floor(canvasWxMax * n);
+  const ty1 = Math.floor(canvasWyMin * n), ty2 = Math.floor(canvasWyMax * n);
+
+  const cols = tx2 - tx1 + 1;
+  const tiles = await Promise.all(
+    Array.from({ length: cols * (ty2 - ty1 + 1) }, (_, i) => {
+      const tx = tx1 + (i % cols);
+      const ty = ty1 + Math.floor(i / cols);
+      return new Promise(resolve => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => resolve({ tx, ty, img });
+        img.onerror = () => resolve(null);
+        img.src = `https://basemaps.cartocdn.com/dark_nolabels/${zoom}/${tx}/${ty}.png`;
+      });
+    })
+  );
+
+  for (const t of tiles) {
+    if (!t) continue;
+    const { tx, ty, img } = t;
+    const cx1 = offX + (tx / n - wxMin) * scale;
+    const cy1 = offY + (ty / n - wyMin) * scale;
+    const cx2 = offX + ((tx + 1) / n - wxMin) * scale;
+    const cy2 = offY + ((ty + 1) / n - wyMin) * scale;
+    ctx.drawImage(img, cx1, cy1, cx2 - cx1, cy2 - cy1);
+  }
+
+  const pts = coords.map(([lng, lat]) => toCanvas(lng, lat));
+
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  pts.forEach(([x, y], i) => i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
+  ctx.stroke();
+
+  const dot = ([x, y], fill) => {
+    ctx.beginPath();
+    ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = fill;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  };
+  dot(pts[0], '#4ade80');
+  dot(pts[pts.length - 1], '#f87171');
+}
+
+function fmtDurJS(secs) {
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function renderActivityCards(containerId, tracks, workouts) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+
+  const trackMap = {};
+  for (const t of tracks) trackMap[t.workout_id] = t;
+
+  const html = workouts.map((w) => {
+    const track = trackMap[w.id];
+    const color = SPORT_COLORS[w.sport] || "#60a5fa";
+    const dist = IMPERIAL
+      ? (w.distance_meters / 1609.344).toFixed(1) + " mi"
+      : (w.distance_meters / 1000).toFixed(1) + " km";
+    const dur = fmtDurJS(w.duration_secs);
+    const power = w.avg_power_watts ? Math.round(w.avg_power_watts) + " W" : "";
+    const date = new Date(w.recorded_at).toLocaleDateString("en-US", {
+      month: "short", day: "numeric", year: "numeric",
+    });
+    const thumb = track
+      ? `<canvas class="ac-thumb-canvas" data-id="${w.id}" width="240" height="140"></canvas>`
+      : `<span class="sport-badge sport-${w.sport}">${w.sport}</span>`;
+    return `<div class="activity-card" onclick="window.location.href='/workouts/${w.id}'">
+      <div class="ac-thumb">${thumb}</div>
+      <div class="ac-body">
+        <div class="ac-header">
+          <span class="sport-badge sport-${w.sport}">${w.sport}</span>
+          <span class="ac-date">${date}</span>
+        </div>
+        <div class="ac-stats">
+          <span>${dist}</span><span>${dur}</span>${power ? `<span>${power}</span>` : ""}
+        </div>
+      </div>
+    </div>`;
+  }).join("");
+
+  el.innerHTML = `<div class="activity-cards-grid">${html}</div>`;
+
+  el.querySelectorAll('.ac-thumb-canvas').forEach(canvas => {
+    const thumb = canvas.parentElement;
+    canvas.width = thumb.clientWidth || 240;
+    canvas.height = thumb.clientHeight || 140;
+    const track = trackMap[canvas.dataset.id];
+    if (track) drawRouteThumbnail(canvas, track.coords, SPORT_COLORS[track.sport] || "#60a5fa");
+  });
+}
