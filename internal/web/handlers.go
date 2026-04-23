@@ -76,6 +76,7 @@ func NewTemplateHandler(database *db.DB, dev bool, webFS fs.FS) http.Handler {
 	mux.HandleFunc("POST /settings/integrations/intervals/credentials", th.saveIntervalsCredentials)
 	mux.HandleFunc("POST /settings/integrations/intervals/sync-range", th.saveIntervalsSyncRange)
 	mux.HandleFunc("POST /settings/integrations/gdrive/credentials", th.saveIntegrationCredentials("gdrive"))
+	mux.HandleFunc("POST /goals/mileage", th.saveMileageGoal)
 	mux.HandleFunc("GET /calendar", th.calendar)
 	mux.HandleFunc("GET /welcome", th.welcomeGet)
 	mux.HandleFunc("POST /welcome", th.welcomePost)
@@ -203,22 +204,174 @@ func (th *templateHandler) index(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Load mileage goals and build pre-computed view models for all three sports.
+	allGoals, err := th.db.GetAllMileageGoals()
+	if err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+
+	tz := time.UTC
+	if athlete.Timezone != "" {
+		if loc, err := time.LoadLocation(athlete.Timezone); err == nil {
+			tz = loc
+		}
+	}
+
+	type weekDayBar struct {
+		Label     string
+		HeightPct float64
+		IsToday   bool
+	}
+	type sportGoalView struct {
+		Sport            string
+		Active           bool
+		WeeklyGoalMeters float64
+		YearlyGoalMeters float64
+		WeekMeters       float64
+		WeekPct          float64
+		WeekDays         [7]weekDayBar
+		YearMeters       float64
+		YearPct          float64
+		YearPacePct      float64 // 0-100: where the "today" tick sits on the year bar
+		AheadOfPace      bool
+		PaceDiffMeters   float64
+	}
+
+	activeSport := r.URL.Query().Get("goal_sport")
+	switch activeSport {
+	case "cycling", "running", "swimming":
+	default:
+		activeSport = "cycling"
+	}
+
+	now := time.Now().In(tz)
+	weekday := int(now.Weekday())
+	if weekday == 0 {
+		weekday = 7
+	}
+	todayIdx := weekday - 1 // Mon=0 … Sun=6
+
+	todayDate := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, tz)
+	weekStart := todayDate.AddDate(0, 0, -todayIdx)
+	yearStart := time.Date(now.Year(), 1, 1, 0, 0, 0, 0, tz)
+
+	weekSummary, _ := th.db.GetPeriodSummary(weekStart)
+	yearSummary, _ := th.db.GetPeriodSummary(yearStart)
+	todayFitness, _ := th.db.GetFitnessOnDate(now)
+
+	// Streak widget: which days this week had any workout.
+	activityDays, _ := th.db.GetWeekActivityDays(weekStart, tz)
+	type streakDay struct {
+		Label   string
+		Active  bool
+		IsToday bool
+	}
+	dayLabels := [7]string{"M", "T", "W", "T", "F", "S", "S"}
+	var streakDays [7]streakDay
+	activeCount := 0
+	for i := 0; i < 7; i++ {
+		streakDays[i] = streakDay{Label: dayLabels[i], Active: activityDays[i], IsToday: i == todayIdx}
+		if activityDays[i] {
+			activeCount++
+		}
+	}
+
+	dayOfYear := now.YearDay()
+	daysInYear := 365
+	if now.Year()%4 == 0 && (now.Year()%100 != 0 || now.Year()%400 == 0) {
+		daysInYear = 366
+	}
+	yearPacePct := float64(dayOfYear) / float64(daysInYear) * 100
+
+	var goalViews []sportGoalView
+	for _, s := range []string{"cycling", "running", "swimming"} {
+		g := allGoals[s]
+		g.Sport = s
+		prog, _ := th.db.GetMileageProgress(s, tz)
+
+		maxDay := 0.0
+		for _, d := range prog.WeekDayMeters {
+			if d > maxDay {
+				maxDay = d
+			}
+		}
+		var days [7]weekDayBar
+		for i := 0; i < 7; i++ {
+			pct := 0.0
+			if maxDay > 0 {
+				pct = prog.WeekDayMeters[i] / maxDay * 100
+			}
+			days[i] = weekDayBar{Label: dayLabels[i], HeightPct: pct, IsToday: i == todayIdx}
+		}
+
+		clamp := func(v float64) float64 {
+			if v > 100 {
+				return 100
+			}
+			return v
+		}
+		weekPct := 0.0
+		if g.WeeklyMeters > 0 {
+			weekPct = clamp(prog.WeekMeters / g.WeeklyMeters * 100)
+		}
+		yearPct := 0.0
+		if g.YearlyMeters > 0 {
+			yearPct = clamp(prog.YearMeters / g.YearlyMeters * 100)
+		}
+
+		aheadOfPace := false
+		paceDiff := 0.0
+		if g.YearlyMeters > 0 {
+			expected := g.YearlyMeters * float64(dayOfYear) / float64(daysInYear)
+			diff := prog.YearMeters - expected
+			if diff >= 0 {
+				aheadOfPace = true
+				paceDiff = diff
+			} else {
+				paceDiff = -diff
+			}
+		}
+
+		goalViews = append(goalViews, sportGoalView{
+			Sport:            s,
+			Active:           s == activeSport,
+			WeeklyGoalMeters: g.WeeklyMeters,
+			YearlyGoalMeters: g.YearlyMeters,
+			WeekMeters:       prog.WeekMeters,
+			WeekPct:          weekPct,
+			WeekDays:         days,
+			YearMeters:       prog.YearMeters,
+			YearPct:          yearPct,
+			YearPacePct:      yearPacePct,
+			AheadOfPace:      aheadOfPace,
+			PaceDiffMeters:   paceDiff,
+		})
+	}
+
 	renderTemplate(w, th.templates().index, "base", map[string]any{
-		"Workouts":          workouts,
-		"Fitness":           user_fitness,
-		"Imperial":          th.isImperial(),
-		"Page":              page,
-		"TotalPages":        totalPages,
-		"HasPrev":           page > 1,
-		"HasNext":           page < totalPages,
-		"PrevPage":          page - 1,
-		"NextPage":          page + 1,
-		"ShowPagination":    totalPages > 1,
-		"FTPIsDefault":      !hasFTPHistory,
-		"FTPWatts":          athlete.FTPWatts,
-		"Sort":              sortKey,
-		"Dir":               sortDir,
-		"TypeFilter":        typeFilter,
+		"Workouts":        workouts,
+		"Fitness":         user_fitness,
+		"Imperial":        th.isImperial(),
+		"Page":            page,
+		"TotalPages":      totalPages,
+		"HasPrev":         page > 1,
+		"HasNext":         page < totalPages,
+		"PrevPage":        page - 1,
+		"NextPage":        page + 1,
+		"ShowPagination":  totalPages > 1,
+		"FTPIsDefault":    !hasFTPHistory,
+		"FTPWatts":        athlete.FTPWatts,
+		"Sort":            sortKey,
+		"Dir":             sortDir,
+		"TypeFilter":      typeFilter,
+		"GoalViews":       goalViews,
+		"ActiveGoalSport": activeSport,
+		"WeekSummary":     weekSummary,
+		"YearSummary":     yearSummary,
+		"TodayFitness":    todayFitness,
+		"StreakDays":      streakDays,
+		"StreakActive":    activeCount,
 	})
 }
 
@@ -491,6 +644,40 @@ func (th *templateHandler) welcomeSkip(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func (th *templateHandler) saveMileageGoal(w http.ResponseWriter, r *http.Request) {
+	sport := r.FormValue("sport")
+	switch sport {
+	case "cycling", "running", "swimming":
+	default:
+		http.Error(w, "invalid sport", http.StatusBadRequest)
+		return
+	}
+
+	weeklyDisplay, err := strconv.ParseFloat(r.FormValue("weekly"), 64)
+	if err != nil || weeklyDisplay < 0 {
+		weeklyDisplay = 0
+	}
+	yearlyDisplay, err := strconv.ParseFloat(r.FormValue("yearly"), 64)
+	if err != nil || yearlyDisplay < 0 {
+		yearlyDisplay = 0
+	}
+
+	var weeklyMeters, yearlyMeters float64
+	if th.isImperial() {
+		weeklyMeters = weeklyDisplay * 1609.344
+		yearlyMeters = yearlyDisplay * 1609.344
+	} else {
+		weeklyMeters = weeklyDisplay * 1000
+		yearlyMeters = yearlyDisplay * 1000
+	}
+
+	if err := th.db.SaveMileageGoal(sport, weeklyMeters, yearlyMeters); err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/?goal_sport="+sport, http.StatusSeeOther)
 }
 
 func resolveHRZones(a *models.Athlete) []models.HRZone {

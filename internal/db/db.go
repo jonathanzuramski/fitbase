@@ -705,21 +705,27 @@ func (db *DB) GetFTPAtDate(t time.Time) int {
 
 // ── Training load ─────────────────────────────────────────────────────────────
 
-// GetFitnessOnDate returns the Fitness/Fatigue/Form values as of a specific date,
-// looking back 180 days to build an accurate exponential moving average.
+// GetFitnessOnDate returns the Fitness/Fatigue/Form values as of a specific date.
+// Uses the same 270-day lookback as the dashboard chart (90-day display + 180-day
+// warmup) so the EMA starting conditions are identical and the values match.
 func (db *DB) GetFitnessOnDate(date time.Time) (models.FitnessPoint, error) {
 	target := date.UTC().Truncate(24 * time.Hour)
 	today := time.Now().UTC().Truncate(24 * time.Hour)
-	// How many days from target to today, so we can slice the shared history.
 	daysAgo := max(int(today.Sub(target).Hours()/24), 0)
-	points, err := db.getFitnessHistory(daysAgo, 0)
+	// Request daysAgo+90 days so the total lookback matches the chart (270 days).
+	// The target date lands at index 90 from the oldest point returned.
+	points, err := db.getFitnessHistory(daysAgo+90, 0)
 	if err != nil {
 		return models.FitnessPoint{}, err
 	}
 	if len(points) == 0 {
 		return models.FitnessPoint{}, nil
 	}
-	return points[0], nil
+	// points is oldest-first; index 90 is the target date.
+	if len(points) <= 90 {
+		return points[0], nil
+	}
+	return points[90], nil
 }
 
 // GetFitnessHistory returns daily Fitness/Fatigue/Form for the last n days.
@@ -1006,6 +1012,167 @@ func (db *DB) SetSyncOldest(name, oldest string) error {
 		ON CONFLICT(name) DO UPDATE SET sync_oldest=excluded.sync_oldest`,
 		name, oldest)
 	return err
+}
+
+// ── Period summary ────────────────────────────────────────────────────────────
+
+// PeriodSummary holds aggregate training totals across all sports for a date range.
+type PeriodSummary struct {
+	DurationSecs int
+	TSS          float64
+}
+
+// GetWeekActivityDays returns a 7-element array (Mon=0 … Sun=6) where each
+// entry is true if any workout was recorded on that day of the ISO week.
+func (db *DB) GetWeekActivityDays(weekStart time.Time, tz *time.Location) ([7]bool, error) {
+	var days [7]bool
+	weekEnd := weekStart.AddDate(0, 0, 7)
+	rows, err := db.Query(`
+		SELECT DISTINCT date(recorded_at) FROM workouts
+		WHERE recorded_at >= ? AND recorded_at < ?`,
+		weekStart.UTC().Format(time.RFC3339),
+		weekEnd.UTC().Format(time.RFC3339),
+	)
+	if err != nil {
+		return days, err
+	}
+	defer rows.Close() //nolint:errcheck
+	for rows.Next() {
+		var dayStr string
+		if err := rows.Scan(&dayStr); err != nil {
+			return days, err
+		}
+		t, err := time.ParseInLocation("2006-01-02", dayStr, tz)
+		if err != nil {
+			continue
+		}
+		wd := int(t.Weekday())
+		if wd == 0 {
+			wd = 7
+		}
+		days[wd-1] = true
+	}
+	return days, rows.Err()
+}
+
+// GetPeriodSummary returns the total duration and TSS across all sports since
+// the given UTC time.
+func (db *DB) GetPeriodSummary(since time.Time) (PeriodSummary, error) {
+	var s PeriodSummary
+	err := db.QueryRow(`
+		SELECT COALESCE(SUM(duration_secs), 0),
+		       COALESCE(SUM(tss), 0)
+		FROM workouts
+		WHERE recorded_at >= ?`, since.UTC().Format(time.RFC3339),
+	).Scan(&s.DurationSecs, &s.TSS)
+	return s, err
+}
+
+// ── Mileage goals ─────────────────────────────────────────────────────────────
+
+// MileageGoal holds the weekly/yearly targets for a single sport.
+type MileageGoal struct {
+	Sport        string
+	WeeklyMeters float64
+	YearlyMeters float64
+}
+
+// GetAllMileageGoals returns the stored goals for all three supported sports.
+func (db *DB) GetAllMileageGoals() (map[string]MileageGoal, error) {
+	rows, err := db.Query(`SELECT sport, weekly_meters, yearly_meters FROM mileage_goals`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close() //nolint:errcheck
+	goals := map[string]MileageGoal{}
+	for rows.Next() {
+		var g MileageGoal
+		if err := rows.Scan(&g.Sport, &g.WeeklyMeters, &g.YearlyMeters); err != nil {
+			return nil, err
+		}
+		goals[g.Sport] = g
+	}
+	return goals, rows.Err()
+}
+
+// SaveMileageGoal upserts the weekly/yearly goal for a sport.
+func (db *DB) SaveMileageGoal(sport string, weeklyMeters, yearlyMeters float64) error {
+	_, err := db.Exec(`
+		INSERT INTO mileage_goals (sport, weekly_meters, yearly_meters)
+		VALUES (?, ?, ?)
+		ON CONFLICT(sport) DO UPDATE SET
+			weekly_meters = excluded.weekly_meters,
+			yearly_meters = excluded.yearly_meters,
+			updated_at    = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')`,
+		sport, weeklyMeters, yearlyMeters,
+	)
+	return err
+}
+
+// MileageProgress holds week and year distance totals for one sport, plus a
+// per-day breakdown of the current ISO week for the bar chart.
+type MileageProgress struct {
+	WeekMeters    float64
+	WeekDayMeters [7]float64 // Mon=0 … Sun=6
+	YearMeters    float64
+}
+
+// GetMileageProgress returns distance totals for the given sport for the
+// current ISO week (with per-day breakdown) and year-to-date.
+func (db *DB) GetMileageProgress(sport string, tz *time.Location) (MileageProgress, error) {
+	var p MileageProgress
+	now := time.Now().In(tz)
+
+	weekday := int(now.Weekday()) // 0=Sun … 6=Sat in Go; shift to ISO Mon=1 … Sun=7
+	if weekday == 0 {
+		weekday = 7
+	}
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, tz)
+	weekStart := today.AddDate(0, 0, -(weekday - 1))
+	weekEnd := weekStart.AddDate(0, 0, 7)
+	yearStart := time.Date(now.Year(), 1, 1, 0, 0, 0, 0, tz)
+
+	rows, err := db.Query(`
+		SELECT date(recorded_at) AS day,
+		       COALESCE(SUM(distance_meters), 0)
+		FROM workouts
+		WHERE sport = ? AND recorded_at >= ? AND recorded_at < ?
+		GROUP BY day`,
+		sport,
+		weekStart.UTC().Format(time.RFC3339),
+		weekEnd.UTC().Format(time.RFC3339),
+	)
+	if err != nil {
+		return p, err
+	}
+	defer rows.Close() //nolint:errcheck
+
+	for rows.Next() {
+		var dayStr string
+		var dist float64
+		if err := rows.Scan(&dayStr, &dist); err != nil {
+			return p, err
+		}
+		t, err := time.ParseInLocation("2006-01-02", dayStr, tz)
+		if err != nil {
+			continue
+		}
+		wd := int(t.Weekday())
+		if wd == 0 {
+			wd = 7
+		}
+		p.WeekDayMeters[wd-1] = dist
+		p.WeekMeters += dist
+	}
+	if err := rows.Err(); err != nil {
+		return p, err
+	}
+
+	err = db.QueryRow(
+		`SELECT COALESCE(SUM(distance_meters), 0) FROM workouts WHERE sport = ? AND recorded_at >= ?`,
+		sport, yearStart.UTC().Format(time.RFC3339),
+	).Scan(&p.YearMeters)
+	return p, err
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

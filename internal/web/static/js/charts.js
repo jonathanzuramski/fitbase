@@ -927,7 +927,7 @@ function renderPowerCurveLine(containerId, data, ftp, allTimeCurve) {
 // ── Route map ────────────────────────────────────────────────────────────────
 
 function renderRouteMap(containerId, streams, ftp, lthr) {
-  if (typeof L === "undefined") return;
+  if (typeof maplibregl === "undefined") return;
   const el = document.getElementById(containerId);
   if (!el) return;
 
@@ -937,57 +937,140 @@ function renderRouteMap(containerId, streams, ftp, lthr) {
     return;
   }
 
-  const map = L.map(el, { scrollWheelZoom: false });
-
-  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-    attribution: '© <a href="https://www.openstreetmap.org/copyright">OSM</a> © <a href="https://carto.com/">CARTO</a>',
-    maxZoom: 19,
-  }).addTo(map);
-
-  // Color route by power zone, HR zone, or solid blue — whichever is available.
-  const hasPower = ftp > 0 && streams.some((s) => s.power_watts != null);
-  const hasHR = lthr > 0 && streams.some((s) => s.heart_rate_bpm != null);
-  const colorFn = hasPower
-    ? (s) => getPowerZoneColor(s.power_watts, ftp)
-    : hasHR
-      ? (s) => getHRZoneColor(s.heart_rate_bpm, lthr)
-      : () => "#3b82f6";
-
-  // Group consecutive same-color points into single polylines to keep the
-  // Leaflet object count low (one segment per zone change, not per second).
-  let curColor = null,
-    curPts = [];
-  function flush() {
-    if (curPts.length >= 2) L.polyline(curPts, { color: curColor, weight: 4, opacity: 0.85 }).addTo(map);
+  // Compute bounds from all GPS points
+  let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
+  for (const s of gps) {
+    if (s.lat < minLat) minLat = s.lat;
+    if (s.lat > maxLat) maxLat = s.lat;
+    if (s.lng < minLng) minLng = s.lng;
+    if (s.lng > maxLng) maxLng = s.lng;
   }
+  const centerLat = (minLat + maxLat) / 2;
+  const centerLng = (minLng + maxLng) / 2;
 
-  for (const s of streams) {
-    if (s.lat == null || s.lng == null) {
-      flush();
+  const map = new maplibregl.Map({
+    container: el,
+    style: "https://tiles.openfreemap.org/styles/liberty",
+    center: [centerLng, centerLat],
+    zoom: 12,
+    scrollZoom: true,
+    touchZoomRotate: true,
+    attributionControl: false,
+  });
+
+  // Add navigation controls (zoom buttons + compass)
+  map.addControl(new maplibregl.NavigationControl(), "top-right");
+
+  // Add attribution control
+  map.addControl(new maplibregl.AttributionControl({ compact: false }), "bottom-right");
+
+  map.on("load", () => {
+    // Color route by power zone, HR zone, or solid blue — whichever is available.
+    const hasPower = ftp > 0 && streams.some((s) => s.power_watts != null);
+    const hasHR = lthr > 0 && streams.some((s) => s.heart_rate_bpm != null);
+    const colorFn = hasPower
+      ? (s) => getPowerZoneColor(s.power_watts, ftp)
+      : hasHR
+        ? (s) => getHRZoneColor(s.heart_rate_bpm, lthr)
+        : () => "#3b82f6";
+
+    // Group consecutive same-color points into single GeoJSON features.
+    // (one segment per zone change, not per second).
+    const features = [];
+    let curColor = null,
       curPts = [];
-      curColor = null;
-      continue;
-    }
-    const color = colorFn(s);
-    if (color !== curColor) {
-      if (curPts.length) {
-        curPts.push([s.lat, s.lng]);
-        flush();
-        curPts = [[s.lat, s.lng]];
+
+    function flush() {
+      if (curPts.length >= 2) {
+        features.push({
+          type: "Feature",
+          geometry: {
+            type: "LineString",
+            coordinates: curPts.map((pt) => [pt[1], pt[0]]), // [lng, lat]
+          },
+          properties: { color: curColor },
+        });
       }
-      curColor = color;
     }
-    curPts.push([s.lat, s.lng]);
-  }
-  flush();
 
-  // Start (green) and finish (red) markers.
-  const dot = (latlng, fill) =>
-    L.circleMarker(latlng, { radius: 6, fillColor: fill, color: "#fff", weight: 2, fillOpacity: 1 });
-  dot([gps[0].lat, gps[0].lng], "#22c55e").bindTooltip("start").addTo(map);
-  dot([gps[gps.length - 1].lat, gps[gps.length - 1].lng], "#ef4444")
-    .bindTooltip("finish")
-    .addTo(map);
+    for (const s of streams) {
+      if (s.lat == null || s.lng == null) {
+        flush();
+        curPts = [];
+        curColor = null;
+        continue;
+      }
+      const color = colorFn(s);
+      if (color !== curColor) {
+        if (curPts.length) {
+          curPts.push([s.lat, s.lng]);
+          flush();
+          curPts = [[s.lat, s.lng]];
+        }
+        curColor = color;
+      }
+      curPts.push([s.lat, s.lng]);
+    }
+    flush();
 
-  map.fitBounds(L.latLngBounds(gps.map((s) => [s.lat, s.lng])), { padding: [24, 24] });
+    // Add route source and layers (one layer per unique color to avoid re-rendering)
+    const geojson = {
+      type: "FeatureCollection",
+      features,
+    };
+
+    map.addSource("route", {
+      type: "geojson",
+      data: geojson,
+    });
+
+    map.addLayer({
+      id: "route",
+      type: "line",
+      source: "route",
+      layout: {
+        "line-cap": "round",
+        "line-join": "round",
+      },
+      paint: {
+        "line-color": ["get", "color"],
+        "line-width": 5,
+        "line-opacity": 0.9,
+      },
+    });
+
+    // Add markers for start and finish
+    const startMarker = document.createElement("div");
+    startMarker.style.width = "12px";
+    startMarker.style.height = "12px";
+    startMarker.style.borderRadius = "50%";
+    startMarker.style.backgroundColor = "#22c55e";
+    startMarker.style.border = "2px solid white";
+    startMarker.style.boxShadow = "0 0 4px rgba(0,0,0,0.5)";
+
+    new maplibregl.Marker({ element: startMarker })
+      .setLngLat([gps[0].lng, gps[0].lat])
+      .setPopup(new maplibregl.Popup({ offset: 25 }).setText("start"))
+      .addTo(map);
+
+    const finishMarker = document.createElement("div");
+    finishMarker.style.width = "12px";
+    finishMarker.style.height = "12px";
+    finishMarker.style.borderRadius = "50%";
+    finishMarker.style.backgroundColor = "#ef4444";
+    finishMarker.style.border = "2px solid white";
+    finishMarker.style.boxShadow = "0 0 4px rgba(0,0,0,0.5)";
+
+    new maplibregl.Marker({ element: finishMarker })
+      .setLngLat([gps[gps.length - 1].lng, gps[gps.length - 1].lat])
+      .setPopup(new maplibregl.Popup({ offset: 25 }).setText("finish"))
+      .addTo(map);
+
+    // Fit to bounds with padding
+    const bounds = [
+      [minLng, minLat],
+      [maxLng, maxLat],
+    ];
+    map.fitBounds(bounds, { padding: 40 });
+  });
 }

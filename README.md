@@ -361,6 +361,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for architecture notes, code style, and h
 - [ ] **Mobile UI polish** — calendar sizing, graph rendering, metrics layout
 - [ ] **Calendar mini power graph** — sparkline-style power curve in each calendar day cell
 - [ ] **Planned workouts & projected fitness** — create future workouts with target duration/TSS, see projected fitness trend for the week
+- [ ] **User Heatmaps** - create a overall map view that shows heatmaps for the places you ride the most!
+- [x] **Mileage Goals** - allow users to create mileage goals. 
 
 ---
 

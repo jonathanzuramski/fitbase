@@ -233,18 +233,18 @@
 
 /* ── Route map ────────────────────────────────────────── */
 .route-map {
-  height: 360px;
+  height: 640px;
   border-radius: 6px;
   overflow: hidden;
   position: relative;
   z-index: 0;
 }
 
-.route-map .leaflet-control-attribution {
+.route-map .maplibregl-ctrl-attrib {
   background: rgba(15, 17, 23, 0.75);
   color: var(--text-muted);
   font-size: 10px;
 }
-.route-map .leaflet-control-attribution a {
+.route-map .maplibregl-ctrl-attrib a {
   color: var(--text-muted);
 }

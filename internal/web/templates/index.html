@@ -42,6 +42,121 @@
 </div>
 {{end}}
 
+{{$imperial := .Imperial}}
+
+<div class="home-layout">
+
+<aside class="home-sidebar">
+
+<!-- ── This Week / Streak ────────────────────────────────────────────────── -->
+<section class="card streak-card">
+  <div class="streak-header">
+    <h3 class="streak-title">this week</h3>
+    <span class="streak-count">{{.StreakActive}} / 7</span>
+  </div>
+  <div class="streak-grid">
+    {{range .StreakDays}}
+    <div class="streak-day{{if .IsToday}} today{{end}}{{if .Active}} active{{end}}">
+      <div class="streak-dot"></div>
+      <div class="streak-lbl">{{.Label}}</div>
+    </div>
+    {{end}}
+  </div>
+</section>
+
+<!-- ── Mileage Goals ─────────────────────────────────────────────────────── -->
+<section class="card goal-card">
+  <h2 class="card-title">mileage goals</h2>
+  <div class="filter-tabs goal-sport-tabs">
+    {{range .GoalViews}}
+    <button class="filter-tab goal-sport-tab{{if .Active}} active{{end}}" data-sport="{{.Sport}}">{{.Sport}}</button>
+    {{end}}
+  </div>
+
+  {{range .GoalViews}}
+  <div class="goal-sport-panel{{if .Active}} active{{end}}" data-sport="{{.Sport}}">
+    <div class="goal-section">
+      <div class="goal-section-label">this week</div>
+      <div class="goal-distance-row">
+        <span class="goal-distance-val">{{formatDistance .WeekMeters $imperial}}</span>
+        {{if gt .WeeklyGoalMeters 0.0}}<span class="goal-distance-sep"> / </span><span class="goal-distance-target">{{formatDistance .WeeklyGoalMeters $imperial}}</span>{{end}}
+      </div>
+      <div class="goal-week-chart">
+        {{range .WeekDays}}
+        <div class="goal-day-col{{if .IsToday}} today{{end}}">
+          <div class="goal-bar-wrap"><div class="goal-bar" style="height:{{formatFloat1 .HeightPct}}%"></div></div>
+          <div class="goal-day-label">{{.Label}}</div>
+        </div>
+        {{end}}
+      </div>
+    </div>
+    <div class="goal-divider"></div>
+    <div class="goal-section">
+      <div class="goal-section-label">this year</div>
+      <div class="goal-distance-row">
+        <span class="goal-distance-val">{{formatDistance .YearMeters $imperial}}</span>
+        {{if gt .YearlyGoalMeters 0.0}}<span class="goal-distance-sep"> / </span><span class="goal-distance-target">{{formatDistance .YearlyGoalMeters $imperial}}</span>{{end}}
+      </div>
+      {{if gt .YearlyGoalMeters 0.0}}
+      <div class="goal-year-track-wrap">
+        <div class="goal-year-track"><div class="goal-year-bar sport-{{.Sport}}" style="width:{{formatFloat1 .YearPct}}%"></div></div>
+        <div class="goal-pace-anchor" style="left:{{formatFloat1 .YearPacePct}}%">
+          <div class="goal-pace-tick"></div>
+          <div class="goal-pace-today-label">today</div>
+        </div>
+      </div>
+      <div class="goal-pace-diff{{if .AheadOfPace}} ahead{{end}}">{{formatDistance .PaceDiffMeters $imperial}} {{if .AheadOfPace}}ahead of{{else}}behind{{end}} pace</div>
+      {{end}}
+    </div>
+    <button class="goal-manage-btn" data-sport="{{.Sport}}">manage goals →</button>
+  </div>
+  {{end}}
+
+  {{range .GoalViews}}
+  <form class="goal-edit-form" action="/goals/mileage" method="POST" data-sport="{{.Sport}}" hidden>
+    <p class="goal-edit-title">goals — {{.Sport}}</p>
+    <input type="hidden" name="sport" value="{{.Sport}}">
+    <div class="goal-inputs">
+      <label class="goal-input-label">
+        weekly ({{if $imperial}}mi{{else}}km{{end}})
+        <input type="number" name="weekly" step="0.1" min="0" value="{{goalDisplayDist .WeeklyGoalMeters $imperial}}">
+      </label>
+      <label class="goal-input-label">
+        yearly ({{if $imperial}}mi{{else}}km{{end}})
+        <input type="number" name="yearly" step="1" min="0" value="{{goalDisplayDist .YearlyGoalMeters $imperial}}">
+      </label>
+    </div>
+    <div class="goal-form-actions">
+      <button type="submit" class="goal-save-btn">save</button>
+      <button type="button" class="goal-cancel-btn">cancel</button>
+    </div>
+  </form>
+  {{end}}
+</section>
+
+<!-- ── Training Load (compact, sidebar) ──────────────────────────────────── -->
+<section class="card">
+  <h3 class="card-title">training load</h3>
+  {{if .TodayFitness}}
+  <div class="load-ctf-row">
+    <div class="load-ctf-item"><div class="load-ctf-val ctl-color">{{formatFloat1 .TodayFitness.Fitness}}</div><div class="load-ctf-lbl">fitness</div></div>
+    <div class="load-ctf-item"><div class="load-ctf-val atl-color">{{formatFloat1 .TodayFitness.Fatigue}}</div><div class="load-ctf-lbl">fatigue</div></div>
+    <div class="load-ctf-item"><div class="load-ctf-val {{tsbClass .TodayFitness.Form}}">{{formatFloat1 .TodayFitness.Form}}</div><div class="load-ctf-lbl">form</div></div>
+  </div>
+  <div class="goal-divider"></div>
+  {{end}}
+  <div class="stat-table">
+    <span></span><span class="stat-th">week</span><span class="stat-th">year</span>
+    <span class="stat-lbl">TSS</span><span class="stat-td">{{formatFloat1 .WeekSummary.TSS}}</span><span class="stat-td">{{formatFloat1 .YearSummary.TSS}}</span>
+    <span class="stat-lbl">time</span><span class="stat-td">{{formatDuration .WeekSummary.DurationSecs}}</span><span class="stat-td">{{formatDuration .YearSummary.DurationSecs}}</span>
+  </div>
+</section>
+
+</aside>{{/* end .home-sidebar */}}
+
+<main class="home-main">
+
+<!-- ── Fitness chart ─────────────────────────────────────────────────────── -->
 {{if .Fitness}}
 <section class="card">
   <h2 class="card-title">fitness <span class="muted">fitness / fatigue / form — 90 days</span></h2>
@@ -146,6 +261,10 @@
   </div>
   {{end}}
 </section>
+
+</main>{{/* end .home-main */}}
+
+</div>{{/* end .home-layout */}}
 {{end}}
 
 {{define "scripts"}}
@@ -249,6 +368,42 @@
       alert('Delete failed.');
     }
   }
+
+  // ── Mileage goals card ──────────────────────────────────────────────────────
+  (function() {
+    const tabs       = document.querySelectorAll('.goal-sport-tab');
+    const panels     = document.querySelectorAll('.goal-sport-panel');
+    const editForms  = document.querySelectorAll('.goal-edit-form');
+    const manageBtns = document.querySelectorAll('.goal-manage-btn');
+
+    let activeSport = document.querySelector('.goal-sport-tab.active')?.dataset.sport || 'cycling';
+    let editing = false;
+
+    function showSport(sport) {
+      activeSport = sport;
+      tabs.forEach(t => t.classList.toggle('active', t.dataset.sport === sport));
+      panels.forEach(p => p.classList.toggle('active', p.dataset.sport === sport));
+    }
+
+    function enterEdit(sport) {
+      editing = true;
+      activeSport = sport;
+      panels.forEach(p => { p.classList.remove('active'); });
+      editForms.forEach(f => { f.hidden = f.dataset.sport !== sport; });
+    }
+
+    function exitEdit() {
+      editing = false;
+      editForms.forEach(f => { f.hidden = true; });
+      panels.forEach(p => { p.classList.toggle('active', p.dataset.sport === activeSport); });
+    }
+
+    tabs.forEach(t => t.addEventListener('click', () => {
+      if (!editing) showSport(t.dataset.sport);
+    }));
+    manageBtns.forEach(b => b.addEventListener('click', () => enterEdit(b.dataset.sport)));
+    document.querySelectorAll('.goal-cancel-btn').forEach(b => b.addEventListener('click', exitEdit));
+  })();
 
   // ── Fitness chart ───────────────────────────────────────────────────────────
   const fitnessData = {{.Fitness | toJSON}};
