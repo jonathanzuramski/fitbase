@@ -32,6 +32,8 @@ var FuncMap = template.FuncMap{
 	"formatFloat1":    func(v float64) string { return fmt.Sprintf("%.1f", v) },
 	"not":             func(b bool) bool { return !b },
 	"add1":            func(i int) int { return i + 1 },
+	"goalDisplayDist": goalDisplayDist,
+	"tsbClass":        tsbClass,
 }
 
 // sortURL returns the href for a sortable column header, preserving the active type filter.
@@ -179,6 +181,26 @@ func hasGPS(streams []models.Stream) bool {
 		}
 	}
 	return false
+}
+
+func tsbClass(tsb float64) string {
+	switch {
+	case tsb > 5:
+		return "tsb-fresh"
+	case tsb >= -10:
+		return "tsb-optimal"
+	case tsb >= -30:
+		return "tsb-productive"
+	default:
+		return "tsb-overreach"
+	}
+}
+
+func goalDisplayDist(meters float64, imperial bool) string {
+	if imperial {
+		return fmt.Sprintf("%.1f", meters/1609.344)
+	}
+	return fmt.Sprintf("%.1f", meters/1000.0)
 }
 
 func toJSON(v any) template.JS {

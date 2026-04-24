@@ -927,7 +927,7 @@ function renderPowerCurveLine(containerId, data, ftp, allTimeCurve) {
 // ── Route map ────────────────────────────────────────────────────────────────
 
 function renderRouteMap(containerId, streams, ftp, lthr) {
-  if (typeof L === "undefined") return;
+  if (typeof maplibregl === "undefined") return;
   const el = document.getElementById(containerId);
   if (!el) return;
 
@@ -937,57 +937,427 @@ function renderRouteMap(containerId, streams, ftp, lthr) {
     return;
   }
 
-  const map = L.map(el, { scrollWheelZoom: false });
-
-  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-    attribution: '© <a href="https://www.openstreetmap.org/copyright">OSM</a> © <a href="https://carto.com/">CARTO</a>',
-    maxZoom: 19,
-  }).addTo(map);
-
-  // Color route by power zone, HR zone, or solid blue — whichever is available.
-  const hasPower = ftp > 0 && streams.some((s) => s.power_watts != null);
-  const hasHR = lthr > 0 && streams.some((s) => s.heart_rate_bpm != null);
-  const colorFn = hasPower
-    ? (s) => getPowerZoneColor(s.power_watts, ftp)
-    : hasHR
-      ? (s) => getHRZoneColor(s.heart_rate_bpm, lthr)
-      : () => "#3b82f6";
-
-  // Group consecutive same-color points into single polylines to keep the
-  // Leaflet object count low (one segment per zone change, not per second).
-  let curColor = null,
-    curPts = [];
-  function flush() {
-    if (curPts.length >= 2) L.polyline(curPts, { color: curColor, weight: 4, opacity: 0.85 }).addTo(map);
+  // Compute bounds from all GPS points
+  let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
+  for (const s of gps) {
+    if (s.lat < minLat) minLat = s.lat;
+    if (s.lat > maxLat) maxLat = s.lat;
+    if (s.lng < minLng) minLng = s.lng;
+    if (s.lng > maxLng) maxLng = s.lng;
   }
+  const centerLat = (minLat + maxLat) / 2;
+  const centerLng = (minLng + maxLng) / 2;
 
-  for (const s of streams) {
-    if (s.lat == null || s.lng == null) {
-      flush();
+  const map = new maplibregl.Map({
+    container: el,
+    style: "https://tiles.openfreemap.org/styles/liberty",
+    center: [centerLng, centerLat],
+    zoom: 12,
+    scrollZoom: true,
+    touchZoomRotate: true,
+    attributionControl: false,
+  });
+
+  // Add navigation controls (zoom buttons + compass)
+  map.addControl(new maplibregl.NavigationControl(), "top-right");
+
+  // Add attribution control
+  map.addControl(new maplibregl.AttributionControl({ compact: false }), "bottom-right");
+
+  map.on("load", () => {
+    // Color route by power zone, HR zone, or solid blue — whichever is available.
+    const hasPower = ftp > 0 && streams.some((s) => s.power_watts != null);
+    const hasHR = lthr > 0 && streams.some((s) => s.heart_rate_bpm != null);
+    const colorFn = hasPower
+      ? (s) => getPowerZoneColor(s.power_watts, ftp)
+      : hasHR
+        ? (s) => getHRZoneColor(s.heart_rate_bpm, lthr)
+        : () => "#3b82f6";
+
+    // Group consecutive same-color points into single GeoJSON features.
+    // (one segment per zone change, not per second).
+    const features = [];
+    let curColor = null,
       curPts = [];
-      curColor = null;
-      continue;
-    }
-    const color = colorFn(s);
-    if (color !== curColor) {
-      if (curPts.length) {
-        curPts.push([s.lat, s.lng]);
-        flush();
-        curPts = [[s.lat, s.lng]];
+
+    function flush() {
+      if (curPts.length >= 2) {
+        features.push({
+          type: "Feature",
+          geometry: {
+            type: "LineString",
+            coordinates: curPts.map((pt) => [pt[1], pt[0]]), // [lng, lat]
+          },
+          properties: { color: curColor },
+        });
       }
-      curColor = color;
     }
-    curPts.push([s.lat, s.lng]);
+
+    for (const s of streams) {
+      if (s.lat == null || s.lng == null) {
+        flush();
+        curPts = [];
+        curColor = null;
+        continue;
+      }
+      const color = colorFn(s);
+      if (color !== curColor) {
+        if (curPts.length) {
+          curPts.push([s.lat, s.lng]);
+          flush();
+          curPts = [[s.lat, s.lng]];
+        }
+        curColor = color;
+      }
+      curPts.push([s.lat, s.lng]);
+    }
+    flush();
+
+    // Add route source and layers (one layer per unique color to avoid re-rendering)
+    const geojson = {
+      type: "FeatureCollection",
+      features,
+    };
+
+    map.addSource("route", {
+      type: "geojson",
+      data: geojson,
+    });
+
+    map.addLayer({
+      id: "route",
+      type: "line",
+      source: "route",
+      layout: {
+        "line-cap": "round",
+        "line-join": "round",
+      },
+      paint: {
+        "line-color": ["get", "color"],
+        "line-width": 5,
+        "line-opacity": 0.9,
+      },
+    });
+
+    // Add markers for start and finish
+    const startMarker = document.createElement("div");
+    startMarker.style.width = "12px";
+    startMarker.style.height = "12px";
+    startMarker.style.borderRadius = "50%";
+    startMarker.style.backgroundColor = "#22c55e";
+    startMarker.style.border = "2px solid white";
+    startMarker.style.boxShadow = "0 0 4px rgba(0,0,0,0.5)";
+
+    new maplibregl.Marker({ element: startMarker })
+      .setLngLat([gps[0].lng, gps[0].lat])
+      .setPopup(new maplibregl.Popup({ offset: 25 }).setText("start"))
+      .addTo(map);
+
+    const finishMarker = document.createElement("div");
+    finishMarker.style.width = "12px";
+    finishMarker.style.height = "12px";
+    finishMarker.style.borderRadius = "50%";
+    finishMarker.style.backgroundColor = "#ef4444";
+    finishMarker.style.border = "2px solid white";
+    finishMarker.style.boxShadow = "0 0 4px rgba(0,0,0,0.5)";
+
+    new maplibregl.Marker({ element: finishMarker })
+      .setLngLat([gps[gps.length - 1].lng, gps[gps.length - 1].lat])
+      .setPopup(new maplibregl.Popup({ offset: 25 }).setText("finish"))
+      .addTo(map);
+
+    // Fit to bounds with padding
+    const bounds = [
+      [minLng, minLat],
+      [maxLng, maxLat],
+    ];
+    map.fitBounds(bounds, { padding: 40 });
+  });
+}
+
+// ── Activities map (heatmap page) ────────────────────────────────────────────
+
+const SPORT_COLORS = {
+  cycling:  "#1d4ed8",
+  running:  "#ef4444",
+  swimming: "#a855f7",
+};
+
+function renderActivitiesMap(containerId, tracks) {
+  if (typeof maplibregl === "undefined") return;
+  const el = document.getElementById(containerId);
+  if (!el) return;
+
+  const valid = tracks.filter((t) => t.coords && t.coords.length >= 2);
+  if (!valid.length) {
+    el.textContent = "No outdoor activities with GPS data yet.";
+    el.style.cssText = "display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:13px";
+    return;
   }
-  flush();
 
-  // Start (green) and finish (red) markers.
-  const dot = (latlng, fill) =>
-    L.circleMarker(latlng, { radius: 6, fillColor: fill, color: "#fff", weight: 2, fillOpacity: 1 });
-  dot([gps[0].lat, gps[0].lng], "#22c55e").bindTooltip("start").addTo(map);
-  dot([gps[gps.length - 1].lat, gps[gps.length - 1].lng], "#ef4444")
-    .bindTooltip("finish")
-    .addTo(map);
+  // Center on rides from the last 14 days; fall back to all rides if none.
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 14);
+  const recent = valid.filter(t => new Date(t.date) >= cutoff);
+  const boundsSource = recent.length > 0 ? recent : valid;
 
-  map.fitBounds(L.latLngBounds(gps.map((s) => [s.lat, s.lng])), { padding: [24, 24] });
+  let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
+  for (const t of boundsSource) {
+    for (const [lng, lat] of t.coords) {
+      if (lng === 0 && lat === 0) continue; // skip GPS-glitch null-island points
+      if (lng < minLng) minLng = lng;
+      if (lng > maxLng) maxLng = lng;
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+    }
+  }
+  if (minLng === Infinity) {
+    el.textContent = "No outdoor activities with GPS data yet.";
+    el.style.cssText = "display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:13px";
+    return;
+  }
+
+  // Expand bounds by 50% on each side to zoom out ~1 level from the tight fit.
+  const lngSpan = (maxLng - minLng) || 0.01;
+  const latSpan = (maxLat - minLat) || 0.01;
+  const expandedBounds = [
+    [minLng - lngSpan * 0.5, minLat - latSpan * 0.5],
+    [maxLng + lngSpan * 0.5, maxLat + latSpan * 0.5],
+  ];
+
+  const map = new maplibregl.Map({
+    container: el,
+    style: "https://tiles.openfreemap.org/styles/liberty",
+    bounds: expandedBounds,
+    fitBoundsOptions: { padding: 48, maxZoom: 13 },
+    scrollZoom: true,
+    touchZoomRotate: true,
+    attributionControl: false,
+  });
+
+  map.addControl(new maplibregl.NavigationControl(), "top-right");
+  map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
+
+  map.on("load", () => {
+    const features = valid.map((t) => ({
+      type: "Feature",
+      geometry: { type: "LineString", coordinates: t.coords },
+      properties: {
+        workout_id: t.workout_id,
+        color: SPORT_COLORS[t.sport] || "#60a5fa",
+        sport: t.sport,
+        date: t.date,
+      },
+    }));
+
+    map.addSource("tracks", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features },
+    });
+
+    // Wide transparent layer for easier hover hit-testing
+    map.addLayer({
+      id: "tracks-hit",
+      type: "line",
+      source: "tracks",
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": "transparent", "line-width": 12 },
+    });
+
+    map.addLayer({
+      id: "tracks-line",
+      type: "line",
+      source: "tracks",
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: {
+        "line-color": ["get", "color"],
+        "line-width": 2.5,
+        "line-opacity": 0.65,
+      },
+    });
+
+    let hovered = null;
+
+    map.on("mousemove", "tracks-hit", (e) => {
+      if (!e.features.length) return;
+      const id = e.features[0].properties.workout_id;
+      if (id === hovered) return;
+      hovered = id;
+      map.getCanvas().style.cursor = "pointer";
+      map.setPaintProperty("tracks-line", "line-opacity", [
+        "case", ["==", ["get", "workout_id"], hovered], 1, 0.25,
+      ]);
+      map.setPaintProperty("tracks-line", "line-width", [
+        "case", ["==", ["get", "workout_id"], hovered], 4, 2,
+      ]);
+    });
+
+    map.on("mouseleave", "tracks-hit", () => {
+      hovered = null;
+      map.getCanvas().style.cursor = "";
+      map.setPaintProperty("tracks-line", "line-opacity", 0.65);
+      map.setPaintProperty("tracks-line", "line-width", 2.5);
+    });
+
+    map.on("click", "tracks-hit", (e) => {
+      if (e.features.length) window.location.href = "/workouts/" + e.features[0].properties.workout_id;
+    });
+  });
+}
+
+// ── Activity cards (homepage map toggle) ─────────────────────────────────────
+
+function mercatorY(lat) {
+  const r = lat * Math.PI / 180;
+  return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2;
+}
+
+async function drawRouteThumbnail(canvas, coords, color) {
+  const W = canvas.width, H = canvas.height;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#111827';
+  ctx.fillRect(0, 0, W, H);
+  if (!coords || coords.length < 2) return;
+
+  const lngs = coords.map(c => c[0]), lats = coords.map(c => c[1]);
+  const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+  const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+
+  const PAD = 0.18;
+  const lngSpan = (maxLng - minLng) || 0.003;
+  const latSpan = (maxLat - minLat) || 0.003;
+  const pMinLng = minLng - lngSpan * PAD, pMaxLng = maxLng + lngSpan * PAD;
+  const pMinLat = minLat - latSpan * PAD, pMaxLat = maxLat + latSpan * PAD;
+
+  const wxMin = (pMinLng + 180) / 360, wxMax = (pMaxLng + 180) / 360;
+  const wyMin = mercatorY(pMaxLat), wyMax = mercatorY(pMinLat);
+
+  // Uniform scale so routes aren't stretched — same pixels-per-unit in X and Y
+  const wSpan = wxMax - wxMin, hSpan = wyMax - wyMin;
+  const scale = Math.min(W / wSpan, H / hSpan);
+  const offX = (W - wSpan * scale) / 2;
+  const offY = (H - hSpan * scale) / 2;
+
+  const toCanvas = (lng, lat) => [
+    offX + (((lng + 180) / 360) - wxMin) * scale,
+    offY + (mercatorY(lat) - wyMin) * scale,
+  ];
+
+  // Tile range covering the full canvas (not just the route bbox)
+  const canvasWxMin = wxMin - offX / scale, canvasWxMax = canvasWxMin + W / scale;
+  const canvasWyMin = wyMin - offY / scale, canvasWyMax = canvasWyMin + H / scale;
+
+  // Find zoom where route fits in ≤3 tiles on each axis
+  let zoom = 6;
+  for (let z = 14; z >= 6; z--) {
+    const n = 1 << z;
+    if ((Math.floor(wxMax * n) - Math.floor(wxMin * n)) <= 2 &&
+        (Math.floor(wyMax * n) - Math.floor(wyMin * n)) <= 2) {
+      zoom = z; break;
+    }
+  }
+  const n = 1 << zoom;
+  const tx1 = Math.floor(canvasWxMin * n), tx2 = Math.floor(canvasWxMax * n);
+  const ty1 = Math.floor(canvasWyMin * n), ty2 = Math.floor(canvasWyMax * n);
+
+  const cols = tx2 - tx1 + 1;
+  const tiles = await Promise.all(
+    Array.from({ length: cols * (ty2 - ty1 + 1) }, (_, i) => {
+      const tx = tx1 + (i % cols);
+      const ty = ty1 + Math.floor(i / cols);
+      return new Promise(resolve => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => resolve({ tx, ty, img });
+        img.onerror = () => resolve(null);
+        img.src = `https://basemaps.cartocdn.com/dark_nolabels/${zoom}/${tx}/${ty}.png`;
+      });
+    })
+  );
+
+  for (const t of tiles) {
+    if (!t) continue;
+    const { tx, ty, img } = t;
+    const cx1 = offX + (tx / n - wxMin) * scale;
+    const cy1 = offY + (ty / n - wyMin) * scale;
+    const cx2 = offX + ((tx + 1) / n - wxMin) * scale;
+    const cy2 = offY + ((ty + 1) / n - wyMin) * scale;
+    ctx.drawImage(img, cx1, cy1, cx2 - cx1, cy2 - cy1);
+  }
+
+  const pts = coords.map(([lng, lat]) => toCanvas(lng, lat));
+
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  pts.forEach(([x, y], i) => i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
+  ctx.stroke();
+
+  const dot = ([x, y], fill) => {
+    ctx.beginPath();
+    ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = fill;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  };
+  dot(pts[0], '#4ade80');
+  dot(pts[pts.length - 1], '#f87171');
+}
+
+function fmtDurJS(secs) {
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function renderActivityCards(containerId, tracks, workouts) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+
+  const trackMap = {};
+  for (const t of tracks) trackMap[t.workout_id] = t;
+
+  const html = workouts.map((w) => {
+    const track = trackMap[w.id];
+    const color = SPORT_COLORS[w.sport] || "#60a5fa";
+    const dist = IMPERIAL
+      ? (w.distance_meters / 1609.344).toFixed(1) + " mi"
+      : (w.distance_meters / 1000).toFixed(1) + " km";
+    const dur = fmtDurJS(w.duration_secs);
+    const power = w.avg_power_watts ? Math.round(w.avg_power_watts) + " W" : "";
+    const date = new Date(w.recorded_at).toLocaleDateString("en-US", {
+      month: "short", day: "numeric", year: "numeric",
+    });
+    const thumb = track
+      ? `<canvas class="ac-thumb-canvas" data-id="${w.id}" width="240" height="140"></canvas>`
+      : `<span class="sport-badge sport-${w.sport}">${w.sport}</span>`;
+    return `<div class="activity-card" onclick="window.location.href='/workouts/${w.id}'">
+      <div class="ac-thumb">${thumb}</div>
+      <div class="ac-body">
+        <div class="ac-header">
+          <span class="sport-badge sport-${w.sport}">${w.sport}</span>
+          <span class="ac-date">${date}</span>
+        </div>
+        <div class="ac-stats">
+          <span>${dist}</span><span>${dur}</span>${power ? `<span>${power}</span>` : ""}
+        </div>
+      </div>
+    </div>`;
+  }).join("");
+
+  el.innerHTML = `<div class="activity-cards-grid">${html}</div>`;
+
+  el.querySelectorAll('.ac-thumb-canvas').forEach(canvas => {
+    const thumb = canvas.parentElement;
+    canvas.width = thumb.clientWidth || 240;
+    canvas.height = thumb.clientHeight || 140;
+    const track = trackMap[canvas.dataset.id];
+    if (track) drawRouteThumbnail(canvas, track.coords, SPORT_COLORS[track.sport] || "#60a5fa");
+  });
 }

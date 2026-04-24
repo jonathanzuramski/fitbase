@@ -16,6 +16,32 @@
   }
 }
 
+/* ── Home layout: stack sidebar below main below 900px ───── */
+@media (max-width: 900px) {
+  .home-layout {
+    grid-template-columns: 1fr;
+  }
+  /* On tablet, lay out sidebar cards as a 2-col grid for density */
+  .home-sidebar {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  /* Streak widget spans full width at tablet */
+  .home-sidebar .streak-card {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 560px) {
+  .home-sidebar {
+    display: flex;
+    flex-direction: column;
+  }
+  .home-sidebar .streak-card {
+    grid-column: auto;
+  }
+}
+
 /* ── Main mobile breakpoint ──────────────────────────── */
 @media (max-width: 640px) {
   .hide-mobile {

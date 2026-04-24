@@ -301,6 +301,43 @@ func (h *Handler) GetWorkoutRoute(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GET /api/workouts/routes?ids=id1,id2,...
+// Omit ids to return tracks for the 500 most recent outdoor workouts (heatmap).
+func (h *Handler) GetWorkoutRouteTracks(w http.ResponseWriter, r *http.Request) {
+	idsParam := strings.TrimSpace(r.URL.Query().Get("ids"))
+	var ids []string
+	if idsParam != "" {
+		raw := strings.Split(idsParam, ",")
+		ids = make([]string, 0, len(raw))
+		for _, id := range raw {
+			if id = strings.TrimSpace(id); id != "" {
+				ids = append(ids, id)
+			}
+		}
+	}
+	tracks, err := h.db.GetWorkoutRouteTracks(ids)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "database error")
+		return
+	}
+	type trackOut struct {
+		WorkoutID string       `json:"workout_id"`
+		Sport     string       `json:"sport"`
+		Date      string       `json:"date"`
+		Coords    [][2]float64 `json:"coords"`
+	}
+	out := make([]trackOut, len(tracks))
+	for i, t := range tracks {
+		out[i] = trackOut{
+			WorkoutID: t.WorkoutID,
+			Sport:     t.Sport,
+			Date:      t.Date.Format("Jan 02, 2006"),
+			Coords:    t.Coords,
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
 // GET /api/athlete/zones
 func (h *Handler) GetAthleteZones(w http.ResponseWriter, r *http.Request) {
 	athlete, err := h.db.GetAthlete()

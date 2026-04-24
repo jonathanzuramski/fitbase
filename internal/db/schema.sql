@@ -113,6 +113,14 @@ CREATE TABLE IF NOT EXISTS workout_zone_times (
     hr_secs    TEXT NOT NULL DEFAULT '[]'
 );
 
+-- Per-sport mileage goals. One row per sport; upserted on save.
+CREATE TABLE IF NOT EXISTS mileage_goals (
+    sport          TEXT PRIMARY KEY,
+    weekly_meters  REAL NOT NULL DEFAULT 0,
+    yearly_meters  REAL NOT NULL DEFAULT 0,
+    updated_at     DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+
 -- GPS route fingerprints for route matching.
 CREATE TABLE IF NOT EXISTS routes (
     id         TEXT PRIMARY KEY,

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/fitbase/fitbase/internal/crypto"
@@ -45,6 +46,13 @@ func Open(path string, key []byte) (*DB, error) {
 		return nil, fmt.Errorf("run schema: %w", err)
 	}
 
+	// Migration: add route_coords column for pre-computed GPS thumbnails.
+	if _, err := sqldb.Exec(`ALTER TABLE workouts ADD COLUMN route_coords TEXT DEFAULT NULL`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name") {
+			return nil, fmt.Errorf("migrate route_coords: %w", err)
+		}
+	}
+
 	return &DB{sqldb, key}, nil
 }
 
@@ -52,6 +60,23 @@ func Open(path string, key []byte) (*DB, error) {
 
 // InsertWorkout persists a workout and its streams in a single transaction.
 func (db *DB) InsertWorkout(w *models.Workout, streams []models.Stream) error {
+	// Pre-compute downsampled GPS coords for outdoor workouts so the heatmap
+	// and card thumbnails never need to JOIN against workout_streams.
+	var routeCoords *string
+	if !w.IsIndoor {
+		pts := make([][2]float64, 0, len(streams))
+		for _, s := range streams {
+			if s.Lat == nil || s.Lng == nil || (*s.Lat == 0 && *s.Lng == 0) {
+				continue
+			}
+			pts = append(pts, [2]float64{*s.Lng, *s.Lat})
+		}
+		coords := downsampleCoords(pts, 75)
+		js, _ := json.Marshal(coords)
+		s := string(js)
+		routeCoords = &s
+	}
+
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -63,13 +88,13 @@ func (db *DB) InsertWorkout(w *models.Workout, streams []models.Stream) error {
 			id, filename, recorded_at, sport, duration_secs, elapsed_secs, distance_meters,
 			elevation_gain_meters, avg_power_watts, max_power_watts, normalized_power,
 			avg_heart_rate, max_heart_rate, avg_cadence, avg_speed_mps,
-			tss, intensity_factor, is_indoor
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			tss, intensity_factor, is_indoor, route_coords
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		w.ID, w.Filename, w.RecordedAt.UTC().Format(time.RFC3339),
 		w.Sport, w.DurationSecs, w.ElapsedSecs, w.DistanceMeters, w.ElevationGainMeters,
 		w.AvgPowerWatts, w.MaxPowerWatts, w.NormalizedPower,
 		w.AvgHeartRate, w.MaxHeartRate, w.AvgCadenceRPM, w.AvgSpeedMPS,
-		w.TSS, w.IntensityFactor, w.IsIndoor,
+		w.TSS, w.IntensityFactor, w.IsIndoor, routeCoords,
 	)
 	if err != nil {
 		return fmt.Errorf("insert workout: %w", err)
@@ -705,21 +730,27 @@ func (db *DB) GetFTPAtDate(t time.Time) int {
 
 // ── Training load ─────────────────────────────────────────────────────────────
 
-// GetFitnessOnDate returns the Fitness/Fatigue/Form values as of a specific date,
-// looking back 180 days to build an accurate exponential moving average.
+// GetFitnessOnDate returns the Fitness/Fatigue/Form values as of a specific date.
+// Uses the same 270-day lookback as the dashboard chart (90-day display + 180-day
+// warmup) so the EMA starting conditions are identical and the values match.
 func (db *DB) GetFitnessOnDate(date time.Time) (models.FitnessPoint, error) {
 	target := date.UTC().Truncate(24 * time.Hour)
 	today := time.Now().UTC().Truncate(24 * time.Hour)
-	// How many days from target to today, so we can slice the shared history.
 	daysAgo := max(int(today.Sub(target).Hours()/24), 0)
-	points, err := db.getFitnessHistory(daysAgo, 0)
+	// Request daysAgo+90 days so the total lookback matches the chart (270 days).
+	// The target date lands at index 90 from the oldest point returned.
+	points, err := db.getFitnessHistory(daysAgo+90, 0)
 	if err != nil {
 		return models.FitnessPoint{}, err
 	}
 	if len(points) == 0 {
 		return models.FitnessPoint{}, nil
 	}
-	return points[0], nil
+	// points is oldest-first; index 90 is the target date.
+	if len(points) <= 90 {
+		return points[0], nil
+	}
+	return points[90], nil
 }
 
 // GetFitnessHistory returns daily Fitness/Fatigue/Form for the last n days.
@@ -1006,6 +1037,305 @@ func (db *DB) SetSyncOldest(name, oldest string) error {
 		ON CONFLICT(name) DO UPDATE SET sync_oldest=excluded.sync_oldest`,
 		name, oldest)
 	return err
+}
+
+// ── Period summary ────────────────────────────────────────────────────────────
+
+// PeriodSummary holds aggregate training totals across all sports for a date range.
+type PeriodSummary struct {
+	DurationSecs int
+	TSS          float64
+}
+
+// GetWeekActivityDays returns a 7-element array (Mon=0 … Sun=6) where each
+// entry is true if any workout was recorded on that day of the ISO week.
+func (db *DB) GetWeekActivityDays(weekStart time.Time, tz *time.Location) ([7]bool, error) {
+	var days [7]bool
+	weekEnd := weekStart.AddDate(0, 0, 7)
+	rows, err := db.Query(`
+		SELECT DISTINCT date(recorded_at) FROM workouts
+		WHERE recorded_at >= ? AND recorded_at < ?`,
+		weekStart.UTC().Format(time.RFC3339),
+		weekEnd.UTC().Format(time.RFC3339),
+	)
+	if err != nil {
+		return days, err
+	}
+	defer rows.Close() //nolint:errcheck
+	for rows.Next() {
+		var dayStr string
+		if err := rows.Scan(&dayStr); err != nil {
+			return days, err
+		}
+		t, err := time.ParseInLocation("2006-01-02", dayStr, tz)
+		if err != nil {
+			continue
+		}
+		wd := int(t.Weekday())
+		if wd == 0 {
+			wd = 7
+		}
+		days[wd-1] = true
+	}
+	return days, rows.Err()
+}
+
+// GetPeriodSummary returns the total duration and TSS across all sports since
+// the given UTC time.
+func (db *DB) GetPeriodSummary(since time.Time) (PeriodSummary, error) {
+	var s PeriodSummary
+	err := db.QueryRow(`
+		SELECT COALESCE(SUM(duration_secs), 0),
+		       COALESCE(SUM(tss), 0)
+		FROM workouts
+		WHERE recorded_at >= ?`, since.UTC().Format(time.RFC3339),
+	).Scan(&s.DurationSecs, &s.TSS)
+	return s, err
+}
+
+// ── Mileage goals ─────────────────────────────────────────────────────────────
+
+// MileageGoal holds the weekly/yearly targets for a single sport.
+type MileageGoal struct {
+	Sport        string
+	WeeklyMeters float64
+	YearlyMeters float64
+}
+
+// GetAllMileageGoals returns the stored goals for all three supported sports.
+func (db *DB) GetAllMileageGoals() (map[string]MileageGoal, error) {
+	rows, err := db.Query(`SELECT sport, weekly_meters, yearly_meters FROM mileage_goals`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close() //nolint:errcheck
+	goals := map[string]MileageGoal{}
+	for rows.Next() {
+		var g MileageGoal
+		if err := rows.Scan(&g.Sport, &g.WeeklyMeters, &g.YearlyMeters); err != nil {
+			return nil, err
+		}
+		goals[g.Sport] = g
+	}
+	return goals, rows.Err()
+}
+
+// SaveMileageGoal upserts the weekly/yearly goal for a sport.
+func (db *DB) SaveMileageGoal(sport string, weeklyMeters, yearlyMeters float64) error {
+	_, err := db.Exec(`
+		INSERT INTO mileage_goals (sport, weekly_meters, yearly_meters)
+		VALUES (?, ?, ?)
+		ON CONFLICT(sport) DO UPDATE SET
+			weekly_meters = excluded.weekly_meters,
+			yearly_meters = excluded.yearly_meters,
+			updated_at    = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')`,
+		sport, weeklyMeters, yearlyMeters,
+	)
+	return err
+}
+
+// MileageProgress holds week and year distance totals for one sport, plus a
+// per-day breakdown of the current ISO week for the bar chart.
+type MileageProgress struct {
+	WeekMeters    float64
+	WeekDayMeters [7]float64 // Mon=0 … Sun=6
+	YearMeters    float64
+}
+
+// GetMileageProgress returns distance totals for the given sport for the
+// current ISO week (with per-day breakdown) and year-to-date.
+func (db *DB) GetMileageProgress(sport string, tz *time.Location) (MileageProgress, error) {
+	var p MileageProgress
+	now := time.Now().In(tz)
+
+	weekday := int(now.Weekday()) // 0=Sun … 6=Sat in Go; shift to ISO Mon=1 … Sun=7
+	if weekday == 0 {
+		weekday = 7
+	}
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, tz)
+	weekStart := today.AddDate(0, 0, -(weekday - 1))
+	weekEnd := weekStart.AddDate(0, 0, 7)
+	yearStart := time.Date(now.Year(), 1, 1, 0, 0, 0, 0, tz)
+
+	rows, err := db.Query(`
+		SELECT date(recorded_at) AS day,
+		       COALESCE(SUM(distance_meters), 0)
+		FROM workouts
+		WHERE sport = ? AND recorded_at >= ? AND recorded_at < ?
+		GROUP BY day`,
+		sport,
+		weekStart.UTC().Format(time.RFC3339),
+		weekEnd.UTC().Format(time.RFC3339),
+	)
+	if err != nil {
+		return p, err
+	}
+	defer rows.Close() //nolint:errcheck
+
+	for rows.Next() {
+		var dayStr string
+		var dist float64
+		if err := rows.Scan(&dayStr, &dist); err != nil {
+			return p, err
+		}
+		t, err := time.ParseInLocation("2006-01-02", dayStr, tz)
+		if err != nil {
+			continue
+		}
+		wd := int(t.Weekday())
+		if wd == 0 {
+			wd = 7
+		}
+		p.WeekDayMeters[wd-1] = dist
+		p.WeekMeters += dist
+	}
+	if err := rows.Err(); err != nil {
+		return p, err
+	}
+
+	err = db.QueryRow(
+		`SELECT COALESCE(SUM(distance_meters), 0) FROM workouts WHERE sport = ? AND recorded_at >= ?`,
+		sport, yearStart.UTC().Format(time.RFC3339),
+	).Scan(&p.YearMeters)
+	return p, err
+}
+
+// ── Route tracks ─────────────────────────────────────────────────────────────
+
+// WorkoutRouteTrack is a simplified GPS track for a single workout.
+type WorkoutRouteTrack struct {
+	WorkoutID string
+	Sport     string
+	Date      time.Time
+	Coords    [][2]float64 // GeoJSON order: [lng, lat]
+}
+
+// downsampleCoords reduces pts to at most maxPts points while always preserving
+// the final point. Returns an empty (non-nil) slice when there are fewer than 2 points.
+func downsampleCoords(pts [][2]float64, maxPts int) [][2]float64 {
+	if len(pts) < 2 {
+		return [][2]float64{}
+	}
+	step := max(len(pts)/maxPts, 1)
+	out := make([][2]float64, 0, len(pts)/step+1)
+	for i := 0; i < len(pts); i += step {
+		out = append(out, pts[i])
+	}
+	if (len(pts)-1)%step != 0 {
+		out = append(out, pts[len(pts)-1])
+	}
+	return out
+}
+
+// GetWorkoutRouteTracks returns pre-computed GPS tracks for the given workout IDs.
+// Pass nil ids to return tracks for the 500 most recent outdoor workouts (heatmap mode).
+// Coords are read directly from the route_coords column — no stream JOIN needed.
+func (db *DB) GetWorkoutRouteTracks(ids []string) ([]WorkoutRouteTrack, error) {
+	var rows *sql.Rows
+	var err error
+	if len(ids) == 0 {
+		rows, err = db.Query(`
+			SELECT id, sport, recorded_at, route_coords
+			FROM workouts
+			WHERE is_indoor = 0
+			  AND route_coords IS NOT NULL
+			  AND route_coords != '[]'
+			ORDER BY recorded_at DESC LIMIT 500`)
+	} else {
+		ph := strings.Join(strings.Fields(strings.Repeat("? ", len(ids))), ",")
+		args := make([]any, len(ids))
+		for i, id := range ids {
+			args[i] = id
+		}
+		rows, err = db.Query(fmt.Sprintf(`
+			SELECT id, sport, recorded_at, route_coords
+			FROM workouts
+			WHERE id IN (%s)
+			  AND route_coords IS NOT NULL
+			  AND route_coords != '[]'`, ph), args...)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var out []WorkoutRouteTrack
+	for rows.Next() {
+		var id, sport, recAt, coordsJSON string
+		if err := rows.Scan(&id, &sport, &recAt, &coordsJSON); err != nil {
+			return nil, err
+		}
+		var coords [][2]float64
+		if err := json.Unmarshal([]byte(coordsJSON), &coords); err != nil || len(coords) < 2 {
+			continue
+		}
+		t, _ := time.Parse(time.RFC3339, recAt)
+		out = append(out, WorkoutRouteTrack{WorkoutID: id, Sport: sport, Date: t, Coords: coords})
+	}
+	return out, rows.Err()
+}
+
+// BackfillRouteCoords populates the route_coords column for any outdoor workouts
+// that pre-date the migration. Safe to call concurrently with normal operation.
+// Returns the number of workouts updated.
+func (db *DB) BackfillRouteCoords() (int, error) {
+	rows, err := db.Query(`
+		SELECT id FROM workouts
+		WHERE is_indoor = 0 AND route_coords IS NULL
+		ORDER BY recorded_at DESC`)
+	if err != nil {
+		return 0, err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	updated := 0
+	for _, id := range ids {
+		pts, err := db.gpsPointsForWorkout(id)
+		if err != nil {
+			continue
+		}
+		coords := downsampleCoords(pts, 75)
+		js, _ := json.Marshal(coords)
+		if _, err := db.Exec(`UPDATE workouts SET route_coords = ? WHERE id = ?`, string(js), id); err != nil {
+			continue
+		}
+		updated++
+	}
+	return updated, nil
+}
+
+func (db *DB) gpsPointsForWorkout(id string) ([][2]float64, error) {
+	rows, err := db.Query(`
+		SELECT lng, lat FROM workout_streams
+		WHERE workout_id = ?
+		  AND lat IS NOT NULL AND lng IS NOT NULL
+		  AND NOT (lat = 0 AND lng = 0)
+		ORDER BY timestamp`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close() //nolint:errcheck
+	var pts [][2]float64
+	for rows.Next() {
+		var lng, lat float64
+		if err := rows.Scan(&lng, &lat); err != nil {
+			return nil, err
+		}
+		pts = append(pts, [2]float64{lng, lat})
+	}
+	return pts, rows.Err()
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

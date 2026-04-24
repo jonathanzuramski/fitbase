@@ -74,7 +74,7 @@ code {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 24px;
+  padding: 0 clamp(16px, 3vw, 48px);
   height: 48px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-card);
@@ -135,9 +135,9 @@ code {
 
 /* ── Layout ───────────────────────────────────────────── */
 .container {
-  max-width: 1200px;
+  max-width: 1500px;
   margin: 0 auto;
-  padding: 24px;
+  padding: 24px clamp(16px, 3vw, 48px);
 }
 
 .page-header {
@@ -295,6 +295,111 @@ code {
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.5px;
   color: var(--text);
+}
+
+/* ── Activities view toggle ───────────────────────────── */
+.view-toggle {
+  display: flex;
+  gap: 2px;
+  margin-left: 8px;
+  flex-shrink: 0;
+}
+.view-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-size: 15px;
+  line-height: 1;
+  padding: 4px 9px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+.view-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.view-btn:hover:not(.active) {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+.activities-map {
+  min-height: 200px;
+}
+
+/* ── Activity cards grid ──────────────────────────────────────────────────── */
+.activity-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  padding: 4px 0 8px;
+}
+@media (max-width: 900px) {
+  .activity-cards-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 560px) {
+  .activity-cards-grid { grid-template-columns: 1fr; }
+}
+.activity-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.activity-card:hover {
+  border-color: var(--accent);
+  background: var(--bg-hover);
+}
+.ac-thumb {
+  background: var(--bg);
+  height: 140px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.ac-thumb svg,
+.ac-thumb-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.ac-thumb-empty {
+  background: var(--bg);
+  color: var(--text-muted);
+}
+.ac-body {
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+}
+.ac-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.ac-date {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.ac-stats {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+/* ── Heatmap page ─────────────────────────────────────────────────────────── */
+.heatmap-map {
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+  z-index: 0;
 }
 
 /* ── Workout table ────────────────────────────────────── */
@@ -1485,4 +1590,407 @@ code {
   font-size: 11px;
   color: var(--text-muted);
   white-space: nowrap;
+}
+
+/* ── Home layout: sidebar + main ──────────────────────────────────────────── */
+.home-layout {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 16px;
+  align-items: start;
+}
+.home-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.home-main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.home-sidebar .card,
+.home-main .card {
+  margin-bottom: 0;
+}
+
+/* ── Streak widget ────────────────────────────────────────────────────────── */
+.streak-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.streak-title {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin: 0;
+}
+.streak-count {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.streak-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+.streak-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+.streak-day.today {
+  background: var(--bg-hover);
+}
+.streak-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--border);
+  transition: background 0.15s, transform 0.15s;
+}
+.streak-day.active .streak-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+.streak-day.today.active .streak-dot {
+  background: var(--green);
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2);
+}
+.streak-lbl {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  line-height: 1;
+}
+.streak-day.today .streak-lbl {
+  color: var(--text);
+}
+
+/* ── Shared: training summary & mileage goals ──────────────────────────────── */
+
+/* 3-column stat table: label | this week | this year */
+.stat-table {
+  display: grid;
+  grid-template-columns: auto 1fr 1fr;
+  gap: 7px 14px;
+  align-items: baseline;
+}
+.stat-th {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+}
+.stat-lbl {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+}
+.stat-td {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+/* Training load CTL/ATL/TSB row */
+.load-ctf-row {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 10px;
+}
+.load-ctf-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.load-ctf-val {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.15;
+}
+.load-ctf-lbl {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+.ctl-color      { color: #3b82f6; }
+.atl-color      { color: #f97316; }
+.tsb-fresh      { color: var(--green); }
+.tsb-optimal    { color: var(--accent); }
+.tsb-productive { color: var(--yellow); }
+.tsb-overreach  { color: var(--orange); }
+
+/* ── Mileage goals card ───────────────────────────────────────────────────── */
+.goal-card .card-title {
+  margin-bottom: 10px;
+}
+.goal-sport-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+.goal-sport-tabs .filter-tab {
+  flex: 1;
+  text-align: center;
+}
+.goal-sport-panel {
+  display: none;
+}
+.goal-sport-panel.active {
+  display: block;
+}
+
+.goal-section {
+  margin-bottom: 8px;
+}
+.goal-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  text-align: center;
+}
+.goal-distance-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.goal-distance-val {
+  font-size: 26px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.1;
+}
+.goal-distance-sep {
+  font-size: 16px;
+  color: var(--text-muted);
+  margin: 0 3px;
+}
+.goal-distance-target {
+  font-size: 16px;
+  color: var(--text-muted);
+}
+
+/* Weekly bar chart */
+.goal-week-chart {
+  display: flex;
+  gap: 5px;
+  height: 70px;
+  align-items: flex-end;
+  margin-bottom: 10px;
+}
+.goal-day-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+}
+.goal-bar-wrap {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+}
+.goal-bar {
+  width: 100%;
+  border-radius: 2px 2px 0 0;
+  min-height: 0;
+  opacity: 0.3;
+  transition: height 0.3s ease;
+}
+.goal-day-col.today .goal-bar {
+  opacity: 1;
+}
+.goal-sport-panel[data-sport="cycling"]  .goal-bar { background: #60a5fa; }
+.goal-sport-panel[data-sport="running"]  .goal-bar { background: #4ade80; }
+.goal-sport-panel[data-sport="swimming"] .goal-bar { background: #22d3ee; }
+.goal-day-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  line-height: 1;
+}
+.goal-day-col.today .goal-day-label {
+  color: var(--text);
+}
+
+/* Year progress bar with pace marker */
+.goal-year-track-wrap {
+  position: relative;
+  margin-bottom: 26px;
+}
+.goal-year-track {
+  height: 8px;
+  background: var(--border);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.goal-year-bar {
+  height: 100%;
+  border-radius: 99px;
+  transition: width 0.4s ease;
+}
+.goal-year-bar.sport-cycling  { background: #60a5fa; }
+.goal-year-bar.sport-running  { background: #4ade80; }
+.goal-year-bar.sport-swimming { background: #22d3ee; }
+.goal-pace-anchor {
+  position: absolute;
+  top: -2px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+}
+.goal-pace-tick {
+  width: 2px;
+  height: 14px;
+  background: var(--text-muted);
+  border-radius: 1px;
+}
+.goal-pace-today-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  white-space: nowrap;
+  margin-top: 3px;
+}
+.goal-pace-diff {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+  text-align: center;
+}
+.goal-pace-diff.ahead {
+  color: var(--green);
+}
+
+.goal-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 18px 0;
+}
+
+.goal-manage-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 8px 14px;
+  display: block;
+  width: 100%;
+  margin-top: 14px;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+  text-align: center;
+}
+.goal-manage-btn:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+  background: var(--bg-hover);
+}
+
+/* Edit form */
+.goal-edit-title {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  margin: 0 0 10px;
+}
+.goal-edit-form {
+  padding-top: 2px;
+}
+.goal-inputs {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.goal-input-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+}
+.goal-input-label input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 13px;
+  padding: 5px 8px;
+  width: 110px;
+}
+.goal-input-label input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.goal-form-actions {
+  display: flex;
+  gap: 8px;
+}
+.goal-save-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 5px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.goal-save-btn:hover {
+  background: #2563eb;
+}
+.goal-cancel-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  padding: 5px 14px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.goal-cancel-btn:hover {
+  color: var(--text);
 }

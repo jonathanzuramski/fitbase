@@ -647,6 +647,145 @@ func TestIntegrationTokenRoundTrip(t *testing.T) {
 	}
 }
 
+// ── GetWorkoutRouteTracks ─────────────────────────────────────────────────────
+
+func gpsStream(ts time.Time, lat, lng float64) models.Stream {
+	return models.Stream{Timestamp: ts, Lat: &lat, Lng: &lng}
+}
+
+func TestGetWorkoutRouteTracks_Empty(t *testing.T) {
+	d := newTestDB(t)
+	tracks, err := d.GetWorkoutRouteTracks(nil)
+	if err != nil {
+		t.Fatalf("GetWorkoutRouteTracks: %v", err)
+	}
+	if len(tracks) != 0 {
+		t.Errorf("expected 0 tracks, got %d", len(tracks))
+	}
+}
+
+func TestGetWorkoutRouteTracks_OutdoorWithGPS(t *testing.T) {
+	d := newTestDB(t)
+	w := sampleWorkout("outdoor1aaaaaaaa")
+	w.IsIndoor = false
+	streams := []models.Stream{
+		gpsStream(w.RecordedAt.Add(1*time.Second), 47.1, -122.1),
+		gpsStream(w.RecordedAt.Add(2*time.Second), 47.2, -122.2),
+		gpsStream(w.RecordedAt.Add(3*time.Second), 47.3, -122.3),
+	}
+	if err := d.InsertWorkout(w, streams); err != nil {
+		t.Fatalf("InsertWorkout: %v", err)
+	}
+
+	tracks, err := d.GetWorkoutRouteTracks(nil)
+	if err != nil {
+		t.Fatalf("GetWorkoutRouteTracks: %v", err)
+	}
+	if len(tracks) != 1 {
+		t.Fatalf("expected 1 track, got %d", len(tracks))
+	}
+	tr := tracks[0]
+	if tr.WorkoutID != w.ID {
+		t.Errorf("WorkoutID: got %q want %q", tr.WorkoutID, w.ID)
+	}
+	if tr.Sport != "cycling" {
+		t.Errorf("Sport: got %q want %q", tr.Sport, "cycling")
+	}
+	if len(tr.Coords) != 3 {
+		t.Fatalf("expected 3 coords, got %d", len(tr.Coords))
+	}
+	// Coords must be in GeoJSON [lng, lat] order.
+	if tr.Coords[0][0] != -122.1 || tr.Coords[0][1] != 47.1 {
+		t.Errorf("coord[0]: got [%v, %v] want [-122.1, 47.1]", tr.Coords[0][0], tr.Coords[0][1])
+	}
+}
+
+func TestGetWorkoutRouteTracks_IndoorExcluded(t *testing.T) {
+	d := newTestDB(t)
+	w := sampleWorkout("indoor1aaaaaaaaa")
+	w.IsIndoor = true
+	if err := d.InsertWorkout(w, []models.Stream{
+		gpsStream(w.RecordedAt.Add(1*time.Second), 47.1, -122.1),
+		gpsStream(w.RecordedAt.Add(2*time.Second), 47.2, -122.2),
+	}); err != nil {
+		t.Fatalf("InsertWorkout: %v", err)
+	}
+
+	tracks, err := d.GetWorkoutRouteTracks(nil)
+	if err != nil {
+		t.Fatalf("GetWorkoutRouteTracks: %v", err)
+	}
+	if len(tracks) != 0 {
+		t.Errorf("indoor workout should be excluded from nil-ids query, got %d tracks", len(tracks))
+	}
+}
+
+func TestGetWorkoutRouteTracks_SpecificIDs(t *testing.T) {
+	d := newTestDB(t)
+	w1 := sampleWorkout("outdoor1aaaaaaaa")
+	w1.IsIndoor = false
+	w2 := sampleWorkout("outdoor2bbbbbbbb")
+	w2.IsIndoor = false
+	for _, w := range []*models.Workout{w1, w2} {
+		if err := d.InsertWorkout(w, []models.Stream{
+			gpsStream(w.RecordedAt.Add(1*time.Second), 47.1, -122.1),
+			gpsStream(w.RecordedAt.Add(2*time.Second), 47.2, -122.2),
+		}); err != nil {
+			t.Fatalf("InsertWorkout %s: %v", w.ID, err)
+		}
+	}
+
+	tracks, err := d.GetWorkoutRouteTracks([]string{w1.ID})
+	if err != nil {
+		t.Fatalf("GetWorkoutRouteTracks: %v", err)
+	}
+	if len(tracks) != 1 {
+		t.Fatalf("expected 1 track, got %d", len(tracks))
+	}
+	if tracks[0].WorkoutID != w1.ID {
+		t.Errorf("WorkoutID: got %q want %q", tracks[0].WorkoutID, w1.ID)
+	}
+}
+
+func TestGetWorkoutRouteTracks_Downsampling(t *testing.T) {
+	d := newTestDB(t)
+	w := sampleWorkout("downsamp1aaaaaaa")
+	w.IsIndoor = false
+
+	const nPts = 400
+	streams := make([]models.Stream, nPts)
+	for i := range streams {
+		lat := 47.0 + float64(i)*0.0001
+		lng := -122.0 - float64(i)*0.0001
+		streams[i] = gpsStream(w.RecordedAt.Add(time.Duration(i+1)*time.Second), lat, lng)
+	}
+	if err := d.InsertWorkout(w, streams); err != nil {
+		t.Fatalf("InsertWorkout: %v", err)
+	}
+
+	tracks, err := d.GetWorkoutRouteTracks(nil)
+	if err != nil {
+		t.Fatalf("GetWorkoutRouteTracks: %v", err)
+	}
+	if len(tracks) != 1 {
+		t.Fatalf("expected 1 track, got %d", len(tracks))
+	}
+	n := len(tracks[0].Coords)
+	if n > 201 {
+		t.Errorf("expected ≤201 coords after downsampling 400 points, got %d", n)
+	}
+	if n < 2 {
+		t.Errorf("expected at least 2 coords, got %d", n)
+	}
+	// Last coord must always be the final GPS point.
+	last := tracks[0].Coords[len(tracks[0].Coords)-1]
+	wantLng := -122.0 - float64(nPts-1)*0.0001
+	wantLat := 47.0 + float64(nPts-1)*0.0001
+	if last[0] != wantLng || last[1] != wantLat {
+		t.Errorf("last coord: got [%v, %v] want [%v, %v]", last[0], last[1], wantLng, wantLat)
+	}
+}
+
 func TestIntegrationToken_MultipleIntegrations(t *testing.T) {
 	d := newTestDB(t)
 	_ = d.SetIntegrationToken("gdrive", "gdrive-token")
