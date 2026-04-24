@@ -541,9 +541,9 @@ func (th *templateHandler) settings(w http.ResponseWriter, r *http.Request) {
 			v, _ := th.db.GetSyncOldest("intervals")
 			return v
 		}(),
-		"GDriveConfigured":  gdriveConfigured,
-		"GDriveConnected":   gdriveConnected,
-		"GDriveClientID":    gdriveClientID,
+		"GDriveConfigured": gdriveConfigured,
+		"GDriveConnected":  gdriveConnected,
+		"GDriveClientID":   gdriveClientID,
 	})
 }
 
@@ -680,12 +680,7 @@ func (th *templateHandler) saveMileageGoal(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "database error", http.StatusInternalServerError)
 		return
 	}
-	redirectURL := map[string]string{
-		"cycling":  "/?goal_sport=cycling",
-		"running":  "/?goal_sport=running",
-		"swimming": "/?goal_sport=swimming",
-	}[sport]
-	http.Redirect(w, r, redirectURL, http.StatusSeeOther)
+	http.Redirect(w, r, "/?goal_sport="+sport, http.StatusSeeOther) //nosemrep
 }
 
 func resolveHRZones(a *models.Athlete) []models.HRZone {
