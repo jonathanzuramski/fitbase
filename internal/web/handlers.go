@@ -680,7 +680,12 @@ func (th *templateHandler) saveMileageGoal(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "database error", http.StatusInternalServerError)
 		return
 	}
-	http.Redirect(w, r, "/?goal_sport="+sport, http.StatusSeeOther)
+	redirectURL := map[string]string{
+		"cycling":  "/?goal_sport=cycling",
+		"running":  "/?goal_sport=running",
+		"swimming": "/?goal_sport=swimming",
+	}[sport]
+	http.Redirect(w, r, redirectURL, http.StatusSeeOther)
 }
 
 func resolveHRZones(a *models.Athlete) []models.HRZone {
