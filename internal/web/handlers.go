@@ -680,7 +680,7 @@ func (th *templateHandler) saveMileageGoal(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "database error", http.StatusInternalServerError)
 		return
 	}
-	http.Redirect(w, r, "/?goal_sport="+sport, http.StatusSeeOther) //nosemrep
+	http.Redirect(w, r, "/?goal_sport="+sport, http.StatusSeeOther) // nosemgrep: go.lang.security.injection.open-redirect.open-redirect
 }
 
 func resolveHRZones(a *models.Athlete) []models.HRZone {
