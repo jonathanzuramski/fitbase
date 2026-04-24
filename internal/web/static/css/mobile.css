@@ -21,6 +21,11 @@
   .home-layout {
     grid-template-columns: 1fr;
   }
+  /* Pull main (fitness chart + activities) above the sidebar on mobile
+     so the fitness chart is the first thing the user sees. */
+  .home-main {
+    order: -1;
+  }
   /* On tablet, lay out sidebar cards as a 2-col grid for density */
   .home-sidebar {
     display: grid;
