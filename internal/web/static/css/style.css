@@ -394,7 +394,8 @@ code {
 
 /* ── Heatmap page ─────────────────────────────────────────────────────────── */
 .heatmap-map {
-  height: calc(100vh - 120px);
+  aspect-ratio: 16 / 9;
+  width: 100%;
   border-radius: 8px;
   overflow: hidden;
   position: relative;

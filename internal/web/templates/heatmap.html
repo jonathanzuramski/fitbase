@@ -8,7 +8,11 @@
 <div class="page-header">
   <h1>heatmap</h1>
 </div>
-<div id="heatmap" class="heatmap-map"></div>
+<div id="heatmap" class="heatmap-map">
+  <div id="heatmap-loading" style="display:flex;height:100%;align-items:center;justify-content:center;color:var(--text-muted);font-size:13px">
+    loading routes…
+  </div>
+</div>
 {{end}}
 
 {{define "scripts"}}

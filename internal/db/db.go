@@ -46,6 +46,13 @@ func Open(path string, key []byte) (*DB, error) {
 		return nil, fmt.Errorf("run schema: %w", err)
 	}
 
+	// Migration: add route_coords column for pre-computed GPS thumbnails.
+	if _, err := sqldb.Exec(`ALTER TABLE workouts ADD COLUMN route_coords TEXT DEFAULT NULL`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name") {
+			return nil, fmt.Errorf("migrate route_coords: %w", err)
+		}
+	}
+
 	return &DB{sqldb, key}, nil
 }
 
@@ -53,6 +60,23 @@ func Open(path string, key []byte) (*DB, error) {
 
 // InsertWorkout persists a workout and its streams in a single transaction.
 func (db *DB) InsertWorkout(w *models.Workout, streams []models.Stream) error {
+	// Pre-compute downsampled GPS coords for outdoor workouts so the heatmap
+	// and card thumbnails never need to JOIN against workout_streams.
+	var routeCoords *string
+	if !w.IsIndoor {
+		pts := make([][2]float64, 0, len(streams))
+		for _, s := range streams {
+			if s.Lat == nil || s.Lng == nil || (*s.Lat == 0 && *s.Lng == 0) {
+				continue
+			}
+			pts = append(pts, [2]float64{*s.Lng, *s.Lat})
+		}
+		coords := downsampleCoords(pts, 75)
+		js, _ := json.Marshal(coords)
+		s := string(js)
+		routeCoords = &s
+	}
+
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -64,13 +88,13 @@ func (db *DB) InsertWorkout(w *models.Workout, streams []models.Stream) error {
 			id, filename, recorded_at, sport, duration_secs, elapsed_secs, distance_meters,
 			elevation_gain_meters, avg_power_watts, max_power_watts, normalized_power,
 			avg_heart_rate, max_heart_rate, avg_cadence, avg_speed_mps,
-			tss, intensity_factor, is_indoor
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			tss, intensity_factor, is_indoor, route_coords
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		w.ID, w.Filename, w.RecordedAt.UTC().Format(time.RFC3339),
 		w.Sport, w.DurationSecs, w.ElapsedSecs, w.DistanceMeters, w.ElevationGainMeters,
 		w.AvgPowerWatts, w.MaxPowerWatts, w.NormalizedPower,
 		w.AvgHeartRate, w.MaxHeartRate, w.AvgCadenceRPM, w.AvgSpeedMPS,
-		w.TSS, w.IntensityFactor, w.IsIndoor,
+		w.TSS, w.IntensityFactor, w.IsIndoor, routeCoords,
 	)
 	if err != nil {
 		return fmt.Errorf("insert workout: %w", err)
@@ -1186,24 +1210,37 @@ type WorkoutRouteTrack struct {
 	Coords    [][2]float64 // GeoJSON order: [lng, lat]
 }
 
-// GetWorkoutRouteTracks returns downsampled GPS tracks for the given workout IDs.
-// Each track is reduced to at most 200 points for efficient map rendering.
+// downsampleCoords reduces pts to at most maxPts points while always preserving
+// the final point. Returns an empty (non-nil) slice when there are fewer than 2 points.
+func downsampleCoords(pts [][2]float64, maxPts int) [][2]float64 {
+	if len(pts) < 2 {
+		return [][2]float64{}
+	}
+	step := max(len(pts)/maxPts, 1)
+	out := make([][2]float64, 0, len(pts)/step+1)
+	for i := 0; i < len(pts); i += step {
+		out = append(out, pts[i])
+	}
+	if (len(pts)-1)%step != 0 {
+		out = append(out, pts[len(pts)-1])
+	}
+	return out
+}
+
+// GetWorkoutRouteTracks returns pre-computed GPS tracks for the given workout IDs.
 // Pass nil ids to return tracks for the 500 most recent outdoor workouts (heatmap mode).
+// Coords are read directly from the route_coords column — no stream JOIN needed.
 func (db *DB) GetWorkoutRouteTracks(ids []string) ([]WorkoutRouteTrack, error) {
 	var rows *sql.Rows
 	var err error
 	if len(ids) == 0 {
 		rows, err = db.Query(`
-			SELECT w.id, w.sport, w.recorded_at, ws.lat, ws.lng
-			FROM workouts w
-			JOIN workout_streams ws ON ws.workout_id = w.id
-			WHERE w.is_indoor = 0
-			  AND ws.lat IS NOT NULL AND ws.lng IS NOT NULL
-			  AND w.id IN (
-			      SELECT id FROM workouts WHERE is_indoor = 0
-			      ORDER BY recorded_at DESC LIMIT 500
-			  )
-			ORDER BY w.id, ws.timestamp`)
+			SELECT id, sport, recorded_at, route_coords
+			FROM workouts
+			WHERE is_indoor = 0
+			  AND route_coords IS NOT NULL
+			  AND route_coords != '[]'
+			ORDER BY recorded_at DESC LIMIT 500`)
 	} else {
 		ph := strings.Join(strings.Fields(strings.Repeat("? ", len(ids))), ",")
 		args := make([]any, len(ids))
@@ -1211,57 +1248,94 @@ func (db *DB) GetWorkoutRouteTracks(ids []string) ([]WorkoutRouteTrack, error) {
 			args[i] = id
 		}
 		rows, err = db.Query(fmt.Sprintf(`
-			SELECT w.id, w.sport, w.recorded_at, ws.lat, ws.lng
-			FROM workouts w
-			JOIN workout_streams ws ON ws.workout_id = w.id
-			WHERE w.id IN (%s)
-			  AND ws.lat IS NOT NULL AND ws.lng IS NOT NULL
-			ORDER BY w.id, ws.timestamp`, ph), args...)
+			SELECT id, sport, recorded_at, route_coords
+			FROM workouts
+			WHERE id IN (%s)
+			  AND route_coords IS NOT NULL
+			  AND route_coords != '[]'`, ph), args...)
 	}
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close() //nolint:errcheck
 
-	type rawPt struct{ lat, lng float64 }
-	trackMap := map[string]*WorkoutRouteTrack{}
-	var order []string
-	pts := map[string][]rawPt{}
-
+	var out []WorkoutRouteTrack
 	for rows.Next() {
-		var id, sport, recAt string
-		var lat, lng float64
-		if err := rows.Scan(&id, &sport, &recAt, &lat, &lng); err != nil {
+		var id, sport, recAt, coordsJSON string
+		if err := rows.Scan(&id, &sport, &recAt, &coordsJSON); err != nil {
 			return nil, err
 		}
-		if _, ok := trackMap[id]; !ok {
-			t, _ := time.Parse(time.RFC3339, recAt)
-			trackMap[id] = &WorkoutRouteTrack{WorkoutID: id, Sport: sport, Date: t}
-			order = append(order, id)
+		var coords [][2]float64
+		if err := json.Unmarshal([]byte(coordsJSON), &coords); err != nil || len(coords) < 2 {
+			continue
 		}
-		pts[id] = append(pts[id], rawPt{lat, lng})
+		t, _ := time.Parse(time.RFC3339, recAt)
+		out = append(out, WorkoutRouteTrack{WorkoutID: id, Sport: sport, Date: t, Coords: coords})
 	}
+	return out, rows.Err()
+}
+
+// BackfillRouteCoords populates the route_coords column for any outdoor workouts
+// that pre-date the migration. Safe to call concurrently with normal operation.
+// Returns the number of workouts updated.
+func (db *DB) BackfillRouteCoords() (int, error) {
+	rows, err := db.Query(`
+		SELECT id FROM workouts
+		WHERE is_indoor = 0 AND route_coords IS NULL
+		ORDER BY recorded_at DESC`)
+	if err != nil {
+		return 0, err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return 0, err
 	}
 
-	const maxPts = 200
-	out := make([]WorkoutRouteTrack, 0, len(order))
-	for _, id := range order {
-		track := *trackMap[id]
-		raw := pts[id]
-		step := max(len(raw)/maxPts, 1)
-		coords := make([][2]float64, 0, len(raw)/step+1)
-		for i := 0; i < len(raw); i += step {
-			coords = append(coords, [2]float64{raw[i].lng, raw[i].lat})
+	updated := 0
+	for _, id := range ids {
+		pts, err := db.gpsPointsForWorkout(id)
+		if err != nil {
+			continue
 		}
-		if last := raw[len(raw)-1]; (len(raw)-1)%step != 0 {
-			coords = append(coords, [2]float64{last.lng, last.lat})
+		coords := downsampleCoords(pts, 75)
+		js, _ := json.Marshal(coords)
+		if _, err := db.Exec(`UPDATE workouts SET route_coords = ? WHERE id = ?`, string(js), id); err != nil {
+			continue
 		}
-		track.Coords = coords
-		out = append(out, track)
+		updated++
 	}
-	return out, nil
+	return updated, nil
+}
+
+func (db *DB) gpsPointsForWorkout(id string) ([][2]float64, error) {
+	rows, err := db.Query(`
+		SELECT lng, lat FROM workout_streams
+		WHERE workout_id = ?
+		  AND lat IS NOT NULL AND lng IS NOT NULL
+		  AND NOT (lat = 0 AND lng = 0)
+		ORDER BY timestamp`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close() //nolint:errcheck
+	var pts [][2]float64
+	for rows.Next() {
+		var lng, lat float64
+		if err := rows.Scan(&lng, &lat); err != nil {
+			return nil, err
+		}
+		pts = append(pts, [2]float64{lng, lat})
+	}
+	return pts, rows.Err()
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

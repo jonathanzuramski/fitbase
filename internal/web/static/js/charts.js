@@ -1078,9 +1078,9 @@ function renderRouteMap(containerId, streams, ftp, lthr) {
 // ── Activities map (heatmap page) ────────────────────────────────────────────
 
 const SPORT_COLORS = {
-  cycling:  "#38bdf8",
-  running:  "#4ade80",
-  swimming: "#22d3ee",
+  cycling:  "#1d4ed8",
+  running:  "#ef4444",
+  swimming: "#a855f7",
 };
 
 function renderActivitiesMap(containerId, tracks) {
@@ -1095,21 +1095,41 @@ function renderActivitiesMap(containerId, tracks) {
     return;
   }
 
+  // Center on rides from the last 14 days; fall back to all rides if none.
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 14);
+  const recent = valid.filter(t => new Date(t.date) >= cutoff);
+  const boundsSource = recent.length > 0 ? recent : valid;
+
   let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
-  for (const t of valid) {
+  for (const t of boundsSource) {
     for (const [lng, lat] of t.coords) {
+      if (lng === 0 && lat === 0) continue; // skip GPS-glitch null-island points
       if (lng < minLng) minLng = lng;
       if (lng > maxLng) maxLng = lng;
       if (lat < minLat) minLat = lat;
       if (lat > maxLat) maxLat = lat;
     }
   }
+  if (minLng === Infinity) {
+    el.textContent = "No outdoor activities with GPS data yet.";
+    el.style.cssText = "display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:13px";
+    return;
+  }
+
+  // Expand bounds by 50% on each side to zoom out ~1 level from the tight fit.
+  const lngSpan = (maxLng - minLng) || 0.01;
+  const latSpan = (maxLat - minLat) || 0.01;
+  const expandedBounds = [
+    [minLng - lngSpan * 0.5, minLat - latSpan * 0.5],
+    [maxLng + lngSpan * 0.5, maxLat + latSpan * 0.5],
+  ];
 
   const map = new maplibregl.Map({
     container: el,
     style: "https://tiles.openfreemap.org/styles/liberty",
-    bounds: [[minLng, minLat], [maxLng, maxLat]],
-    fitBoundsOptions: { padding: 48 },
+    bounds: expandedBounds,
+    fitBoundsOptions: { padding: 48, maxZoom: 13 },
     scrollZoom: true,
     touchZoomRotate: true,
     attributionControl: false,

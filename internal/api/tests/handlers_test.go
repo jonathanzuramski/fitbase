@@ -506,3 +506,105 @@ func TestSuccessResponseHasDataField(t *testing.T) {
 		t.Errorf("unexpected error field: %q", env.Error)
 	}
 }
+
+// ── GET /api/workouts/routes ──────────────────────────────────────────────────
+
+func insertOutdoorWorkoutWithGPS(t *testing.T, d *db.DB, id string) *models.Workout {
+	t.Helper()
+	lat1, lng1 := 47.1, -122.1
+	lat2, lng2 := 47.2, -122.2
+	w := &models.Workout{
+		ID:           id,
+		Filename:     id + ".fit",
+		RecordedAt:   time.Date(2024, 3, 15, 8, 0, 0, 0, time.UTC),
+		Sport:        "cycling",
+		DurationSecs: 3600,
+		AvgSpeedMPS:  10.0,
+		CreatedAt:    time.Now().UTC(),
+		IsIndoor:     false,
+	}
+	streams := []models.Stream{
+		{Timestamp: w.RecordedAt.Add(time.Second), Lat: &lat1, Lng: &lng1},
+		{Timestamp: w.RecordedAt.Add(2 * time.Second), Lat: &lat2, Lng: &lng2},
+	}
+	if err := d.InsertWorkout(w, streams); err != nil {
+		t.Fatalf("insertOutdoorWorkoutWithGPS %s: %v", id, err)
+	}
+	return w
+}
+
+func TestGetWorkoutRouteTracks_Empty(t *testing.T) {
+	h, _ := newTestHandler(t)
+	req := httptest.NewRequest("GET", "/api/workouts/routes", nil)
+	rr := httptest.NewRecorder()
+	h.GetWorkoutRouteTracks(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("status: got %d want %d", rr.Code, http.StatusOK)
+	}
+	var tracks []struct {
+		WorkoutID string       `json:"workout_id"`
+		Coords    [][2]float64 `json:"coords"`
+	}
+	decodeEnvelope(t, rr.Body.Bytes(), &tracks)
+	if len(tracks) != 0 {
+		t.Errorf("expected 0 tracks, got %d", len(tracks))
+	}
+}
+
+func TestGetWorkoutRouteTracks_AllOutdoor(t *testing.T) {
+	h, d := newTestHandler(t)
+	w := insertOutdoorWorkoutWithGPS(t, d, "outdoor1aaaaaaaa")
+
+	req := httptest.NewRequest("GET", "/api/workouts/routes", nil)
+	rr := httptest.NewRecorder()
+	h.GetWorkoutRouteTracks(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("status: got %d want %d", rr.Code, http.StatusOK)
+	}
+	var tracks []struct {
+		WorkoutID string       `json:"workout_id"`
+		Sport     string       `json:"sport"`
+		Coords    [][2]float64 `json:"coords"`
+	}
+	if errMsg := decodeEnvelope(t, rr.Body.Bytes(), &tracks); errMsg != "" {
+		t.Errorf("unexpected error: %s", errMsg)
+	}
+	if len(tracks) != 1 {
+		t.Fatalf("expected 1 track, got %d", len(tracks))
+	}
+	if tracks[0].WorkoutID != w.ID {
+		t.Errorf("WorkoutID: got %q want %q", tracks[0].WorkoutID, w.ID)
+	}
+	if tracks[0].Sport != "cycling" {
+		t.Errorf("Sport: got %q want cycling", tracks[0].Sport)
+	}
+	if len(tracks[0].Coords) < 1 {
+		t.Error("expected at least 1 coord in response")
+	}
+}
+
+func TestGetWorkoutRouteTracks_FilterByIDs(t *testing.T) {
+	h, d := newTestHandler(t)
+	w1 := insertOutdoorWorkoutWithGPS(t, d, "outdoor1aaaaaaaa")
+	insertOutdoorWorkoutWithGPS(t, d, "outdoor2bbbbbbbb")
+
+	req := httptest.NewRequest("GET", "/api/workouts/routes?ids="+w1.ID, nil)
+	rr := httptest.NewRecorder()
+	h.GetWorkoutRouteTracks(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("status: got %d want %d", rr.Code, http.StatusOK)
+	}
+	var tracks []struct {
+		WorkoutID string `json:"workout_id"`
+	}
+	decodeEnvelope(t, rr.Body.Bytes(), &tracks)
+	if len(tracks) != 1 {
+		t.Fatalf("expected 1 track for specific id, got %d", len(tracks))
+	}
+	if tracks[0].WorkoutID != w1.ID {
+		t.Errorf("WorkoutID: got %q want %q", tracks[0].WorkoutID, w1.ID)
+	}
+}
