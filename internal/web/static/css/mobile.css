@@ -196,12 +196,22 @@
 
   /* ── Activities card header ── */
   .card-header-row {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
   }
-  .filter-tabs {
-    width: 100%;
+  .card-header-row .card-title {
+    flex: 1;
+    margin-bottom: 0;
+    order: 1;
+  }
+  .card-header-row .view-toggle {
+    order: 1;
+    flex-shrink: 0;
+  }
+  .card-header-row .filter-tabs {
+    order: 2;
+    flex-basis: 100%;
   }
   .filter-tab {
     flex: 1;
@@ -299,6 +309,88 @@
     min-height: 40px;
     display: inline-flex;
     align-items: center;
+  }
+
+  /* ── Mobile card inject: own flex column so gap works correctly ── */
+  #mobile-card-inject {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  /* ── Sidebar: hide streak ── */
+  .streak-card {
+    display: none;
+  }
+
+  /* ── Mileage goals: circular progress ── */
+  .goal-circles {
+    display: flex;
+    justify-content: space-evenly;
+    gap: 30px;
+    margin: 20px;
+  }
+  .goal-circle {
+    width: 128px;
+    height: 128px;
+    border-radius: 50%;
+    background: conic-gradient(var(--gc-color, var(--border)) calc(var(--pct) * 1%), var(--border) 0);
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .goal-circle::before {
+    content: '';
+    position: absolute;
+    width: 94px;
+    height: 94px;
+    border-radius: 50%;
+    background: var(--bg-card);
+  }
+  .goal-circle-sport-cycling  { --gc-color: #60a5fa; }
+  .goal-circle-sport-running  { --gc-color: #4ade80; }
+  .goal-circle-sport-swimming { --gc-color: #22d3ee; }
+  .goal-circle-content {
+    position: relative;
+    z-index: 1;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+    padding: 0 6px;
+  }
+  .goal-circle-val {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1.1;
+  }
+  .goal-circle-target {
+    font-size: 10px;
+    color: var(--text-muted);
+    line-height: 1.2;
+  }
+  .goal-circle-lbl {
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+  /* Hide the old section-based layout on mobile */
+  .goal-sport-panel.active > .goal-section,
+  .goal-sport-panel.active > .goal-divider {
+    display: none;
+  }
+  .goal-sport-panel.active > .goal-manage-btn {
+    width: 100%;
+    padding: 4px 8px;
+    font-size: 11px;
+    margin-top: 4px;
   }
 }
 

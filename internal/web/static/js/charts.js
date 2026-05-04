@@ -292,6 +292,7 @@ function containerWidth(el) {
 // Keep heights close to desktop so the plot area isn't dwarfed by
 // the fixed-size axes and legend overhead on smaller screens.
 function chartHeight(desktopH) {
+  if (window.innerWidth <= 640) return Math.round(desktopH * 0.65);
   if (window.innerWidth <= 900) return Math.round(desktopH * 0.9);
   return desktopH;
 }

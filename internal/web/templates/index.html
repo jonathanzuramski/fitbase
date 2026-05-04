@@ -75,6 +75,22 @@
 
   {{range .GoalViews}}
   <div class="goal-sport-panel{{if .Active}} active{{end}}" data-sport="{{.Sport}}">
+    <div class="goal-circles">
+      <div class="goal-circle goal-circle-sport-{{.Sport}}" style="--pct:{{formatFloat1 .WeekPct}}">
+        <div class="goal-circle-content">
+          <span class="goal-circle-val">{{formatDistance .WeekMeters $imperial}}</span>
+          {{if gt .WeeklyGoalMeters 0.0}}<span class="goal-circle-target">/ {{formatDistance .WeeklyGoalMeters $imperial}}</span>{{end}}
+          <span class="goal-circle-lbl">week</span>
+        </div>
+      </div>
+      <div class="goal-circle goal-circle-sport-{{.Sport}}" style="--pct:{{formatFloat1 .YearPct}}">
+        <div class="goal-circle-content">
+          <span class="goal-circle-val">{{formatDistance .YearMeters $imperial}}</span>
+          {{if gt .YearlyGoalMeters 0.0}}<span class="goal-circle-target">/ {{formatDistance .YearlyGoalMeters $imperial}}</span>{{end}}
+          <span class="goal-circle-lbl">year</span>
+        </div>
+      </div>
+    </div>
     <div class="goal-section">
       <div class="goal-section-label">this week</div>
       <div class="goal-distance-row">
@@ -135,7 +151,7 @@
 </section>
 
 <!-- ── Training Load (compact, sidebar) ──────────────────────────────────── -->
-<section class="card">
+<section class="card" id="card-training-load">
   <h3 class="card-title">training load</h3>
   {{if .TodayFitness}}
   <div class="load-ctf-row">
@@ -145,10 +161,17 @@
   </div>
   <div class="goal-divider"></div>
   {{end}}
-  <div class="stat-table">
-    <span></span><span class="stat-th">week</span><span class="stat-th">year</span>
-    <span class="stat-lbl">TSS</span><span class="stat-td">{{formatFloat1 .WeekSummary.TSS}}</span><span class="stat-td">{{formatFloat1 .YearSummary.TSS}}</span>
-    <span class="stat-lbl">time</span><span class="stat-td">{{formatDuration .WeekSummary.DurationSecs}}</span><span class="stat-td">{{formatDuration .YearSummary.DurationSecs}}</span>
+  <div class="stat-blocks">
+    <div class="stat-block">
+      <div class="stat-block-hdr">week</div>
+      <div class="stat-block-row"><span class="stat-td">{{formatFloat1 .WeekSummary.TSS}}</span><span class="stat-lbl">tss</span></div>
+      <div class="stat-block-row"><span class="stat-td">{{formatDuration .WeekSummary.DurationSecs}}</span><span class="stat-lbl">time</span></div>
+    </div>
+    <div class="stat-block">
+      <div class="stat-block-hdr">year</div>
+      <div class="stat-block-row"><span class="stat-td">{{formatFloat1 .YearSummary.TSS}}</span><span class="stat-lbl">tss</span></div>
+      <div class="stat-block-row"><span class="stat-td">{{formatDuration .YearSummary.DurationSecs}}</span><span class="stat-lbl">time</span></div>
+    </div>
   </div>
 </section>
 
@@ -188,6 +211,8 @@
   </div>
 </section>
 {{end}}
+
+<div id="mobile-card-inject"></div>
 
 <section class="card">
   <div class="card-header-row">
@@ -451,6 +476,33 @@
 
     // Restore saved preference; default to list.
     setView(localStorage.getItem('activities-view') === 'map' ? 'map' : 'list');
+  })();
+
+  // ── Mobile layout: pull training load + goals under fitness chart ───────────
+  (function () {
+    const inject      = document.getElementById('mobile-card-inject');
+    const trainingLoad = document.getElementById('card-training-load');
+    const goalCard    = document.querySelector('.goal-card');
+    const sidebar     = document.querySelector('.home-sidebar');
+    if (!inject || !trainingLoad || !goalCard) return;
+
+    let mobileState = null;
+
+    function applyLayout() {
+      const mobile = window.innerWidth <= 640;
+      if (mobile === mobileState) return;
+      mobileState = mobile;
+      if (mobile) {
+        inject.appendChild(trainingLoad);
+        inject.appendChild(goalCard);
+      } else {
+        sidebar.appendChild(goalCard);
+        sidebar.appendChild(trainingLoad);
+      }
+    }
+
+    applyLayout();
+    window.addEventListener('resize', applyLayout);
   })();
 </script>
 {{end}}
