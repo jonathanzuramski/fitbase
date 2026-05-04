@@ -1615,6 +1615,10 @@ code {
 .home-main .card {
   margin-bottom: 0;
 }
+/* Invisible to flex layout on desktop; JS populates it only on mobile */
+#mobile-card-inject {
+  display: contents;
+}
 
 /* ── Streak widget ────────────────────────────────────────────────────────── */
 .streak-header {
@@ -1682,20 +1686,6 @@ code {
 
 /* ── Shared: training summary & mileage goals ──────────────────────────────── */
 
-/* 3-column stat table: label | this week | this year */
-.stat-table {
-  display: grid;
-  grid-template-columns: auto 1fr 1fr;
-  gap: 7px 14px;
-  align-items: baseline;
-}
-.stat-th {
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: var(--text-muted);
-}
 .stat-lbl {
   font-size: 10px;
   font-weight: 600;
@@ -1704,25 +1694,48 @@ code {
   color: var(--text-muted);
 }
 .stat-td {
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 500;
   color: var(--text);
+}
+
+/* Two-block stat layout: week | year */
+.stat-blocks {
+  display: flex;
+  gap: 60px;
+  justify-content: center;
+}
+.stat-block-hdr {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  margin-bottom: 5px;
+}
+.stat-block-row {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  margin-bottom: 3px;
 }
 
 /* Training load CTL/ATL/TSB row */
 .load-ctf-row {
   display: flex;
-  gap: 20px;
-  margin-bottom: 10px;
+  justify-content: space-around;
+  gap: 0;
+  margin-bottom: 6px;
 }
 .load-ctf-item {
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 2px;
 }
 .load-ctf-val {
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 20px;
+  font-weight: 700;
   color: var(--text);
   line-height: 1.15;
 }
@@ -1760,6 +1773,9 @@ code {
 }
 .goal-sport-panel.active {
   display: block;
+}
+.goal-circles {
+  display: none;
 }
 
 .goal-section {
@@ -1901,6 +1917,9 @@ code {
   height: 1px;
   background: var(--border);
   margin: 18px 0;
+}
+#card-training-load .goal-divider {
+  margin: 8px 0;
 }
 
 .goal-manage-btn {

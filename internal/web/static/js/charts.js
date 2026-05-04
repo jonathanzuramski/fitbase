@@ -93,6 +93,53 @@ function getHRZoneColor(bpm, lthr) {
 
   return HR_ZONE_COLORS[4]; // Z5: VO2 Max (106%+)
 }
+
+// Continuous-color gradient anchors for smooth zone-to-zone transitions.
+// Each entry is [ratio, hex] where ratio is the center of a zone
+// (watts/FTP for power, bpm/LTHR for HR). Values between anchors are
+// linearly blended, so transitions fade between zone colors instead of
+// snapping at the boundaries.
+const POWER_GRADIENT_STOPS = [
+  [0.28, POWER_ZONE_COLORS[0]],
+  [0.66, POWER_ZONE_COLORS[1]],
+  [0.84, POWER_ZONE_COLORS[2]],
+  [0.98, POWER_ZONE_COLORS[3]],
+  [1.13, POWER_ZONE_COLORS[4]],
+  [1.36, POWER_ZONE_COLORS[5]],
+  [1.70, POWER_ZONE_COLORS[6]],
+];
+
+const HR_GRADIENT_STOPS = [
+  [0.55, HR_ZONE_COLORS[0]],
+  [0.77, HR_ZONE_COLORS[1]],
+  [0.89, HR_ZONE_COLORS[2]],
+  [1.00, HR_ZONE_COLORS[3]],
+  [1.10, HR_ZONE_COLORS[4]],
+];
+
+function lerpHex(a, b, t) {
+  const h = (v) => Math.round(v).toString(16).padStart(2, "0");
+  const ar = parseInt(a.slice(1, 3), 16);
+  const ag = parseInt(a.slice(3, 5), 16);
+  const ab = parseInt(a.slice(5, 7), 16);
+  const br = parseInt(b.slice(1, 3), 16);
+  const bg = parseInt(b.slice(3, 5), 16);
+  const bb = parseInt(b.slice(5, 7), 16);
+  return `#${h(ar + (br - ar) * t)}${h(ag + (bg - ag) * t)}${h(ab + (bb - ab) * t)}`;
+}
+
+function colorFromStops(ratio, stops) {
+  if (ratio == null) return null;
+  if (ratio <= stops[0][0]) return stops[0][1];
+  const last = stops[stops.length - 1];
+  if (ratio >= last[0]) return last[1];
+  for (let i = 0; i < stops.length - 1; i++) {
+    const [r0, c0] = stops[i];
+    const [r1, c1] = stops[i + 1];
+    if (ratio < r1) return lerpHex(c0, c1, (ratio - r0) / (r1 - r0));
+  }
+  return last[1];
+}
 // Causal rolling average over a time window (seconds).
 // Returns the original array unchanged when windowSecs is 0.
 function rollingAvg(xd, yd, windowSecs) {
@@ -245,6 +292,7 @@ function containerWidth(el) {
 // Keep heights close to desktop so the plot area isn't dwarfed by
 // the fixed-size axes and legend overhead on smaller screens.
 function chartHeight(desktopH) {
+  if (window.innerWidth <= 640) return Math.round(desktopH * 0.65);
   if (window.innerWidth <= 900) return Math.round(desktopH * 0.9);
   return desktopH;
 }
@@ -966,62 +1014,74 @@ function renderRouteMap(containerId, streams, ftp, lthr) {
 
   map.on("load", () => {
     // Color route by power zone, HR zone, or solid blue — whichever is available.
+    // Smooth power/HR with a 30s rolling average so the map shows zone trends
+    // instead of noisy second-by-second spikes.
     const hasPower = ftp > 0 && streams.some((s) => s.power_watts != null);
     const hasHR = lthr > 0 && streams.some((s) => s.heart_rate_bpm != null);
-    const colorFn = hasPower
-      ? (s) => getPowerZoneColor(s.power_watts, ftp)
-      : hasHR
-        ? (s) => getHRZoneColor(s.heart_rate_bpm, lthr)
-        : () => "#3b82f6";
 
-    // Group consecutive same-color points into single GeoJSON features.
-    // (one segment per zone change, not per second).
-    const features = [];
-    let curColor = null,
-      curPts = [];
-
-    function flush() {
-      if (curPts.length >= 2) {
-        features.push({
-          type: "Feature",
-          geometry: {
-            type: "LineString",
-            coordinates: curPts.map((pt) => [pt[1], pt[0]]), // [lng, lat]
-          },
-          properties: { color: curColor },
-        });
-      }
-    }
-
+    // Collect GPS coordinates and per-point smoothed values together so the
+    // gradient expression only covers points that are actually drawn.
+    const coords = [];
+    const rawVals = [];
     for (const s of streams) {
-      if (s.lat == null || s.lng == null) {
-        flush();
-        curPts = [];
-        curColor = null;
-        continue;
-      }
-      const color = colorFn(s);
-      if (color !== curColor) {
-        if (curPts.length) {
-          curPts.push([s.lat, s.lng]);
-          flush();
-          curPts = [[s.lat, s.lng]];
-        }
-        curColor = color;
-      }
-      curPts.push([s.lat, s.lng]);
+      if (s.lat == null || s.lng == null) continue;
+      coords.push([s.lng, s.lat]);
+      rawVals.push(hasPower ? s.power_watts : hasHR ? s.heart_rate_bpm : null);
     }
-    flush();
 
-    // Add route source and layers (one layer per unique color to avoid re-rendering)
-    const geojson = {
-      type: "FeatureCollection",
-      features,
+    // Smooth over a 30s window (samples are ~1Hz, so index doubles as seconds).
+    const smoothed = (hasPower || hasHR)
+      ? rollingAvg(rawVals.map((_, i) => i), rawVals, 30)
+      : rawVals;
+
+    // Continuous color per point. With 30s smoothing + linear blending between
+    // zone-center anchors, zone boundaries fade smoothly instead of snapping.
+    const SOLID_FALLBACK = "#3b82f6";
+    const pointColor = (v) => {
+      if (v == null) return SOLID_FALLBACK;
+      if (hasPower) return colorFromStops(v / ftp, POWER_GRADIENT_STOPS) ?? SOLID_FALLBACK;
+      if (hasHR) return colorFromStops(v / lthr, HR_GRADIENT_STOPS) ?? SOLID_FALLBACK;
+      return SOLID_FALLBACK;
     };
+
+    // Cumulative haversine distance → normalized line-progress (0..1).
+    const cumDist = [0];
+    for (let i = 1; i < coords.length; i++) {
+      const [lng1, lat1] = coords[i - 1];
+      const [lng2, lat2] = coords[i];
+      const R = 6371000;
+      const phi1 = (lat1 * Math.PI) / 180;
+      const phi2 = (lat2 * Math.PI) / 180;
+      const dphi = ((lat2 - lat1) * Math.PI) / 180;
+      const dlam = ((lng2 - lng1) * Math.PI) / 180;
+      const a = Math.sin(dphi / 2) ** 2 + Math.cos(phi1) * Math.cos(phi2) * Math.sin(dlam / 2) ** 2;
+      cumDist.push(cumDist[i - 1] + 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+    }
+    const total = cumDist[cumDist.length - 1] || 1;
+
+    // Build a line-gradient expression. Cap stops at ~800 to keep the expression
+    // lightweight; smoothing makes downsampling visually lossless.
+    const MAX_STOPS = 800;
+    const stride = Math.max(1, Math.ceil(coords.length / MAX_STOPS));
+    const gradient = ["interpolate", ["linear"], ["line-progress"]];
+    let lastProg = -1;
+    const pushStop = (i) => {
+      const p = cumDist[i] / total;
+      if (p <= lastProg) return;
+      lastProg = p;
+      gradient.push(p, pointColor(smoothed[i]));
+    };
+    for (let i = 0; i < coords.length; i += stride) pushStop(i);
+    if (coords.length > 0) pushStop(coords.length - 1);
 
     map.addSource("route", {
       type: "geojson",
-      data: geojson,
+      lineMetrics: true,
+      data: {
+        type: "Feature",
+        geometry: { type: "LineString", coordinates: coords },
+        properties: {},
+      },
     });
 
     map.addLayer({
@@ -1029,11 +1089,11 @@ function renderRouteMap(containerId, streams, ftp, lthr) {
       type: "line",
       source: "route",
       layout: {
-        "line-cap": "round",
+        "line-cap": "butt",
         "line-join": "round",
       },
       paint: {
-        "line-color": ["get", "color"],
+        "line-gradient": gradient,
         "line-width": 5,
         "line-opacity": 0.9,
       },
@@ -1078,7 +1138,7 @@ function renderRouteMap(containerId, streams, ftp, lthr) {
 // ── Activities map (heatmap page) ────────────────────────────────────────────
 
 const SPORT_COLORS = {
-  cycling:  "#1d4ed8",
+  cycling:  "#005cad",
   running:  "#ef4444",
   swimming: "#a855f7",
 };

@@ -30,7 +30,7 @@
         </form>
       </div>
     </nav>
-    <main class="container">{{block "content" .}}{{end}}</main>
+    <main class="container{{block "mainClass" .}}{{end}}">{{block "content" .}}{{end}}</main>
     <script src="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.iife.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.min.css" />
     <script src="/static/js/charts.js"></script>

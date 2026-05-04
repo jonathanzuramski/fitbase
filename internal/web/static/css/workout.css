@@ -1,5 +1,10 @@
 /* fitbase — Workout detail page styles */
 
+/* ── Narrow container override ───────────────────────── */
+.container--narrow {
+  max-width: 1200px;
+}
+
 /* ── Metric rows & cells ─────────────────────────────── */
 .metric-row {
   display: flex;
@@ -233,7 +238,7 @@
 
 /* ── Route map ────────────────────────────────────────── */
 .route-map {
-  height: 640px;
+  height: 500px;
   border-radius: 6px;
   overflow: hidden;
   position: relative;
