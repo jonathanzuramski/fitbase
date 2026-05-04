@@ -12,7 +12,8 @@ fitbase takes a different approach: sync your FIT files through whatever path wo
 
 **No cloud dependency. No subscriptions. No data hostage situations.**
 
-![Example of fitbases dashboard](./dashboard.png)
+![Example of fitbases dashboard](<img width="2193" height="1043" alt="image" src="https://github.com/user-attachments/assets/46335afb-a149-4fbd-ac6e-726306541369" />
+)
 
 ---
 
