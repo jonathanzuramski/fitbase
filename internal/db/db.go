@@ -53,6 +53,18 @@ func Open(path string, key []byte) (*DB, error) {
 		}
 	}
 
+	// Migration: add training_day (YYYY-MM-DD in athlete's local timezone).
+	// Lets fitness/streak/mileage queries group by the day the athlete recorded
+	// the workout, not UTC, without per-query timezone math.
+	if _, err := sqldb.Exec(`ALTER TABLE workouts ADD COLUMN training_day TEXT DEFAULT NULL`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name") {
+			return nil, fmt.Errorf("migrate training_day: %w", err)
+		}
+	}
+	if _, err := sqldb.Exec(`CREATE INDEX IF NOT EXISTS idx_workouts_training_day ON workouts(training_day)`); err != nil {
+		return nil, fmt.Errorf("create training_day index: %w", err)
+	}
+
 	return &DB{sqldb, key}, nil
 }
 
@@ -77,6 +89,11 @@ func (db *DB) InsertWorkout(w *models.Workout, streams []models.Stream) error {
 		routeCoords = &s
 	}
 
+	// Calendar day the athlete recorded this workout, in their local timezone.
+	// Stored at insert time so chart/streak/mileage queries don't need per-row
+	// timezone math.
+	trainingDay := w.RecordedAt.In(db.athleteLocation()).Format("2006-01-02")
+
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -88,13 +105,13 @@ func (db *DB) InsertWorkout(w *models.Workout, streams []models.Stream) error {
 			id, filename, recorded_at, sport, duration_secs, elapsed_secs, distance_meters,
 			elevation_gain_meters, avg_power_watts, max_power_watts, normalized_power,
 			avg_heart_rate, max_heart_rate, avg_cadence, avg_speed_mps,
-			tss, intensity_factor, is_indoor, route_coords
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			tss, intensity_factor, is_indoor, route_coords, training_day
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		w.ID, w.Filename, w.RecordedAt.UTC().Format(time.RFC3339),
 		w.Sport, w.DurationSecs, w.ElapsedSecs, w.DistanceMeters, w.ElevationGainMeters,
 		w.AvgPowerWatts, w.MaxPowerWatts, w.NormalizedPower,
 		w.AvgHeartRate, w.MaxHeartRate, w.AvgCadenceRPM, w.AvgSpeedMPS,
-		w.TSS, w.IntensityFactor, w.IsIndoor, routeCoords,
+		w.TSS, w.IntensityFactor, w.IsIndoor, routeCoords, trainingDay,
 	)
 	if err != nil {
 		return fmt.Errorf("insert workout: %w", err)
@@ -730,12 +747,36 @@ func (db *DB) GetFTPAtDate(t time.Time) int {
 
 // ── Training load ─────────────────────────────────────────────────────────────
 
+// athleteLocation returns the athlete's configured timezone, falling back to UTC.
+// Used to anchor "today" and per-day TSS grouping to the user's local calendar
+// instead of UTC, so a workout finished at 11pm local lands on the day the user
+// thinks it does.
+func (db *DB) athleteLocation() *time.Location {
+	var tz string
+	_ = db.QueryRow("SELECT timezone FROM athlete WHERE id=1").Scan(&tz)
+	if tz == "" {
+		return time.UTC
+	}
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return time.UTC
+	}
+	return loc
+}
+
+// localMidnight returns midnight on the calendar day of `t` in `t`'s timezone.
+func localMidnight(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
+}
+
 // GetFitnessOnDate returns the Fitness/Fatigue/Form values as of a specific date.
 // Uses the same 270-day lookback as the dashboard chart (90-day display + 180-day
 // warmup) so the EMA starting conditions are identical and the values match.
+// "Today" and the target are interpreted in the athlete's timezone.
 func (db *DB) GetFitnessOnDate(date time.Time) (models.FitnessPoint, error) {
-	target := date.UTC().Truncate(24 * time.Hour)
-	today := time.Now().UTC().Truncate(24 * time.Hour)
+	tz := db.athleteLocation()
+	target := localMidnight(date.In(tz))
+	today := localMidnight(time.Now().In(tz))
 	daysAgo := max(int(today.Sub(target).Hours()/24), 0)
 	// Request daysAgo+90 days so the total lookback matches the chart (270 days).
 	// The target date lands at index 90 from the oldest point returned.
@@ -770,13 +811,20 @@ func (db *DB) getFitnessHistory(days, projection int) ([]models.FitnessPoint, er
 	const warmup = 180
 	totalDays := days + warmup
 
+	tz := db.athleteLocation()
+	today := localMidnight(time.Now().In(tz))
+	start := today.AddDate(0, 0, -totalDays)
+
+	// training_day was computed at insert time using the athlete's local
+	// timezone, so we can group/filter by it directly without per-query math.
 	rows, err := db.Query(`
-		SELECT date(recorded_at) as day, COALESCE(SUM(tss), 0) as daily_tss
+		SELECT training_day AS day, COALESCE(SUM(tss), 0) AS daily_tss
 		FROM workouts
-		WHERE recorded_at >= date('now', ? || ' days')
+		WHERE training_day >= ?
+		  AND training_day IS NOT NULL
 		  AND tss IS NOT NULL
-		GROUP BY day
-		ORDER BY day ASC`, fmt.Sprintf("-%d", totalDays))
+		GROUP BY training_day
+		ORDER BY training_day ASC`, start.Format("2006-01-02"))
 	if err != nil {
 		return nil, err
 	}
@@ -799,8 +847,13 @@ func (db *DB) getFitnessHistory(days, projection int) ([]models.FitnessPoint, er
 	// Only return points after the warmup period to avoid ramp-up distortion.
 	// The +1 includes today: days=0 → [today], days=1 → [yesterday, today], etc.
 	// Projection days extend past today with zero TSS for chart forecasting.
-	start := time.Now().UTC().Truncate(24*time.Hour).AddDate(0, 0, -totalDays)
-	return fitness.ComputeLoad(tssByDay, start, totalDays+1+projection, warmup), nil
+	points := fitness.ComputeLoad(tssByDay, start, totalDays+1+projection, warmup)
+	// Mark trailing `projection` points as forecast so the chart can render
+	// them differently without doing its own clock math.
+	for i := len(points) - projection; i < len(points); i++ {
+		points[i].IsProjection = true
+	}
+	return points, nil
 }
 
 // GetLastWorkoutDate returns the recorded_at of the most recent workout, or nil if none.
@@ -1053,10 +1106,10 @@ func (db *DB) GetWeekActivityDays(weekStart time.Time, tz *time.Location) ([7]bo
 	var days [7]bool
 	weekEnd := weekStart.AddDate(0, 0, 7)
 	rows, err := db.Query(`
-		SELECT DISTINCT date(recorded_at) FROM workouts
-		WHERE recorded_at >= ? AND recorded_at < ?`,
-		weekStart.UTC().Format(time.RFC3339),
-		weekEnd.UTC().Format(time.RFC3339),
+		SELECT DISTINCT training_day FROM workouts
+		WHERE training_day >= ? AND training_day < ? AND training_day IS NOT NULL`,
+		weekStart.Format("2006-01-02"),
+		weekEnd.Format("2006-01-02"),
 	)
 	if err != nil {
 		return days, err
@@ -1158,14 +1211,14 @@ func (db *DB) GetMileageProgress(sport string, tz *time.Location) (MileageProgre
 	yearStart := time.Date(now.Year(), 1, 1, 0, 0, 0, 0, tz)
 
 	rows, err := db.Query(`
-		SELECT date(recorded_at) AS day,
+		SELECT training_day AS day,
 		       COALESCE(SUM(distance_meters), 0)
 		FROM workouts
-		WHERE sport = ? AND recorded_at >= ? AND recorded_at < ?
-		GROUP BY day`,
+		WHERE sport = ? AND training_day >= ? AND training_day < ? AND training_day IS NOT NULL
+		GROUP BY training_day`,
 		sport,
-		weekStart.UTC().Format(time.RFC3339),
-		weekEnd.UTC().Format(time.RFC3339),
+		weekStart.Format("2006-01-02"),
+		weekEnd.Format("2006-01-02"),
 	)
 	if err != nil {
 		return p, err
@@ -1312,6 +1365,69 @@ func (db *DB) BackfillRouteCoords() (int, error) {
 			continue
 		}
 		updated++
+	}
+	return updated, nil
+}
+
+// BackfillTrainingDay populates the training_day column for any workouts that
+// pre-date the migration, using the athlete's current timezone as the best
+// available guess. Safe to call concurrently with normal operation. Batched in
+// a single transaction so a multi-thousand-row backfill is fast.
+func (db *DB) BackfillTrainingDay() (int, error) {
+	tz := db.athleteLocation()
+
+	rows, err := db.Query(`
+		SELECT id, recorded_at FROM workouts
+		WHERE training_day IS NULL`)
+	if err != nil {
+		return 0, err
+	}
+	type pending struct {
+		id  string
+		rec time.Time
+	}
+	var todo []pending
+	for rows.Next() {
+		var id, recStr string
+		if err := rows.Scan(&id, &recStr); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		rec, err := time.Parse(time.RFC3339, recStr)
+		if err != nil {
+			continue
+		}
+		todo = append(todo, pending{id, rec})
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	if len(todo) == 0 {
+		return 0, nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	stmt, err := tx.Prepare(`UPDATE workouts SET training_day = ? WHERE id = ?`)
+	if err != nil {
+		return 0, err
+	}
+	defer stmt.Close() //nolint:errcheck
+
+	updated := 0
+	for _, p := range todo {
+		day := p.rec.In(tz).Format("2006-01-02")
+		if _, err := stmt.Exec(day, p.id); err != nil {
+			continue
+		}
+		updated++
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
 	}
 	return updated, nil
 }

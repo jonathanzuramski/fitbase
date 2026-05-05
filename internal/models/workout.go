@@ -80,10 +80,11 @@ type HRZone struct {
 
 // FitnessPoint is a single day's Fitness/Fatigue/Form training load values.
 type FitnessPoint struct {
-	Date    time.Time `json:"date"`
-	Fitness float64   `json:"fitness"` // Chronic Training Load (42-day EMA)
-	Fatigue float64   `json:"fatigue"` // Acute Training Load (7-day EMA)
-	Form    float64   `json:"form"`    // Fitness minus Fatigue
+	Date         time.Time `json:"date"`
+	Fitness      float64   `json:"fitness"` // Chronic Training Load (42-day EMA)
+	Fatigue      float64   `json:"fatigue"` // Acute Training Load (7-day EMA)
+	Form         float64   `json:"form"`    // Fitness minus Fatigue
+	IsProjection bool      `json:"is_projection,omitempty"`
 }
 
 // ZonesReport contains the athlete's current power and HR training zones.

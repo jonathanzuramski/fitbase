@@ -59,6 +59,16 @@ func main() {
 		}
 	}()
 
+	// Populate training_day for any workouts that pre-date the migration.
+	go func() {
+		n, err := database.BackfillTrainingDay()
+		if err != nil {
+			slog.Warn("training day backfill failed", "err", err)
+		} else if n > 0 {
+			slog.Info("backfilled training days", "workouts", n)
+		}
+	}()
+
 	// If the DB is empty but the archive has files, reimport everything.
 	// This handles the case where the user deleted the DB and restarted.
 	if n, _ := database.CountWorkouts(); n == 0 {

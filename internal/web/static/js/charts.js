@@ -338,10 +338,10 @@ function renderFitnessChart(containerId, data) {
   const atlSeries = data.map((d) => Math.round(d.fatigue * 10) / 10);
   const tsbSeries = data.map((d) => Math.round(d.form * 10) / 10);
 
-  // Split real vs projected (future) points. Duplicate the last real point
-  // into the projected series so the lines connect seamlessly.
-  const nowSec = Date.now() / 1000;
-  const lastReal = timestamps.findLastIndex((t) => t <= nowSec);
+  // Split real vs projected (future) points using the server-supplied flag,
+  // so we agree with the sidebar's notion of "today" regardless of timezone.
+  // Duplicate the last real point into the projected series so the lines connect.
+  const lastReal = data.findLastIndex((d) => !d.is_projection);
   const projCtl = timestamps.map((_, i) => (i >= lastReal ? ctlSeries[i] : null));
   const projAtl = timestamps.map((_, i) => (i >= lastReal ? atlSeries[i] : null));
   const projTsb = timestamps.map((_, i) => (i >= lastReal ? tsbSeries[i] : null));
