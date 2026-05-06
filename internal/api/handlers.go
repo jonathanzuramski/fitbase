@@ -357,18 +357,24 @@ func (h *Handler) GetWorkoutRouteTracks(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	type trackOut struct {
-		WorkoutID string       `json:"workout_id"`
-		Sport     string       `json:"sport"`
-		Date      string       `json:"date"`
-		Coords    [][2]float64 `json:"coords"`
+		WorkoutID           string       `json:"workout_id"`
+		Sport               string       `json:"sport"`
+		Date                string       `json:"date"`
+		DistanceMeters      float64      `json:"distance_meters"`
+		DurationSecs        int          `json:"duration_secs"`
+		ElevationGainMeters float64      `json:"elevation_gain_meters"`
+		Coords              [][2]float64 `json:"coords"`
 	}
 	out := make([]trackOut, len(tracks))
 	for i, t := range tracks {
 		out[i] = trackOut{
-			WorkoutID: t.WorkoutID,
-			Sport:     t.Sport,
-			Date:      t.Date.Format("Jan 02, 2006"),
-			Coords:    t.Coords,
+			WorkoutID:           t.WorkoutID,
+			Sport:               t.Sport,
+			Date:                t.Date.Format("Jan 02, 2006"),
+			DistanceMeters:      t.DistanceMeters,
+			DurationSecs:        t.DurationSecs,
+			ElevationGainMeters: t.ElevationGainMeters,
+			Coords:              t.Coords,
 		}
 	}
 	writeJSON(w, http.StatusOK, out)

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -117,7 +118,7 @@ func (db *DB) InsertWorkout(w *models.Workout, streams []models.Stream) error {
 			}
 			pts = append(pts, [2]float64{*s.Lng, *s.Lat})
 		}
-		coords := downsampleCoords(pts, 75)
+		coords := simplifyCoords(pts, 500)
 		js, _ := json.Marshal(coords)
 		s := string(js)
 		routeCoords = &s
@@ -1397,27 +1398,66 @@ func (db *DB) GetMileageProgress(sport string, tz *time.Location) (MileageProgre
 
 // WorkoutRouteTrack is a simplified GPS track for a single workout.
 type WorkoutRouteTrack struct {
-	WorkoutID string
-	Sport     string
-	Date      time.Time
-	Coords    [][2]float64 // GeoJSON order: [lng, lat]
+	WorkoutID           string
+	Sport               string
+	Date                time.Time
+	DistanceMeters      float64
+	DurationSecs        int
+	ElevationGainMeters float64
+	Coords              [][2]float64 // GeoJSON order: [lng, lat]
 }
 
-// downsampleCoords reduces pts to at most maxPts points while always preserving
-// the final point. Returns an empty (non-nil) slice when there are fewer than 2 points.
-func downsampleCoords(pts [][2]float64, maxPts int) [][2]float64 {
+// simplifyCoords reduces GPS coords using Ramer-Douglas-Peucker, which preserves
+// corners and road curves while aggressively dropping redundant points on straight
+// sections. Falls back to uniform downsampling only if RDP still exceeds maxPts.
+func simplifyCoords(pts [][2]float64, maxPts int) [][2]float64 {
 	if len(pts) < 2 {
 		return [][2]float64{}
 	}
-	step := max(len(pts)/maxPts, 1)
-	out := make([][2]float64, 0, len(pts)/step+1)
-	for i := 0; i < len(pts); i += step {
-		out = append(out, pts[i])
+	// ~5 m tolerance in degree space; keeps all meaningful bends in the road.
+	simplified := rdpSimplify(pts, 0.00005)
+	if len(simplified) <= maxPts {
+		return simplified
 	}
-	if (len(pts)-1)%step != 0 {
-		out = append(out, pts[len(pts)-1])
+	// Safety cap: uniformly thin the already-simplified set.
+	step := max(len(simplified)/maxPts, 1)
+	out := make([][2]float64, 0, maxPts)
+	for i := 0; i < len(simplified); i += step {
+		out = append(out, simplified[i])
+	}
+	if out[len(out)-1] != simplified[len(simplified)-1] {
+		out = append(out, simplified[len(simplified)-1])
 	}
 	return out
+}
+
+// rdpSimplify is the recursive Ramer-Douglas-Peucker simplification algorithm.
+func rdpSimplify(pts [][2]float64, epsilon float64) [][2]float64 {
+	if len(pts) < 3 {
+		return pts
+	}
+	maxDist, maxIdx := 0.0, 0
+	first, last := pts[0], pts[len(pts)-1]
+	for i := 1; i < len(pts)-1; i++ {
+		if d := rdpPerpDist(pts[i], first, last); d > maxDist {
+			maxDist, maxIdx = d, i
+		}
+	}
+	if maxDist > epsilon {
+		left := rdpSimplify(pts[:maxIdx+1], epsilon)
+		right := rdpSimplify(pts[maxIdx:], epsilon)
+		return append(left[:len(left)-1], right...)
+	}
+	return [][2]float64{first, last}
+}
+
+// rdpPerpDist returns the perpendicular distance from point p to the line a→b.
+func rdpPerpDist(p, a, b [2]float64) float64 {
+	dx, dy := b[0]-a[0], b[1]-a[1]
+	if dx == 0 && dy == 0 {
+		return math.Sqrt((p[0]-a[0])*(p[0]-a[0]) + (p[1]-a[1])*(p[1]-a[1]))
+	}
+	return math.Abs(dy*p[0]-dx*p[1]+b[0]*a[1]-b[1]*a[0]) / math.Sqrt(dx*dx+dy*dy)
 }
 
 // GetWorkoutRouteTracks returns pre-computed GPS tracks for the given workout IDs.
@@ -1428,7 +1468,7 @@ func (db *DB) GetWorkoutRouteTracks(ids []string) ([]WorkoutRouteTrack, error) {
 	var err error
 	if len(ids) == 0 {
 		rows, err = db.Query(`
-			SELECT id, sport, recorded_at, route_coords
+			SELECT id, sport, recorded_at, distance_meters, duration_secs, elevation_gain_meters, route_coords
 			FROM workouts
 			WHERE is_indoor = 0
 			  AND route_coords IS NOT NULL
@@ -1441,7 +1481,7 @@ func (db *DB) GetWorkoutRouteTracks(ids []string) ([]WorkoutRouteTrack, error) {
 			args[i] = id
 		}
 		rows, err = db.Query(fmt.Sprintf(`
-			SELECT id, sport, recorded_at, route_coords
+			SELECT id, sport, recorded_at, distance_meters, duration_secs, elevation_gain_meters, route_coords
 			FROM workouts
 			WHERE id IN (%s)
 			  AND route_coords IS NOT NULL
@@ -1455,7 +1495,9 @@ func (db *DB) GetWorkoutRouteTracks(ids []string) ([]WorkoutRouteTrack, error) {
 	var out []WorkoutRouteTrack
 	for rows.Next() {
 		var id, sport, recAt, coordsJSON string
-		if err := rows.Scan(&id, &sport, &recAt, &coordsJSON); err != nil {
+		var distM, elevM float64
+		var durSecs int
+		if err := rows.Scan(&id, &sport, &recAt, &distM, &durSecs, &elevM, &coordsJSON); err != nil {
 			return nil, err
 		}
 		var coords [][2]float64
@@ -1463,7 +1505,15 @@ func (db *DB) GetWorkoutRouteTracks(ids []string) ([]WorkoutRouteTrack, error) {
 			continue
 		}
 		t, _ := time.Parse(time.RFC3339, recAt)
-		out = append(out, WorkoutRouteTrack{WorkoutID: id, Sport: sport, Date: t, Coords: coords})
+		out = append(out, WorkoutRouteTrack{
+			WorkoutID:           id,
+			Sport:               sport,
+			Date:                t,
+			DistanceMeters:      distM,
+			DurationSecs:        durSecs,
+			ElevationGainMeters: elevM,
+			Coords:              coords,
+		})
 	}
 	return out, rows.Err()
 }
@@ -1499,7 +1549,50 @@ func (db *DB) BackfillRouteCoords() (int, error) {
 		if err != nil {
 			continue
 		}
-		coords := downsampleCoords(pts, 75)
+		coords := simplifyCoords(pts, 500)
+		js, _ := json.Marshal(coords)
+		if _, err := db.Exec(`UPDATE workouts SET route_coords = ? WHERE id = ?`, string(js), id); err != nil {
+			continue
+		}
+		updated++
+	}
+	return updated, nil
+}
+
+// RebuildRouteCoords re-builds route_coords from stream data for any outdoor
+// workout whose stored coords have fewer than minPts points (i.e. built with the
+// old 75-point limit). Safe to call at startup — once all workouts are at the
+// new limit the query returns zero rows and the function returns immediately.
+func (db *DB) RebuildRouteCoords(minPts int) (int, error) {
+	rows, err := db.Query(`
+		SELECT id FROM workouts
+		WHERE is_indoor = 0
+		  AND route_coords IS NOT NULL
+		  AND json_array_length(route_coords) < ?`, minPts)
+	if err != nil {
+		return 0, err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	updated := 0
+	for _, id := range ids {
+		pts, err := db.gpsPointsForWorkout(id)
+		if err != nil {
+			continue
+		}
+		coords := simplifyCoords(pts, 500)
 		js, _ := json.Marshal(coords)
 		if _, err := db.Exec(`UPDATE workouts SET route_coords = ? WHERE id = ?`, string(js), id); err != nil {
 			continue

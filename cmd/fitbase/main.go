@@ -59,6 +59,16 @@ func main() {
 		}
 	}()
 
+	// Rebuild route_coords for any workouts stored with the old 75-point limit.
+	go func() {
+		n, err := database.RebuildRouteCoords(200)
+		if err != nil {
+			slog.Warn("route coords rebuild failed", "err", err)
+		} else if n > 0 {
+			slog.Info("rebuilt route coords with higher resolution", "workouts", n)
+		}
+	}()
+
 	// Populate training_day for any workouts that pre-date the migration.
 	go func() {
 		n, err := database.BackfillTrainingDay()
