@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"sync"
 	"time"
 
 	"github.com/fitbase/fitbase/internal/db"
+	"github.com/fitbase/fitbase/internal/fitness"
 	"github.com/fitbase/fitbase/internal/importer"
 	"github.com/fitbase/fitbase/internal/intervals"
 )
@@ -17,7 +19,6 @@ import (
 const concurrentIntervalsDownloads = 2
 
 const intervalsPollInterval = 1 * time.Minute
-const defaultSyncOldest = "2000-01-01"
 
 // IntervalsSource implements SyncSource for intervals.icu activity sync.
 type IntervalsSource struct {
@@ -25,7 +26,11 @@ type IntervalsSource struct {
 	importer *importer.Importer
 	cancel   context.CancelFunc
 	mu       sync.Mutex
+	apiBase  string // empty means use the default production URL; set by overrideBase in tests
 }
+
+// overrideBase redirects all API calls to the given base URL. Used in tests only.
+func (s *IntervalsSource) overrideBase(base string) { s.apiBase = base }
 
 func NewIntervalsSource(database *db.DB, imp *importer.Importer) *IntervalsSource {
 	return &IntervalsSource{db: database, importer: imp}
@@ -35,6 +40,9 @@ func (s *IntervalsSource) client() (*intervals.Client, error) {
 	athleteID, apiKey, err := s.db.GetIntegrationCredentials("intervals")
 	if err != nil || athleteID == "" {
 		return nil, fmt.Errorf("intervals.icu not connected")
+	}
+	if s.apiBase != "" {
+		return intervals.NewWithBase(athleteID, apiKey, s.apiBase), nil
 	}
 	return intervals.New(athleteID, apiKey), nil
 }
@@ -46,12 +54,7 @@ func (s *IntervalsSource) Sync(ctx context.Context, onProgress func(event string
 		return
 	}
 
-	oldest, _ := s.db.GetSyncOldest("intervals")
-	if oldest == "" {
-		oldest = defaultSyncOldest
-	}
-
-	activities, err := client.ListActivities(ctx, oldest, "")
+	activities, err := client.ListActivities(ctx, "2000-01-01", "")
 	if err != nil {
 		slog.Error("intervals.icu sync: list activities", "err", err)
 		if onProgress != nil {
@@ -152,8 +155,7 @@ func (s *IntervalsSource) Fetch(ctx context.Context, activityID string) (workout
 
 func (s *IntervalsSource) poll(ctx context.Context, client *intervals.Client) {
 	for {
-		oldest, _ := s.db.GetSyncOldest("intervals")
-		imported, skipped, failed := s.syncActivities(ctx, client, oldest)
+		imported, skipped, failed := s.syncActivities(ctx, client)
 		if imported > 0 || failed > 0 {
 			slog.Info("intervals.icu auto-sync", "imported", imported, "skipped", skipped, "failed", failed)
 		}
@@ -165,11 +167,8 @@ func (s *IntervalsSource) poll(ctx context.Context, client *intervals.Client) {
 	}
 }
 
-func (s *IntervalsSource) syncActivities(ctx context.Context, client *intervals.Client, oldest string) (imported, skipped, failed int) {
-	if oldest == "" {
-		oldest = defaultSyncOldest
-	}
-	activities, err := client.ListActivities(ctx, oldest, "")
+func (s *IntervalsSource) syncActivities(ctx context.Context, client *intervals.Client) (imported, skipped, failed int) {
+	activities, err := client.ListActivities(ctx, "2000-01-01", "")
 	if err != nil {
 		slog.Error("intervals.icu sync: list activities", "err", err)
 		return
@@ -191,6 +190,96 @@ func (s *IntervalsSource) syncActivities(ctx context.Context, client *intervals.
 type pendingIntervalsActivity struct {
 	id       string
 	filename string
+}
+
+// SyncFTPHistory fetches all activities from intervals.icu, extracts per-activity FTP,
+// writes detected FTP change points into the local ftp_history table (replacing all
+// existing entries), then recomputes TSS and IF for every power-based workout using
+// the now-accurate historical FTP.
+func (s *IntervalsSource) SyncFTPHistory(ctx context.Context, onProgress func(event string, data any)) (updated int, err error) {
+	client, err := s.client()
+	if err != nil {
+		return 0, err
+	}
+
+	activities, err := client.ListActivities(ctx, "2000-01-01", "")
+	if err != nil {
+		return 0, fmt.Errorf("list activities: %w", err)
+	}
+
+	// Sort oldest→newest so we detect change points in chronological order.
+	sort.Slice(activities, func(i, j int) bool {
+		return activities[i].StartDateLocal < activities[j].StartDateLocal
+	})
+
+	// Build FTP change points: each time icu_ftp differs from the previous value,
+	// record the date and new FTP.
+	type changePoint struct {
+		at  time.Time
+		ftp int
+	}
+	var changes []changePoint
+	var lastFTP int
+	for _, act := range activities {
+		if act.IcuFTP == nil || *act.IcuFTP <= 0 {
+			continue
+		}
+		ftp := *act.IcuFTP
+		if ftp == lastFTP {
+			continue
+		}
+		t, parseErr := time.Parse("2006-01-02T15:04:05", act.StartDateLocal)
+		if parseErr != nil {
+			// Try date-only fallback
+			t, parseErr = time.Parse("2006-01-02", act.StartDateLocal[:10])
+			if parseErr != nil {
+				continue
+			}
+		}
+		changes = append(changes, changePoint{at: t, ftp: ftp})
+		lastFTP = ftp
+	}
+
+	if onProgress != nil {
+		onProgress("ftpchanges", map[string]any{"count": len(changes)})
+	}
+
+	// Replace ftp_history with the intervals-derived change points.
+	if err := s.db.ClearFTPHistory(); err != nil {
+		return 0, fmt.Errorf("clear ftp history: %w", err)
+	}
+	for _, cp := range changes {
+		if err := s.db.LogFTPChangeAt(cp.ftp, cp.at); err != nil {
+			slog.Warn("intervals ftp sync: insert history entry", "ftp", cp.ftp, "at", cp.at, "err", err)
+		}
+	}
+
+	// Recompute TSS/IF for every power-based workout using the now-accurate history.
+	workouts, err := s.db.AllWorkoutsForTSSBackfill()
+	if err != nil {
+		return 0, fmt.Errorf("load workouts: %w", err)
+	}
+
+	if onProgress != nil {
+		onProgress("recompute", map[string]any{"total": len(workouts)})
+	}
+
+	for _, w := range workouts {
+		ftp := s.db.GetFTPAtDate(w.RecordedAt)
+		if ftp <= 0 {
+			continue
+		}
+		ftpF := float64(ftp)
+		ifactor := fitness.IntensityFactor(w.NormalizedPower, ftpF)
+		tss := fitness.PowerTSS(w.DurationSecs, w.NormalizedPower, ftpF)
+		if err := s.db.UpdateWorkoutLoad(w.ID, tss, ifactor); err != nil {
+			slog.Warn("intervals ftp sync: update workout load", "id", w.ID, "err", err)
+			continue
+		}
+		updated++
+	}
+
+	return updated, nil
 }
 
 // downloadIntervalsFiles downloads FIT files concurrently and imports them sequentially.

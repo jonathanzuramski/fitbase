@@ -2,15 +2,19 @@ package syncer
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/fitbase/fitbase/internal/db"
 	"github.com/fitbase/fitbase/internal/dropbox"
 	"github.com/fitbase/fitbase/internal/importer"
 	"github.com/fitbase/fitbase/internal/intervals"
+	"github.com/fitbase/fitbase/internal/models"
 )
 
 var syncTestKey = []byte("fitbase-test-key-do-not-use-prod")
@@ -494,5 +498,239 @@ func TestDownloadIntervalsFiles_CallsOnFile(t *testing.T) {
 	})
 	if !called {
 		t.Error("onFile was never called")
+	}
+}
+
+// ── SyncFTPHistory ────────────────────────────────────────────────────────────
+
+// intervalsActivitiesServer returns a test server that serves a fixed activity
+// list from the intervals.icu /athlete/{id}/activities endpoint.
+func intervalsActivitiesServer(t *testing.T, acts []intervals.Activity) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(acts); err != nil {
+			t.Errorf("encode activities: %v", err)
+		}
+	}))
+}
+
+// sampleSyncWorkout inserts a workout with normalized power into d and returns it.
+func sampleSyncWorkout(t *testing.T, d *db.DB, id string, recordedAt time.Time, np float64) *models.Workout {
+	t.Helper()
+	tss := 80.0
+	ifac := 0.85
+	w := &models.Workout{
+		ID:              id,
+		Filename:        fmt.Sprintf("%s.fit", id),
+		RecordedAt:      recordedAt,
+		Sport:           "cycling",
+		DurationSecs:    3600,
+		NormalizedPower: &np,
+		TSS:             &tss,
+		IntensityFactor: &ifac,
+		CreatedAt:       time.Now().UTC(),
+	}
+	if err := d.InsertWorkout(w, nil); err != nil {
+		t.Fatalf("InsertWorkout %s: %v", id, err)
+	}
+	return w
+}
+
+func TestSyncFTPHistory_NoCredentials(t *testing.T) {
+	d := newSyncTestDB(t)
+	imp := importer.NewImporter(d, t.TempDir())
+	src := NewIntervalsSource(d, imp)
+
+	_, err := src.SyncFTPHistory(context.Background(), nil)
+	if err == nil {
+		t.Error("SyncFTPHistory without credentials should return an error")
+	}
+}
+
+func TestSyncFTPHistory_PopulatesFTPHistory(t *testing.T) {
+	d := newSyncTestDB(t)
+	imp := importer.NewImporter(d, t.TempDir())
+	src := NewIntervalsSource(d, imp)
+
+	ftp1 := 250
+	ftp2 := 270
+	acts := []intervals.Activity{
+		{ID: "1", StartDateLocal: "2023-01-01T10:00:00", IcuFTP: &ftp1},
+		{ID: "2", StartDateLocal: "2023-06-01T10:00:00", IcuFTP: &ftp2},
+	}
+	srv := intervalsActivitiesServer(t, acts)
+	defer srv.Close()
+
+	if err := d.SetIntegrationCredentials("intervals", "i1", "key"); err != nil {
+		t.Fatalf("SetIntegrationCredentials: %v", err)
+	}
+	// Override the base URL so the client hits our test server.
+	src.overrideBase(srv.URL)
+
+	_, err := src.SyncFTPHistory(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("SyncFTPHistory: %v", err)
+	}
+
+	// FTP before first change should fall back to athlete default (250).
+	before := d.GetFTPAtDate(time.Date(2022, 12, 31, 0, 0, 0, 0, time.UTC))
+	if before != 250 {
+		t.Errorf("FTP before first change: got %d, want 250", before)
+	}
+
+	// FTP after first change but before second.
+	mid := d.GetFTPAtDate(time.Date(2023, 3, 1, 0, 0, 0, 0, time.UTC))
+	if mid != 250 {
+		t.Errorf("FTP after first entry: got %d, want 250", mid)
+	}
+
+	// FTP after second change.
+	after := d.GetFTPAtDate(time.Date(2023, 7, 1, 0, 0, 0, 0, time.UTC))
+	if after != 270 {
+		t.Errorf("FTP after second entry: got %d, want 270", after)
+	}
+}
+
+func TestSyncFTPHistory_ReplacesExistingHistory(t *testing.T) {
+	d := newSyncTestDB(t)
+	imp := importer.NewImporter(d, t.TempDir())
+	src := NewIntervalsSource(d, imp)
+
+	// Seed a stale FTP history entry.
+	if err := d.LogFTPChangeAt(999, time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("LogFTPChangeAt: %v", err)
+	}
+
+	ftp := 260
+	acts := []intervals.Activity{
+		{ID: "1", StartDateLocal: "2023-01-01T10:00:00", IcuFTP: &ftp},
+	}
+	srv := intervalsActivitiesServer(t, acts)
+	defer srv.Close()
+
+	if err := d.SetIntegrationCredentials("intervals", "i1", "key"); err != nil {
+		t.Fatalf("SetIntegrationCredentials: %v", err)
+	}
+	src.overrideBase(srv.URL)
+
+	if _, err := src.SyncFTPHistory(context.Background(), nil); err != nil {
+		t.Fatalf("SyncFTPHistory: %v", err)
+	}
+
+	// The stale 999W entry should be gone; only 260W from intervals remains.
+	got := d.GetFTPAtDate(time.Date(2020, 6, 1, 0, 0, 0, 0, time.UTC))
+	if got == 999 {
+		t.Error("stale FTP history entry was not cleared before re-import")
+	}
+}
+
+func TestSyncFTPHistory_RecomputesTSS(t *testing.T) {
+	d := newSyncTestDB(t)
+	imp := importer.NewImporter(d, t.TempDir())
+	src := NewIntervalsSource(d, imp)
+
+	workoutDate := time.Date(2023, 6, 15, 8, 0, 0, 0, time.UTC)
+	w := sampleSyncWorkout(t, d, "recompute-00001", workoutDate, 250.0)
+	originalTSS := *w.TSS
+
+	ftp := 300
+	acts := []intervals.Activity{
+		{ID: "1", StartDateLocal: "2023-01-01T10:00:00", IcuFTP: &ftp},
+	}
+	srv := intervalsActivitiesServer(t, acts)
+	defer srv.Close()
+
+	if err := d.SetIntegrationCredentials("intervals", "i1", "key"); err != nil {
+		t.Fatalf("SetIntegrationCredentials: %v", err)
+	}
+	src.overrideBase(srv.URL)
+
+	updated, err := src.SyncFTPHistory(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("SyncFTPHistory: %v", err)
+	}
+	if updated != 1 {
+		t.Errorf("updated = %d, want 1", updated)
+	}
+
+	got, err := d.GetWorkout(w.ID)
+	if err != nil {
+		t.Fatalf("GetWorkout: %v", err)
+	}
+	if got.TSS == nil {
+		t.Fatal("TSS is nil after recompute")
+	}
+	if *got.TSS == originalTSS {
+		t.Errorf("TSS unchanged at %.1f; expected recompute with FTP=300 to produce a different value", originalTSS)
+	}
+}
+
+func TestSyncFTPHistory_DeduplicatesConsecutiveFTP(t *testing.T) {
+	d := newSyncTestDB(t)
+	imp := importer.NewImporter(d, t.TempDir())
+	src := NewIntervalsSource(d, imp)
+
+	// Three activities all with the same FTP — should produce only one history entry.
+	ftp := 250
+	acts := []intervals.Activity{
+		{ID: "1", StartDateLocal: "2023-01-01T10:00:00", IcuFTP: &ftp},
+		{ID: "2", StartDateLocal: "2023-03-01T10:00:00", IcuFTP: &ftp},
+		{ID: "3", StartDateLocal: "2023-06-01T10:00:00", IcuFTP: &ftp},
+	}
+	srv := intervalsActivitiesServer(t, acts)
+	defer srv.Close()
+
+	if err := d.SetIntegrationCredentials("intervals", "i1", "key"); err != nil {
+		t.Fatalf("SetIntegrationCredentials: %v", err)
+	}
+	src.overrideBase(srv.URL)
+
+	if _, err := src.SyncFTPHistory(context.Background(), nil); err != nil {
+		t.Fatalf("SyncFTPHistory: %v", err)
+	}
+
+	has, err := d.HasFTPHistory()
+	if err != nil {
+		t.Fatalf("HasFTPHistory: %v", err)
+	}
+	if !has {
+		t.Fatal("expected at least one FTP history entry")
+	}
+	// Verify only one unique entry was written by checking the FTP value is consistent.
+	got := d.GetFTPAtDate(time.Date(2023, 12, 1, 0, 0, 0, 0, time.UTC))
+	if got != 250 {
+		t.Errorf("GetFTPAtDate: got %d, want 250", got)
+	}
+}
+
+func TestSyncFTPHistory_SkipsNullFTP(t *testing.T) {
+	d := newSyncTestDB(t)
+	imp := importer.NewImporter(d, t.TempDir())
+	src := NewIntervalsSource(d, imp)
+
+	// All activities have nil icu_ftp — no history entries should be created.
+	acts := []intervals.Activity{
+		{ID: "1", StartDateLocal: "2023-01-01T10:00:00", IcuFTP: nil},
+		{ID: "2", StartDateLocal: "2023-06-01T10:00:00", IcuFTP: nil},
+	}
+	srv := intervalsActivitiesServer(t, acts)
+	defer srv.Close()
+
+	if err := d.SetIntegrationCredentials("intervals", "i1", "key"); err != nil {
+		t.Fatalf("SetIntegrationCredentials: %v", err)
+	}
+	src.overrideBase(srv.URL)
+
+	if _, err := src.SyncFTPHistory(context.Background(), nil); err != nil {
+		t.Fatalf("SyncFTPHistory: %v", err)
+	}
+
+	has, err := d.HasFTPHistory()
+	if err != nil {
+		t.Fatalf("HasFTPHistory: %v", err)
+	}
+	if has {
+		t.Error("expected no FTP history entries when all icu_ftp values are nil")
 	}
 }

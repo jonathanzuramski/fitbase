@@ -82,7 +82,6 @@ CREATE TABLE IF NOT EXISTS integrations (
     token_json  TEXT NOT NULL DEFAULT '',
     cursor      TEXT NOT NULL DEFAULT '',
     longpoll    INTEGER NOT NULL DEFAULT 0,
-    sync_oldest TEXT NOT NULL DEFAULT '',
     updated_at  DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
 

@@ -62,6 +62,20 @@ func (h *IntervalsHandler) Fetch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// FTPSync pulls FTP history from intervals.icu, replaces the local ftp_history table,
+// and recomputes TSS/IF for all power-based workouts. Streams SSE progress events.
+func (h *IntervalsHandler) FTPSync(w http.ResponseWriter, r *http.Request) {
+	setupSSE(w)
+	updated, err := h.source.SyncFTPHistory(r.Context(), func(event string, data any) {
+		writeSSE(w, event, data)
+	})
+	if err != nil {
+		writeSSE(w, "error", map[string]string{"error": err.Error()})
+		return
+	}
+	writeSSE(w, "done", map[string]any{"updated": updated})
+}
+
 // Disconnect removes the stored intervals.icu credentials and stops auto-sync.
 func (h *IntervalsHandler) Disconnect(w http.ResponseWriter, r *http.Request) {
 	if err := h.syncMgr.Disable("intervals"); err != nil {

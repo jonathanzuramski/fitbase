@@ -745,6 +745,62 @@ func (db *DB) GetFTPAtDate(t time.Time) int {
 	return ftp
 }
 
+// LogFTPChangeAt records an FTP value in the history table with an explicit effective date.
+func (db *DB) LogFTPChangeAt(ftp int, at time.Time) error {
+	_, err := db.Exec(
+		"INSERT INTO ftp_history (ftp_watts, effective_from) VALUES (?, ?)",
+		ftp, at.UTC().Format(time.RFC3339),
+	)
+	return err
+}
+
+// ClearFTPHistory deletes all rows from the FTP history table.
+func (db *DB) ClearFTPHistory() error {
+	_, err := db.Exec("DELETE FROM ftp_history")
+	return err
+}
+
+// WorkoutTSSRow holds the fields needed to recompute TSS for a workout.
+type WorkoutTSSRow struct {
+	ID              string
+	RecordedAt      time.Time
+	DurationSecs    int
+	NormalizedPower float64
+}
+
+// AllWorkoutsForTSSBackfill returns all workouts that have normalized power stored,
+// which is sufficient to recompute TSS and intensity factor from FTP alone.
+func (db *DB) AllWorkoutsForTSSBackfill() ([]WorkoutTSSRow, error) {
+	rows, err := db.Query(`
+		SELECT id, recorded_at, duration_secs, normalized_power
+		FROM workouts
+		WHERE normalized_power IS NOT NULL AND normalized_power > 0`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []WorkoutTSSRow
+	for rows.Next() {
+		var r WorkoutTSSRow
+		var recordedAt string
+		if err := rows.Scan(&r.ID, &recordedAt, &r.DurationSecs, &r.NormalizedPower); err != nil {
+			return nil, err
+		}
+		r.RecordedAt, _ = time.Parse(time.RFC3339, recordedAt)
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// UpdateWorkoutLoad writes recomputed TSS and intensity factor back to a workout row.
+func (db *DB) UpdateWorkoutLoad(id string, tss, intensityFactor float64) error {
+	_, err := db.Exec(
+		"UPDATE workouts SET tss=?, intensity_factor=? WHERE id=?",
+		tss, intensityFactor, id,
+	)
+	return err
+}
+
 // ── Training load ─────────────────────────────────────────────────────────────
 
 // athleteLocation returns the athlete's configured timezone, falling back to UTC.
@@ -1068,27 +1124,6 @@ func (db *DB) SetAutoSync(name string, enabled bool) error {
 		INSERT INTO integrations (name, token_json, longpoll) VALUES (?, '', ?)
 		ON CONFLICT(name) DO UPDATE SET longpoll=excluded.longpoll`,
 		name, v)
-	return err
-}
-
-// GetSyncOldest returns the configured "oldest" date (YYYY-MM-DD) for an integration's sync range.
-// Returns "" if no range is set (meaning sync all time).
-func (db *DB) GetSyncOldest(name string) (string, error) {
-	var v string
-	err := db.QueryRow("SELECT sync_oldest FROM integrations WHERE name = ?", name).Scan(&v)
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
-	return v, err
-}
-
-// SetSyncOldest stores the "oldest" date for an integration's sync range.
-// Pass "" to clear (sync all time).
-func (db *DB) SetSyncOldest(name, oldest string) error {
-	_, err := db.Exec(`
-		INSERT INTO integrations (name, token_json, sync_oldest) VALUES (?, '', ?)
-		ON CONFLICT(name) DO UPDATE SET sync_oldest=excluded.sync_oldest`,
-		name, oldest)
 	return err
 }
 

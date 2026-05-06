@@ -76,7 +76,6 @@ func NewTemplateHandler(database *db.DB, dev bool, webFS fs.FS) http.Handler {
 	mux.HandleFunc("POST /settings/hr-zones/reset", th.resetHRZones)
 	mux.HandleFunc("POST /settings/integrations/dropbox/credentials", th.saveDropboxCredentials)
 	mux.HandleFunc("POST /settings/integrations/intervals/credentials", th.saveIntervalsCredentials)
-	mux.HandleFunc("POST /settings/integrations/intervals/sync-range", th.saveIntervalsSyncRange)
 	mux.HandleFunc("POST /settings/integrations/gdrive/credentials", th.saveIntegrationCredentials("gdrive"))
 	mux.HandleFunc("POST /goals/mileage", th.saveMileageGoal)
 	mux.HandleFunc("GET /heatmap", th.heatmap)
@@ -537,10 +536,6 @@ func (th *templateHandler) settings(w http.ResponseWriter, r *http.Request) {
 			v, _ := th.db.GetAutoSync("intervals")
 			return v
 		}(),
-		"IntervalsSyncOldest": func() string {
-			v, _ := th.db.GetSyncOldest("intervals")
-			return v
-		}(),
 		"GDriveConfigured": gdriveConfigured,
 		"GDriveConnected":  gdriveConnected,
 		"GDriveClientID":   gdriveClientID,
@@ -766,22 +761,6 @@ func (th *templateHandler) saveDropboxCredentials(w http.ResponseWriter, r *http
 		return
 	}
 	if err := th.db.SetIntegrationCredentials("dropbox", folderPath, ""); err != nil {
-		http.Error(w, "database error", http.StatusInternalServerError)
-		return
-	}
-	http.Redirect(w, r, "/settings", http.StatusSeeOther)
-}
-
-// saveIntervalsSyncRange stores the "sync from" date for intervals.icu.
-func (th *templateHandler) saveIntervalsSyncRange(w http.ResponseWriter, r *http.Request) {
-	oldest := r.FormValue("sync_oldest")
-	if oldest != "" {
-		if _, err := time.Parse("2006-01-02", oldest); err != nil {
-			http.Error(w, "invalid date format", http.StatusBadRequest)
-			return
-		}
-	}
-	if err := th.db.SetSyncOldest("intervals", oldest); err != nil {
 		http.Error(w, "database error", http.StatusInternalServerError)
 		return
 	}

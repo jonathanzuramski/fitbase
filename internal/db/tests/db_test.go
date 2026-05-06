@@ -368,6 +368,122 @@ func TestUpdateAthlete(t *testing.T) {
 	}
 }
 
+// ── FTP history ───────────────────────────────────────────────────────────────
+
+func TestLogFTPChangeAt(t *testing.T) {
+	d := newTestDB(t)
+
+	at := time.Date(2023, 6, 1, 0, 0, 0, 0, time.UTC)
+	if err := d.LogFTPChangeAt(280, at); err != nil {
+		t.Fatalf("LogFTPChangeAt: %v", err)
+	}
+
+	// A workout recorded after the change should use the new FTP.
+	got := d.GetFTPAtDate(at.Add(24 * time.Hour))
+	if got != 280 {
+		t.Errorf("GetFTPAtDate after change: got %d, want 280", got)
+	}
+
+	// A workout recorded before the change should fall back to the athlete default (250).
+	got = d.GetFTPAtDate(at.Add(-24 * time.Hour))
+	if got != 250 {
+		t.Errorf("GetFTPAtDate before change: got %d, want 250 (default)", got)
+	}
+}
+
+func TestClearFTPHistory(t *testing.T) {
+	d := newTestDB(t)
+
+	at := time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC)
+	if err := d.LogFTPChangeAt(300, at); err != nil {
+		t.Fatalf("LogFTPChangeAt: %v", err)
+	}
+
+	has, err := d.HasFTPHistory()
+	if err != nil || !has {
+		t.Fatalf("HasFTPHistory after insert: got (%v,%v), want (true,nil)", has, err)
+	}
+
+	if err := d.ClearFTPHistory(); err != nil {
+		t.Fatalf("ClearFTPHistory: %v", err)
+	}
+
+	has, err = d.HasFTPHistory()
+	if err != nil || has {
+		t.Errorf("HasFTPHistory after clear: got (%v,%v), want (false,nil)", has, err)
+	}
+}
+
+func TestClearFTPHistory_Idempotent(t *testing.T) {
+	d := newTestDB(t)
+	// Clearing an already-empty table must not error.
+	if err := d.ClearFTPHistory(); err != nil {
+		t.Errorf("ClearFTPHistory on empty table: %v", err)
+	}
+}
+
+// ── AllWorkoutsForTSSBackfill / UpdateWorkoutLoad ─────────────────────────────
+
+func TestAllWorkoutsForTSSBackfill_OnlyReturnsWithNP(t *testing.T) {
+	d := newTestDB(t)
+
+	// Insert one workout that has NP (sampleWorkout sets NP=215).
+	withNP := sampleWorkout("with-np-0000001")
+	if err := d.InsertWorkout(withNP, nil); err != nil {
+		t.Fatalf("InsertWorkout (with NP): %v", err)
+	}
+
+	// Insert one without NP.
+	noNP := sampleWorkout("no-np-00000002")
+	noNP.NormalizedPower = nil
+	noNP.TSS = nil
+	noNP.IntensityFactor = nil
+	if err := d.InsertWorkout(noNP, nil); err != nil {
+		t.Fatalf("InsertWorkout (no NP): %v", err)
+	}
+
+	rows, err := d.AllWorkoutsForTSSBackfill()
+	if err != nil {
+		t.Fatalf("AllWorkoutsForTSSBackfill: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("got %d rows, want 1", len(rows))
+	}
+	if rows[0].ID != withNP.ID {
+		t.Errorf("row ID = %q, want %q", rows[0].ID, withNP.ID)
+	}
+	if rows[0].NormalizedPower != 215.0 {
+		t.Errorf("NormalizedPower = %.1f, want 215.0", rows[0].NormalizedPower)
+	}
+	if rows[0].DurationSecs != withNP.DurationSecs {
+		t.Errorf("DurationSecs = %d, want %d", rows[0].DurationSecs, withNP.DurationSecs)
+	}
+}
+
+func TestUpdateWorkoutLoad(t *testing.T) {
+	d := newTestDB(t)
+
+	w := sampleWorkout("load-test-000001")
+	if err := d.InsertWorkout(w, nil); err != nil {
+		t.Fatalf("InsertWorkout: %v", err)
+	}
+
+	if err := d.UpdateWorkoutLoad(w.ID, 99.9, 0.777); err != nil {
+		t.Fatalf("UpdateWorkoutLoad: %v", err)
+	}
+
+	got, err := d.GetWorkout(w.ID)
+	if err != nil {
+		t.Fatalf("GetWorkout: %v", err)
+	}
+	if got.TSS == nil || *got.TSS != 99.9 {
+		t.Errorf("TSS = %v, want 99.9", got.TSS)
+	}
+	if got.IntensityFactor == nil || *got.IntensityFactor != 0.777 {
+		t.Errorf("IntensityFactor = %v, want 0.777", got.IntensityFactor)
+	}
+}
+
 // ── GetFitnessHistory ─────────────────────────────────────────────────────────
 
 func TestGetFitnessHistory_Empty(t *testing.T) {
