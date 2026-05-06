@@ -191,11 +191,12 @@ func tsbClass(tsb float64) string {
 		return "tsb-optimal"
 	case tsb >= -30:
 		return "tsb-productive"
-	case tsb >= -50:
+	case tsb < -30:
 		return "tsb-overreach"
 	default:
-		return "tsb-danger"
+		return "tsb-overreach"
 	}
+
 }
 
 func goalDisplayDist(meters float64, imperial bool) string {
