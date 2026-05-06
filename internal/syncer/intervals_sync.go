@@ -19,7 +19,6 @@ import (
 const concurrentIntervalsDownloads = 2
 
 const intervalsPollInterval = 1 * time.Minute
-const defaultSyncOldest = "2000-01-01"
 
 // IntervalsSource implements SyncSource for intervals.icu activity sync.
 type IntervalsSource struct {
@@ -27,7 +26,11 @@ type IntervalsSource struct {
 	importer *importer.Importer
 	cancel   context.CancelFunc
 	mu       sync.Mutex
+	apiBase  string // empty means use the default production URL; set by overrideBase in tests
 }
+
+// overrideBase redirects all API calls to the given base URL. Used in tests only.
+func (s *IntervalsSource) overrideBase(base string) { s.apiBase = base }
 
 func NewIntervalsSource(database *db.DB, imp *importer.Importer) *IntervalsSource {
 	return &IntervalsSource{db: database, importer: imp}
@@ -37,6 +40,9 @@ func (s *IntervalsSource) client() (*intervals.Client, error) {
 	athleteID, apiKey, err := s.db.GetIntegrationCredentials("intervals")
 	if err != nil || athleteID == "" {
 		return nil, fmt.Errorf("intervals.icu not connected")
+	}
+	if s.apiBase != "" {
+		return intervals.NewWithBase(athleteID, apiKey, s.apiBase), nil
 	}
 	return intervals.New(athleteID, apiKey), nil
 }
@@ -48,12 +54,7 @@ func (s *IntervalsSource) Sync(ctx context.Context, onProgress func(event string
 		return
 	}
 
-	oldest, _ := s.db.GetSyncOldest("intervals")
-	if oldest == "" {
-		oldest = defaultSyncOldest
-	}
-
-	activities, err := client.ListActivities(ctx, oldest, "")
+	activities, err := client.ListActivities(ctx, "2000-01-01", "")
 	if err != nil {
 		slog.Error("intervals.icu sync: list activities", "err", err)
 		if onProgress != nil {
@@ -154,8 +155,7 @@ func (s *IntervalsSource) Fetch(ctx context.Context, activityID string) (workout
 
 func (s *IntervalsSource) poll(ctx context.Context, client *intervals.Client) {
 	for {
-		oldest, _ := s.db.GetSyncOldest("intervals")
-		imported, skipped, failed := s.syncActivities(ctx, client, oldest)
+		imported, skipped, failed := s.syncActivities(ctx, client)
 		if imported > 0 || failed > 0 {
 			slog.Info("intervals.icu auto-sync", "imported", imported, "skipped", skipped, "failed", failed)
 		}
@@ -167,11 +167,8 @@ func (s *IntervalsSource) poll(ctx context.Context, client *intervals.Client) {
 	}
 }
 
-func (s *IntervalsSource) syncActivities(ctx context.Context, client *intervals.Client, oldest string) (imported, skipped, failed int) {
-	if oldest == "" {
-		oldest = defaultSyncOldest
-	}
-	activities, err := client.ListActivities(ctx, oldest, "")
+func (s *IntervalsSource) syncActivities(ctx context.Context, client *intervals.Client) (imported, skipped, failed int) {
+	activities, err := client.ListActivities(ctx, "2000-01-01", "")
 	if err != nil {
 		slog.Error("intervals.icu sync: list activities", "err", err)
 		return
@@ -205,12 +202,7 @@ func (s *IntervalsSource) SyncFTPHistory(ctx context.Context, onProgress func(ev
 		return 0, err
 	}
 
-	oldest, _ := s.db.GetSyncOldest("intervals")
-	if oldest == "" {
-		oldest = defaultSyncOldest
-	}
-
-	activities, err := client.ListActivities(ctx, oldest, "")
+	activities, err := client.ListActivities(ctx, "2000-01-01", "")
 	if err != nil {
 		return 0, fmt.Errorf("list activities: %w", err)
 	}

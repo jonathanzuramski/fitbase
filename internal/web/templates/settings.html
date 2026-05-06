@@ -328,7 +328,7 @@
       >
         sync now
       </button>
-      <button class="btn-secondary" id="intervals-ftp-sync">sync per workout FTP from intervals</button>
+      <button class="btn-secondary" id="intervals-ftp-sync">sync FTP history</button>
       <button class="btn-danger" id="intervals-disconnect">disconnect</button>
     </div>
   </div>
@@ -339,20 +339,6 @@
     <input type="checkbox" id="intervals-autosync-toggle" />
     {{end}} sync future workouts
   </label>
-  <form method="POST" action="/settings/integrations/intervals/sync-range" class="sync-range-form">
-    <label class="sync-range-label">sync from</label>
-    <input
-      type="date"
-      name="sync_oldest"
-      class="form-input sync-range-input"
-      value="{{.IntervalsSyncOldest}}"
-      placeholder="all time"
-    />
-    <button type="submit" class="btn-secondary">save</button>
-    {{if .IntervalsSyncOldest}}
-    <button type="submit" name="sync_oldest" value="" class="btn-link">clear</button>
-    {{end}}
-  </form>
   <details class="credentials-details">
     <summary class="credentials-summary">update credentials</summary>
     <form method="POST" action="/settings/integrations/intervals/credentials" class="credentials-form">
@@ -424,21 +410,6 @@
     width: 14px;
     height: 14px;
     cursor: pointer;
-  }
-  .sync-range-form {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 10px;
-  }
-  .sync-range-label {
-    font-size: 13px;
-    color: var(--text-muted);
-    white-space: nowrap;
-  }
-  .sync-range-input {
-    width: 160px;
-    font-size: 13px;
   }
   .btn-link {
     background: none;

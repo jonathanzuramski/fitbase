@@ -1127,27 +1127,6 @@ func (db *DB) SetAutoSync(name string, enabled bool) error {
 	return err
 }
 
-// GetSyncOldest returns the configured "oldest" date (YYYY-MM-DD) for an integration's sync range.
-// Returns "" if no range is set (meaning sync all time).
-func (db *DB) GetSyncOldest(name string) (string, error) {
-	var v string
-	err := db.QueryRow("SELECT sync_oldest FROM integrations WHERE name = ?", name).Scan(&v)
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
-	return v, err
-}
-
-// SetSyncOldest stores the "oldest" date for an integration's sync range.
-// Pass "" to clear (sync all time).
-func (db *DB) SetSyncOldest(name, oldest string) error {
-	_, err := db.Exec(`
-		INSERT INTO integrations (name, token_json, sync_oldest) VALUES (?, '', ?)
-		ON CONFLICT(name) DO UPDATE SET sync_oldest=excluded.sync_oldest`,
-		name, oldest)
-	return err
-}
-
 // ── Period summary ────────────────────────────────────────────────────────────
 
 // PeriodSummary holds aggregate training totals across all sports for a date range.
