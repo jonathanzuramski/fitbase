@@ -1750,10 +1750,11 @@ code {
 
 .ctl-color      { color: #3b82f6; }
 .atl-color      { color: #f97316; }
-.tsb-fresh      { color: var(--green); }
-.tsb-optimal    { color: var(--accent); }
+.tsb-fresh      { color: #94a3b8; }
+.tsb-optimal    { color: var(--green); }
 .tsb-productive { color: var(--yellow); }
-.tsb-overreach  { color: var(--orange); }
+.tsb-overreach  { color: var(--red); }
+.tsb-danger     { color: var(--red); }
 
 /* ── Mileage goals card ───────────────────────────────────────────────────── */
 .goal-card .card-title {

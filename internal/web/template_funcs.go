@@ -191,8 +191,10 @@ func tsbClass(tsb float64) string {
 		return "tsb-optimal"
 	case tsb >= -30:
 		return "tsb-productive"
-	default:
+	case tsb >= -50:
 		return "tsb-overreach"
+	default:
+		return "tsb-danger"
 	}
 }
 

@@ -1,6 +1,7 @@
 package db_test
 
 import (
+	"database/sql"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/fitbase/fitbase/internal/db"
 	"github.com/fitbase/fitbase/internal/models"
+	_ "modernc.org/sqlite"
 )
 
 // testKey is a fixed 32-byte key used only in tests.
@@ -997,5 +999,116 @@ func TestFindDuplicateWorkout_NoMatch_Empty(t *testing.T) {
 	}
 	if dupID != "" {
 		t.Errorf("expected no duplicate in empty DB, got %q", dupID)
+	}
+}
+
+// ── imported_files composite PK ───────────────────────────────────────────────
+
+// Same content imported under two different filenames must record both.
+// Regression test for the infinite re-download loop where INSERT OR IGNORE
+// silently dropped the second filename when the PK was hash-only.
+func TestMarkImported_TwoFilenamesPerHash(t *testing.T) {
+	d := newTestDB(t)
+
+	if err := d.MarkImported("hashA", "archive-2024-03-15.fit"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.MarkImported("hashA", "intervals-i12345.fit"); err != nil {
+		t.Fatal(err)
+	}
+
+	names, err := d.AllImportedFilenames()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := names["archive-2024-03-15.fit"]; !ok {
+		t.Errorf("archive filename missing from AllImportedFilenames: %v", names)
+	}
+	if _, ok := names["intervals-i12345.fit"]; !ok {
+		t.Errorf("intervals filename missing from AllImportedFilenames: %v", names)
+	}
+
+	// Hash-based dedup still works.
+	imported, err := d.IsImported("hashA")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !imported {
+		t.Error("IsImported(hashA) = false, want true")
+	}
+}
+
+// MarkImported with an exact (hash, filename) pair already present is a no-op.
+func TestMarkImported_SameHashSameFilenameIdempotent(t *testing.T) {
+	d := newTestDB(t)
+
+	for range 3 {
+		if err := d.MarkImported("hashB", "same.fit"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	names, err := d.AllImportedFilenames()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(names) != 1 {
+		t.Errorf("got %d filenames, want 1: %v", len(names), names)
+	}
+}
+
+// Open() must convert a pre-existing hash-only PK table into the composite-PK
+// shape, preserving rows.
+func TestOpen_MigratesImportedFilesPK(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "old.db")
+
+	// Build an old-schema DB by hand.
+	raw, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(`
+		CREATE TABLE imported_files (
+			hash       TEXT PRIMARY KEY,
+			filename   TEXT NOT NULL,
+			imported_at DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+		);
+		INSERT INTO imported_files (hash, filename) VALUES ('h1', 'archive.fit');
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Open via the production path — migration should run.
+	d, err := db.Open(dbPath, testKey)
+	if err != nil {
+		t.Fatalf("open after migration: %v", err)
+	}
+	t.Cleanup(func() { _ = d.Close() })
+
+	// Pre-existing row preserved.
+	imported, err := d.IsImported("h1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !imported {
+		t.Error("pre-migration row 'h1' missing after migration")
+	}
+
+	// Composite PK now active: a second filename for the same hash sticks.
+	if err := d.MarkImported("h1", "intervals.fit"); err != nil {
+		t.Fatal(err)
+	}
+	names, err := d.AllImportedFilenames()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := names["archive.fit"]; !ok {
+		t.Errorf("archive.fit missing post-migration: %v", names)
+	}
+	if _, ok := names["intervals.fit"]; !ok {
+		t.Errorf("intervals.fit missing post-migration: %v", names)
 	}
 }

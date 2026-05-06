@@ -219,6 +219,14 @@ func (imp *Importer) ImportBytes(data []byte, filename string) (string, error) {
 		return "", err
 	}
 	if already {
+		// Record this filename even though the content is known, so filename-based
+		// dedup (e.g. the intervals.icu syncer) skips it on future cycles.
+		nameKnown, _ := imp.db.IsFilenameImported(filename)
+		if err := imp.db.MarkImported(hash, filename); err != nil {
+			slog.Warn("failed to record alias filename for known hash", "hash", hash, "filename", filename, "err", err)
+		} else if !nameKnown {
+			slog.Info("recorded new filename alias for already-imported content", "filename", filename, "hash", hash)
+		}
 		return "", nil
 	}
 
