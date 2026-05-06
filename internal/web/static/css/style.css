@@ -139,6 +139,9 @@ code {
   margin: 0 auto;
   padding: 24px clamp(16px, 3vw, 48px);
 }
+.container--narrow {
+  max-width: 1200px;
+}
 
 .page-header {
   display: flex;
@@ -224,35 +227,6 @@ code {
   color: var(--text);
   background: var(--bg-hover);
   border-color: var(--border);
-}
-
-.view-toggle {
-  display: flex;
-  gap: 4px;
-}
-
-.view-btn {
-  background: none;
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  font-size: 11px;
-  font-family: var(--mono);
-  padding: 2px 8px;
-  border-radius: 4px;
-  cursor: pointer;
-  transition:
-    border-color 0.15s,
-    color 0.15s;
-}
-
-.view-btn:hover {
-  border-color: var(--accent);
-  color: var(--text);
-}
-
-.view-btn.active {
-  border-color: var(--accent);
-  color: var(--accent);
 }
 
 .card-title .muted {
@@ -1370,7 +1344,7 @@ code {
   font-size: 15px;
   font-family: var(--mono);
   padding: 8px 12px;
-  width: 140px;
+  width: 250px;
   transition: border-color 0.15s;
   -moz-appearance: textfield;
 }

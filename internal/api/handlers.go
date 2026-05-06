@@ -174,6 +174,42 @@ func (h *Handler) DownloadFIT(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// GET /api/ftp-history/recompute streams SSE progress while recomputing
+// TSS and intensity factor for every power-based workout from ftp_history.
+// Used by the manual FTP-history editor in settings.
+func (h *Handler) RecomputePowerLoad(w http.ResponseWriter, r *http.Request) {
+	setupSSE(w)
+
+	// Throttle "file" events: for thousands of workouts, every-row updates
+	// flood the stream and provide no extra signal.
+	var lastSent int
+	updated, err := h.db.RecomputePowerLoad(func(done, total int) {
+		if total == 0 {
+			writeSSE(w, "start", map[string]any{"total": 0, "pending": 0})
+			return
+		}
+		if done == 0 {
+			writeSSE(w, "start", map[string]any{"total": total, "pending": total})
+			lastSent = 0
+			return
+		}
+		// Send at most ~50 progress events plus the final one.
+		step := total / 50
+		if step < 1 {
+			step = 1
+		}
+		if done == total || done-lastSent >= step {
+			writeSSE(w, "file", map[string]any{"name": "", "index": done, "total": total})
+			lastSent = done
+		}
+	})
+	if err != nil {
+		writeSSE(w, "error", map[string]string{"error": err.Error()})
+		return
+	}
+	writeSSE(w, "done", map[string]any{"updated": updated})
+}
+
 // PUT /api/athlete
 func (h *Handler) UpdateAthlete(w http.ResponseWriter, r *http.Request) {
 	var body models.Athlete

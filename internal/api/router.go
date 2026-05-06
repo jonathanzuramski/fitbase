@@ -39,6 +39,8 @@ func NewRouter(h *Handler, dropbox *DropboxHandler, intervalsH *IntervalsHandler
 		r.Get("/fitness", h.GetFitness)
 		r.Get("/training/weekly", h.GetWeeklyTraining)
 
+		r.Get("/ftp-history/recompute", h.RecomputePowerLoad)
+
 		r.Route("/integrations/dropbox", func(r chi.Router) {
 			r.Get("/sync", dropbox.Sync)
 			r.Delete("/", dropbox.Disconnect)

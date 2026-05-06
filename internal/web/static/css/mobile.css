@@ -61,10 +61,6 @@
   .nav-links {
     gap: 12px;
   }
-  .api-link {
-    display: none;
-  }
-
   /* ── Dashboard stats & table ── */
   .stats-grid {
     grid-template-columns: repeat(2, 1fr);
@@ -81,7 +77,39 @@
   .athlete-form {
     flex-direction: column;
   }
-  .zones-grid {
+  .zones-grid,
+  .profile-grid,
+  .storage-grid {
+    grid-template-columns: 1fr;
+  }
+  .metrics-split,
+  .zones-split {
+    grid-template-columns: 1fr;
+  }
+  .metrics-profile-col {
+    padding-right: 0;
+    border-right: none;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 20px;
+  }
+  .metrics-ftp-col {
+    padding-left: 0;
+  }
+  .zones-power-col {
+    padding-right: 0;
+    border-right: none;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 20px;
+  }
+  .zones-hr-col {
+    padding-left: 0;
+  }
+  .athlete-fields-grid {
+    grid-template-columns: 1fr;
+  }
+  .ftp-history-add-form {
     grid-template-columns: 1fr;
   }
 
