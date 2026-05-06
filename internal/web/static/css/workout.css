@@ -52,7 +52,6 @@
   font-size: 22px;
   font-weight: 600;
   font-family: var(--mono);
-  color: var(--text);
   line-height: 1.1;
   display: flex;
   align-items: baseline;
@@ -88,12 +87,6 @@
 }
 .metric-atl {
   color: var(--atl-color);
-}
-.metric-tsb-pos {
-  color: var(--tsb-color);
-}
-.metric-tsb-neg {
-  color: var(--red);
 }
 
 /* ── Power curve ──────────────────────────────────────── */

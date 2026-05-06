@@ -221,7 +221,7 @@
       </div>
       <div class="metric-cell">
         <div class="metric-label">form</div>
-        <div class="metric-value {{if lt .Fitness.Form 0.0}}metric-tsb-neg{{else}}metric-tsb-pos{{end}}">
+        <div class="metric-value {{tsbClass .Fitness.Form}}">
           {{printf "%.1f" .Fitness.Form}}
         </div>
       </div>

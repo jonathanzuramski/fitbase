@@ -107,7 +107,7 @@ func main() {
 
 	var webFS fs.FS = web.FS
 	if cfg.Dev {
-		webFS = os.DirFS("internal/web")
+		webFS = web.DevFS()
 		slog.Info("dev mode: templates and static served from disk")
 	}
 

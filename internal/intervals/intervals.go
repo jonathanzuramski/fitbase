@@ -77,7 +77,7 @@ func (c *Client) get(ctx context.Context, u string) (*http.Response, error) {
 				wait = time.Duration(secs) * time.Second
 			}
 		}
-		slog.Warn("intervals.icu rate limited, backing off", "attempt", attempt+1, "wait", wait)
+		slog.Info("intervals.icu rate limited, backing off", "attempt", attempt+1, "wait", wait)
 		select {
 		case <-time.After(wait):
 		case <-ctx.Done():

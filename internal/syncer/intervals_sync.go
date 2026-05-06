@@ -15,10 +15,11 @@ import (
 )
 
 // concurrentIntervalsDownloads is the number of parallel intervals.icu downloads.
-// Kept low to avoid 429 rate limiting from intervals.icu.
-const concurrentIntervalsDownloads = 2
+// Sequential (1) avoids bursting the per-second rate limit on the FIT file endpoint.
+const concurrentIntervalsDownloads = 1
 
 const intervalsPollInterval = 1 * time.Minute
+const intervalsStartupDelay = 30 * time.Second
 
 // IntervalsSource implements SyncSource for intervals.icu activity sync.
 type IntervalsSource struct {
@@ -154,6 +155,11 @@ func (s *IntervalsSource) Fetch(ctx context.Context, activityID string) (workout
 }
 
 func (s *IntervalsSource) poll(ctx context.Context, client *intervals.Client) {
+	select {
+	case <-time.After(intervalsStartupDelay):
+	case <-ctx.Done():
+		return
+	}
 	for {
 		imported, skipped, failed := s.syncActivities(ctx, client)
 		if imported > 0 || failed > 0 {

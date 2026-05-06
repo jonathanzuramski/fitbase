@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -63,6 +64,39 @@ func Open(path string, key []byte) (*DB, error) {
 	}
 	if _, err := sqldb.Exec(`CREATE INDEX IF NOT EXISTS idx_workouts_training_day ON workouts(training_day)`); err != nil {
 		return nil, fmt.Errorf("create training_day index: %w", err)
+	}
+
+	// Migration: imported_files PK (hash) → (hash, filename). The old shape
+	// silently dropped subsequent INSERTs for the same hash, so a file imported
+	// once under name A and later seen under name B was never recorded as B —
+	// causing filename-based dedup (intervals.icu syncer) to re-download forever.
+	{
+		var def string
+		err := sqldb.QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name='imported_files'`).Scan(&def)
+		if err != nil && err != sql.ErrNoRows {
+			return nil, fmt.Errorf("inspect imported_files: %w", err)
+		}
+		if err == nil && !strings.Contains(def, "PRIMARY KEY (hash, filename)") {
+			var rowCount int
+			_ = sqldb.QueryRow(`SELECT COUNT(*) FROM imported_files`).Scan(&rowCount)
+			slog.Info("migrating imported_files to composite PK (hash, filename)", "rows", rowCount)
+			if _, err := sqldb.Exec(`
+				CREATE TABLE imported_files_new (
+					hash        TEXT NOT NULL,
+					filename    TEXT NOT NULL,
+					imported_at DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+					PRIMARY KEY (hash, filename)
+				);
+				INSERT INTO imported_files_new (hash, filename, imported_at)
+					SELECT hash, filename, imported_at FROM imported_files;
+				DROP TABLE imported_files;
+				ALTER TABLE imported_files_new RENAME TO imported_files;
+				CREATE INDEX IF NOT EXISTS idx_imported_files_filename ON imported_files(filename);
+			`); err != nil {
+				return nil, fmt.Errorf("migrate imported_files PK: %w", err)
+			}
+			slog.Info("imported_files migration complete")
+		}
 	}
 
 	return &DB{sqldb, key}, nil

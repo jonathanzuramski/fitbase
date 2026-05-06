@@ -59,10 +59,14 @@ CREATE TABLE IF NOT EXISTS athlete (
 -- Seed default athlete row
 INSERT OR IGNORE INTO athlete (id, ftp_watts, weight_kg) VALUES (1, 250, 70.0);
 
+-- Composite PK on (hash, filename) so the same content imported under multiple
+-- names (e.g. local archive name + intervals.icu activity name) is recorded
+-- under each name. Filename-based dedup needs every name present.
 CREATE TABLE IF NOT EXISTS imported_files (
-    hash       TEXT PRIMARY KEY,
+    hash       TEXT NOT NULL,
     filename   TEXT NOT NULL,
-    imported_at DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+    imported_at DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    PRIMARY KEY (hash, filename)
 );
 CREATE INDEX IF NOT EXISTS idx_imported_files_filename ON imported_files(filename);
 
