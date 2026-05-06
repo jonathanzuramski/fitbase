@@ -39,6 +39,10 @@
   margin-top: 12px;
 }
 
+.credentials-form > button {
+  align-self: flex-start;
+}
+
 .credentials-details {
   margin-top: 12px;
   border-top: 1px solid var(--border);
@@ -97,17 +101,215 @@
   background: var(--green);
 }
 
-/* ── Settings layout ──────────────────────────────────── */
-.athlete-card {
-  width: 100%;
+/* ── Settings sections ────────────────────────────────── */
+.settings-section {
+  margin-bottom: 8px;
 }
 
+.settings-section-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.settings-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.settings-section-header::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* ── Unified integrations card ────────────────────────── */
+.integrations-card {
+  padding: 0;
+  overflow: hidden;
+  margin-bottom: 0;
+}
+
+.integration-item {
+  padding: 16px 20px;
+}
+
+.integration-item + .integration-item {
+  border-top: 1px solid var(--border);
+}
+
+.integration-item-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.integration-item-name {
+  font-size: 13px;
+  font-weight: 600;
+  min-width: 110px;
+  flex-shrink: 0;
+}
+
+.integration-item .integration-status {
+  flex: 1;
+}
+
+.integration-setup-hint {
+  font-size: 13px;
+  margin: 12px 0;
+  line-height: 1.5;
+}
+
+/* ── Merged metrics card (profile + FTP history) ──────── */
+.metrics-card {
+  margin-bottom: 0;
+}
+
+.metrics-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.metrics-col {
+  display: flex;
+  flex-direction: column;
+}
+
+.metrics-profile-col {
+  padding-right: 28px;
+  border-right: 1px solid var(--border);
+}
+
+.metrics-ftp-col {
+  padding-left: 28px;
+}
+
+/* ── Merged zones card (power + HR zones) ─────────────── */
+.zones-card {
+  margin-bottom: 0;
+}
+
+.zones-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.zones-col {
+  display: flex;
+  flex-direction: column;
+}
+
+.zones-power-col {
+  padding-right: 28px;
+  border-right: 1px solid var(--border);
+}
+
+.zones-hr-col {
+  padding-left: 28px;
+}
+
+.zones-col-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: auto;
+  padding-top: 12px;
+}
+
+/* ── Settings modals ──────────────────────────────────── */
+.settings-modal {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 24px;
+  width: 440px;
+  max-width: calc(100vw - 32px);
+  color: var(--text);
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  margin: 0;
+}
+
+.settings-modal::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.settings-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.settings-modal-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.settings-modal-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+
+.settings-modal-close:hover {
+  background: var(--border);
+  color: var(--text);
+}
+
+.settings-modal-hint {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+
+.settings-modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+/* ── Settings layout ──────────────────────────────────── */
 .athlete-form {
   display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: flex-end;
+  flex-direction: column;
   gap: 16px;
+  flex: 1;
+}
+
+.athlete-fields-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.form-actions-end {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: auto;
 }
 
 .athlete-field {
@@ -115,8 +317,7 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;
-  flex: 1;
-  min-width: 140px;
+  min-width: 0;
   border-bottom: none;
   padding: 0;
 }
@@ -144,7 +345,7 @@
 }
 
 .athlete-field .form-input {
-  width: 100%;
+  max-width: 150px;
 }
 
 /* ── Zone tables ──────────────────────────────────────── */
@@ -152,6 +353,7 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
+  margin-bottom: 16px;
 }
 
 .zone-table {
@@ -200,6 +402,144 @@
   color: var(--text-muted);
   font-family: var(--mono);
   font-size: 12px;
+}
+
+/* ── FTP history card ────────────────────────────────── */
+.ftp-history-card {
+  /* Grow children so the recompute action block can be pushed to the bottom
+     and align with the athlete-card save button on the same row. */
+  display: flex;
+  flex-direction: column;
+}
+
+.ftp-history-help {
+  font-size: 12px;
+  margin: 0 0 12px 0;
+  line-height: 1.5;
+}
+
+.ftp-history-empty {
+  font-size: 13px;
+  margin: 4px 0 12px 0;
+}
+
+.ftp-history-table-wrap {
+  max-height: 220px;
+  overflow-y: auto;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.ftp-history-table-wrap::-webkit-scrollbar {
+  width: 6px;
+}
+
+.ftp-history-table-wrap::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ftp-history-table-wrap::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+.ftp-history-table-wrap::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+.ftp-history-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.ftp-history-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-card);
+  z-index: 1;
+}
+
+.ftp-history-table th {
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+}
+
+.ftp-history-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+
+.ftp-history-table tr:last-child td {
+  border-bottom: none;
+}
+
+.ftp-history-table td:last-child {
+  text-align: right;
+  width: 1%;
+  white-space: nowrap;
+}
+
+.ftp-history-delete-form {
+  margin: 0;
+  display: inline;
+}
+
+.btn-link-danger {
+  background: none;
+  border: none;
+  color: var(--red, #ef4444);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 6px;
+  font-family: inherit;
+}
+
+.btn-link-danger:hover {
+  text-decoration: underline;
+}
+
+/* Inline add form: [date] [watts W] [add]. Headers above already label the
+   columns, so the inputs use placeholders instead of duplicating labels. */
+.ftp-history-add-form {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(120px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.ftp-history-add-form .form-input {
+  width: 100%;
+}
+
+.ftp-history-watts-group {
+  display: flex;
+  align-items: center;
+}
+
+.ftp-history-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  margin-top: auto;
+}
+
+.ftp-history-actions-hint {
+  font-size: 11px;
 }
 
 .zone-range {

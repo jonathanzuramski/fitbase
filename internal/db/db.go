@@ -794,6 +794,77 @@ func (db *DB) ClearFTPHistory() error {
 	return err
 }
 
+// FTPHistoryEntry is one row of the ftp_history table.
+type FTPHistoryEntry struct {
+	ID            int64
+	FTPWatts      int
+	EffectiveFrom time.Time
+}
+
+// AllFTPHistory returns every FTP history entry, newest first.
+func (db *DB) AllFTPHistory() ([]FTPHistoryEntry, error) {
+	rows, err := db.Query(`
+		SELECT id, ftp_watts, effective_from
+		FROM ftp_history
+		ORDER BY effective_from DESC, id DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close() //nolint:errcheck
+	var out []FTPHistoryEntry
+	for rows.Next() {
+		var e FTPHistoryEntry
+		var eff string
+		if err := rows.Scan(&e.ID, &e.FTPWatts, &eff); err != nil {
+			return nil, err
+		}
+		e.EffectiveFrom, _ = time.Parse(time.RFC3339, eff)
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// DeleteFTPHistoryEntry removes a single FTP history row by id.
+func (db *DB) DeleteFTPHistoryEntry(id int64) error {
+	_, err := db.Exec("DELETE FROM ftp_history WHERE id = ?", id)
+	return err
+}
+
+// RecomputePowerLoad recomputes TSS and intensity factor for every workout that
+// has normalized power, using GetFTPAtDate for each workout's recorded date.
+// onProgress, if non-nil, is called once with (0, total) up front and once per
+// processed workout as (done, total).
+func (db *DB) RecomputePowerLoad(onProgress func(done, total int)) (updated int, err error) {
+	workouts, err := db.AllWorkoutsForTSSBackfill()
+	if err != nil {
+		return 0, fmt.Errorf("load workouts: %w", err)
+	}
+	if onProgress != nil {
+		onProgress(0, len(workouts))
+	}
+	for i, wk := range workouts {
+		ftp := db.GetFTPAtDate(wk.RecordedAt)
+		if ftp <= 0 {
+			if onProgress != nil {
+				onProgress(i+1, len(workouts))
+			}
+			continue
+		}
+		ftpF := float64(ftp)
+		ifactor := fitness.IntensityFactor(wk.NormalizedPower, ftpF)
+		tss := fitness.PowerTSS(wk.DurationSecs, wk.NormalizedPower, ftpF)
+		if err := db.UpdateWorkoutLoad(wk.ID, tss, ifactor); err != nil {
+			slog.Warn("recompute power load: update workout", "id", wk.ID, "err", err)
+		} else {
+			updated++
+		}
+		if onProgress != nil {
+			onProgress(i+1, len(workouts))
+		}
+	}
+	return updated, nil
+}
+
 // WorkoutTSSRow holds the fields needed to recompute TSS for a workout.
 type WorkoutTSSRow struct {
 	ID              string

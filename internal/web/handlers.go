@@ -74,6 +74,8 @@ func NewTemplateHandler(database *db.DB, dev bool, webFS fs.FS) http.Handler {
 	mux.HandleFunc("POST /settings/athlete", th.updateAthlete)
 	mux.HandleFunc("POST /settings/hr-zones", th.saveHRZones)
 	mux.HandleFunc("POST /settings/hr-zones/reset", th.resetHRZones)
+	mux.HandleFunc("POST /settings/ftp-history", th.addFTPHistory)
+	mux.HandleFunc("POST /settings/ftp-history/delete", th.deleteFTPHistory)
 	mux.HandleFunc("POST /settings/integrations/dropbox/credentials", th.saveDropboxCredentials)
 	mux.HandleFunc("POST /settings/integrations/intervals/credentials", th.saveIntervalsCredentials)
 	mux.HandleFunc("POST /settings/integrations/gdrive/credentials", th.saveIntegrationCredentials("gdrive"))
@@ -510,6 +512,8 @@ func (th *templateHandler) settings(w http.ResponseWriter, r *http.Request) {
 
 	gdriveClientID, _, _ := th.db.GetIntegrationCredentials("gdrive")
 	gdriveConfigured := gdriveClientID != ""
+
+	ftpHistory, _ := th.db.AllFTPHistory()
 	gdriveConnected := false
 	if gdriveConfigured {
 		if token, err := th.db.GetIntegrationToken("gdrive"); err == nil {
@@ -539,6 +543,8 @@ func (th *templateHandler) settings(w http.ResponseWriter, r *http.Request) {
 		"GDriveConfigured": gdriveConfigured,
 		"GDriveConnected":  gdriveConnected,
 		"GDriveClientID":   gdriveClientID,
+		"FTPHistory":       ftpHistory,
+		"Today":            time.Now().Format("2006-01-02"),
 	})
 }
 
@@ -642,6 +648,44 @@ func (th *templateHandler) welcomeSkip(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// addFTPHistory inserts a manually-entered FTP change point. The user is
+// expected to click "recompute TSS" afterward to apply the change to existing
+// workouts — recompute is intentionally not auto-fired since it walks every
+// power workout.
+func (th *templateHandler) addFTPHistory(w http.ResponseWriter, r *http.Request) {
+	ftp, err := strconv.Atoi(r.FormValue("ftp_watts"))
+	if err != nil || ftp <= 0 || ftp > 600 {
+		http.Error(w, "invalid ftp_watts", http.StatusBadRequest)
+		return
+	}
+	dateStr := r.FormValue("effective_from")
+	t, err := time.Parse("2006-01-02", dateStr)
+	if err != nil {
+		http.Error(w, "invalid effective_from (expect YYYY-MM-DD)", http.StatusBadRequest)
+		return
+	}
+	if err := th.db.LogFTPChangeAt(ftp, t); err != nil {
+		slog.Error("add ftp history", "err", err)
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/settings#ftp-history", http.StatusSeeOther)
+}
+
+func (th *templateHandler) deleteFTPHistory(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.FormValue("id"), 10, 64)
+	if err != nil || id <= 0 {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	if err := th.db.DeleteFTPHistoryEntry(id); err != nil {
+		slog.Error("delete ftp history", "err", err)
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/settings#ftp-history", http.StatusSeeOther)
 }
 
 func (th *templateHandler) saveMileageGoal(w http.ResponseWriter, r *http.Request) {

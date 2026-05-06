@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/fitbase/fitbase/internal/db"
-	"github.com/fitbase/fitbase/internal/fitness"
 	"github.com/fitbase/fitbase/internal/importer"
 	"github.com/fitbase/fitbase/internal/intervals"
 )
@@ -261,31 +260,14 @@ func (s *IntervalsSource) SyncFTPHistory(ctx context.Context, onProgress func(ev
 	}
 
 	// Recompute TSS/IF for every power-based workout using the now-accurate history.
-	workouts, err := s.db.AllWorkoutsForTSSBackfill()
-	if err != nil {
-		return 0, fmt.Errorf("load workouts: %w", err)
-	}
-
-	if onProgress != nil {
-		onProgress("recompute", map[string]any{"total": len(workouts)})
-	}
-
-	for _, w := range workouts {
-		ftp := s.db.GetFTPAtDate(w.RecordedAt)
-		if ftp <= 0 {
-			continue
+	return s.db.RecomputePowerLoad(func(done, total int) {
+		if onProgress == nil {
+			return
 		}
-		ftpF := float64(ftp)
-		ifactor := fitness.IntensityFactor(w.NormalizedPower, ftpF)
-		tss := fitness.PowerTSS(w.DurationSecs, w.NormalizedPower, ftpF)
-		if err := s.db.UpdateWorkoutLoad(w.ID, tss, ifactor); err != nil {
-			slog.Warn("intervals ftp sync: update workout load", "id", w.ID, "err", err)
-			continue
+		if done == 0 {
+			onProgress("recompute", map[string]any{"total": total})
 		}
-		updated++
-	}
-
-	return updated, nil
+	})
 }
 
 // downloadIntervalsFiles downloads FIT files concurrently and imports them sequentially.

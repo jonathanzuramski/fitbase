@@ -486,6 +486,189 @@ func TestUpdateWorkoutLoad(t *testing.T) {
 	}
 }
 
+// ── AllFTPHistory / DeleteFTPHistoryEntry ────────────────────────────────────
+
+func TestAllFTPHistory_Empty(t *testing.T) {
+	d := newTestDB(t)
+	entries, err := d.AllFTPHistory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("expected 0 entries, got %d", len(entries))
+	}
+}
+
+func TestAllFTPHistory_OrdersNewestFirst(t *testing.T) {
+	d := newTestDB(t)
+
+	older := time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC)
+	newer := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
+	if err := d.LogFTPChangeAt(240, older); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.LogFTPChangeAt(260, newer); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := d.AllFTPHistory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(entries))
+	}
+	if entries[0].FTPWatts != 260 {
+		t.Errorf("first entry FTP = %d, want 260 (newer should sort first)", entries[0].FTPWatts)
+	}
+	if entries[1].FTPWatts != 240 {
+		t.Errorf("second entry FTP = %d, want 240", entries[1].FTPWatts)
+	}
+	if !entries[0].EffectiveFrom.Equal(newer) {
+		t.Errorf("EffectiveFrom = %v, want %v", entries[0].EffectiveFrom, newer)
+	}
+	if entries[0].ID == 0 {
+		t.Error("expected non-zero auto-increment ID")
+	}
+}
+
+func TestDeleteFTPHistoryEntry(t *testing.T) {
+	d := newTestDB(t)
+
+	if err := d.LogFTPChangeAt(240, time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.LogFTPChangeAt(260, time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, _ := d.AllFTPHistory()
+	if len(entries) != 2 {
+		t.Fatalf("setup: expected 2 entries, got %d", len(entries))
+	}
+	targetID := entries[0].ID
+
+	if err := d.DeleteFTPHistoryEntry(targetID); err != nil {
+		t.Fatalf("DeleteFTPHistoryEntry: %v", err)
+	}
+
+	after, _ := d.AllFTPHistory()
+	if len(after) != 1 {
+		t.Fatalf("expected 1 entry after delete, got %d", len(after))
+	}
+	if after[0].ID == targetID {
+		t.Error("deleted entry still present")
+	}
+}
+
+func TestDeleteFTPHistoryEntry_MissingIDIsNoop(t *testing.T) {
+	d := newTestDB(t)
+	// Deleting a non-existent row must not error — UI form might double-submit.
+	if err := d.DeleteFTPHistoryEntry(99999); err != nil {
+		t.Errorf("delete missing id should not error, got: %v", err)
+	}
+}
+
+// ── RecomputePowerLoad ────────────────────────────────────────────────────────
+
+func TestRecomputePowerLoad_UsesFTPAtDate(t *testing.T) {
+	d := newTestDB(t)
+
+	// Two FTP eras: 200W from 2023-01-01, 250W from 2024-01-01.
+	if err := d.LogFTPChangeAt(200, time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.LogFTPChangeAt(250, time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+
+	// Workout in the 200W era.
+	wOld := sampleWorkout("recomp-old-000001")
+	wOld.RecordedAt = time.Date(2023, 6, 1, 12, 0, 0, 0, time.UTC)
+	if err := d.InsertWorkout(wOld, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// Workout in the 250W era.
+	wNew := sampleWorkout("recomp-new-000001")
+	wNew.RecordedAt = time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
+	if err := d.InsertWorkout(wNew, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := d.RecomputePowerLoad(nil)
+	if err != nil {
+		t.Fatalf("RecomputePowerLoad: %v", err)
+	}
+	if updated != 2 {
+		t.Errorf("updated = %d, want 2", updated)
+	}
+
+	got, _ := d.GetWorkout(wOld.ID)
+	if got.IntensityFactor == nil {
+		t.Fatal("old workout IF nil")
+	}
+	// IF for older workout uses NP=215, FTP=200 → 1.075
+	if *got.IntensityFactor < 1.07 || *got.IntensityFactor > 1.08 {
+		t.Errorf("old workout IF = %.4f, want ~1.075 (NP/200)", *got.IntensityFactor)
+	}
+
+	got, _ = d.GetWorkout(wNew.ID)
+	if got.IntensityFactor == nil {
+		t.Fatal("new workout IF nil")
+	}
+	// IF for newer workout uses FTP=250 → 0.86
+	if *got.IntensityFactor < 0.85 || *got.IntensityFactor > 0.87 {
+		t.Errorf("new workout IF = %.4f, want ~0.86 (NP/250)", *got.IntensityFactor)
+	}
+}
+
+func TestRecomputePowerLoad_ReportsProgress(t *testing.T) {
+	d := newTestDB(t)
+
+	if err := d.LogFTPChangeAt(250, time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+
+	for i := range 3 {
+		w := sampleWorkout(fmt.Sprintf("progress-%010d", i))
+		w.RecordedAt = time.Date(2024, 1, i+1, 0, 0, 0, 0, time.UTC)
+		if err := d.InsertWorkout(w, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	type call struct{ done, total int }
+	var calls []call
+	if _, err := d.RecomputePowerLoad(func(done, total int) {
+		calls = append(calls, call{done, total})
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(calls) < 4 {
+		t.Fatalf("expected at least 4 progress calls (0 + 3 workouts), got %d", len(calls))
+	}
+	if calls[0] != (call{0, 3}) {
+		t.Errorf("first progress call = %+v, want {0, 3}", calls[0])
+	}
+	last := calls[len(calls)-1]
+	if last.done != 3 || last.total != 3 {
+		t.Errorf("last progress call = %+v, want {3, 3}", last)
+	}
+}
+
+func TestRecomputePowerLoad_Empty(t *testing.T) {
+	d := newTestDB(t)
+	updated, err := d.RecomputePowerLoad(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated != 0 {
+		t.Errorf("updated = %d, want 0", updated)
+	}
+}
+
 // ── GetFitnessHistory ─────────────────────────────────────────────────────────
 
 func TestGetFitnessHistory_Empty(t *testing.T) {

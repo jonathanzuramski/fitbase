@@ -1,10 +1,5 @@
 /* fitbase — Workout detail page styles */
 
-/* ── Narrow container override ───────────────────────── */
-.container--narrow {
-  max-width: 1200px;
-}
-
 /* ── Metric rows & cells ─────────────────────────────── */
 .metric-row {
   display: flex;
@@ -87,6 +82,31 @@
 }
 .metric-atl {
   color: var(--atl-color);
+}
+
+/* ── Power curve view toggle ─────────────────────────── */
+.pc-view-toggle {
+  display: flex;
+  gap: 4px;
+}
+.pc-view-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-family: var(--mono);
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.pc-view-btn:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.pc-view-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 /* ── Power curve ──────────────────────────────────────── */
