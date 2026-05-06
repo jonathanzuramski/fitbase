@@ -328,6 +328,7 @@
       >
         sync now
       </button>
+      <button class="btn-secondary" id="intervals-ftp-sync">sync per workout FTP from intervals</button>
       <button class="btn-danger" id="intervals-disconnect">disconnect</button>
     </div>
   </div>
@@ -531,6 +532,7 @@
         if (d.uploaded > 0) parts.push(d.uploaded + " uploaded");
         if (d.skipped > 0) parts.push(d.skipped + " already up to date");
         if (d.failed > 0) parts.push(d.failed + " failed");
+        if (d.updated > 0) parts.push(d.updated + " workouts updated");
         resultsEl.textContent = parts.length ? parts.join(" · ") : "already up to date";
         done = true;
         finish();
@@ -591,6 +593,11 @@
 </script>
 {{end}} {{if .IntervalsConnected}}
 <script>
+  document.getElementById("intervals-ftp-sync").addEventListener("click", () => {
+    if (!confirm("This will replace your FTP history with data from intervals.icu and recompute TSS for all power-based workouts. Continue?")) return;
+    runSync("/api/integrations/intervals/ftp-sync?stream=1", "syncing FTP history from intervals.icu");
+  });
+
   document.getElementById("intervals-disconnect").addEventListener("click", async () => {
     if (!confirm("Disconnect intervals.icu? Your imported workouts will not be deleted.")) return;
     const res = await fetch("/api/integrations/intervals", { method: "DELETE" });

@@ -27,6 +27,7 @@ type Activity struct {
 	StartDateLocal string `json:"start_date_local"`
 	Type           string `json:"type"`
 	Name           string `json:"name"`
+	IcuFTP         *int   `json:"icu_ftp"`
 }
 
 // Client is an authenticated intervals.icu API client.

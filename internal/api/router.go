@@ -47,6 +47,7 @@ func NewRouter(h *Handler, dropbox *DropboxHandler, intervalsH *IntervalsHandler
 
 		r.Route("/integrations/intervals", func(r chi.Router) {
 			r.Get("/sync", intervalsH.Sync)
+			r.Get("/ftp-sync", intervalsH.FTPSync)
 			r.Get("/fetch/{id}", intervalsH.Fetch)
 			r.Post("/autosync", intervalsH.SetAutoSync)
 			r.Delete("/", intervalsH.Disconnect)
