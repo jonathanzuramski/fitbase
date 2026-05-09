@@ -200,8 +200,7 @@ function zonePathsFn(colorFn, smoothing = 0) {
 
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
-    ctx.lineWidth = 1.25;
-
+    ctx.lineWidth = isMobile() ? 2 : 1.25;
     let curColor = null;
 
     // Pre-compute pixel positions
@@ -658,7 +657,7 @@ function renderCadenceChart(timestamps, cadence, altData) {
       {
         label: "Cadence (rpm)",
         stroke: COLORS.cadence,
-        width: 1,
+        width: .75,
         fill: COLORS.cadence + "18",
         spanGaps: false,
       },
@@ -686,7 +685,7 @@ function renderSpeedChart(timestamps, speed, altData) {
   const elevHook = elevBgHook(altData);
   const opts = {
     ...base,
-    series: [{}, { label, stroke: COLORS.speed, width: 1, fill: COLORS.speed + "18", spanGaps: false }],
+    series: [{}, { label, stroke: COLORS.speed, width: .75, fill: COLORS.speed + "18", spanGaps: false }],
     scales: { x: { time: true }, y: { auto: true } },
     axes: [base.axes[0], { ...base.axes[1], stroke: COLORS.speed }],
     hooks: { draw: elevHook ? [elevHook] : [] },
@@ -709,7 +708,7 @@ function renderElevationChart(timestamps, altitude) {
       {
         label: IMPERIAL ? "Altitude (ft)" : "Altitude (m)",
         stroke: COLORS.altitude,
-        width: isMobile() ? 2 : 1,
+        width: 1,
         fill: COLORS.altitude + "33",
         spanGaps: false,
       },
