@@ -198,9 +198,9 @@ function zonePathsFn(colorFn, smoothing = 0) {
     ctx.rect(left, top, width, height);
     ctx.clip();
 
-    ctx.lineWidth = mobile ? 5 : 2;
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
+    ctx.lineWidth = 1.25;
 
     let curColor = null;
 
@@ -292,8 +292,8 @@ function containerWidth(el) {
 // Keep heights close to desktop so the plot area isn't dwarfed by
 // the fixed-size axes and legend overhead on smaller screens.
 function chartHeight(desktopH) {
-  if (window.innerWidth <= 640) return Math.round(desktopH * 0.65);
-  if (window.innerWidth <= 900) return Math.round(desktopH * 0.9);
+  if (window.innerWidth <= 640)
+     return Math.round(desktopH * 0.8) 
   return desktopH;
 }
 
@@ -567,8 +567,7 @@ function renderPowerChart(timestamps, power, ftp, altData) {
       {
         label: "Power",
         stroke: COLORS.power,
-        width: 1.5,
-        spanGaps: false,
+        // zonePathsFn sets line width 
         paths: zonePathsFn((v) => getPowerZoneColor(v, ftp), 16),
         value: (_u, v) => {
           if (v == null) return "—";
@@ -580,9 +579,9 @@ function renderPowerChart(timestamps, power, ftp, altData) {
     ],
     scales: {
       x: { time: true },
-      y: { range: () => (fullScale ? [0, maxPower * 1.1] : [0, ftp * 1.5]) },
+      y: { range: () => (fullScale ? [0, maxPower * 1.1] : [0, ftp * 2]) },
     },
-    axes: [base.axes[0], { ...base.axes[1], label: "W", stroke: COLORS.power }],
+    axes: [base.axes[0], { ...base.axes[1], stroke: COLORS.power }],
     hooks: { draw: elevHook ? [elevHook] : [] },
   };
 
@@ -621,8 +620,7 @@ function renderHRChart(timestamps, hr, lthr, altData) {
       {
         label: "HR",
         stroke: COLORS.hr,
-        width: 1.5,
-        spanGaps: false,
+        // zonePathsFn sets line width 
         paths: zonePathsFn((v) => getHRZoneColor(v, lthr)),
         value: (_u, v) => {
           if (v == null) return "—";
@@ -633,7 +631,7 @@ function renderHRChart(timestamps, hr, lthr, altData) {
       },
     ],
     scales: { x: { time: true }, y: { auto: true } },
-    axes: [base.axes[0], { ...base.axes[1], label: "bpm", stroke: COLORS.hr }],
+    axes: [base.axes[0], { ...base.axes[1], stroke: COLORS.hr }],
     hooks: { draw: elevHook ? [elevHook] : [] },
   };
 
