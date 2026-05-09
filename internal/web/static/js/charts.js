@@ -664,7 +664,7 @@ function renderCadenceChart(timestamps, cadence, altData) {
       },
     ],
     scales: { x: { time: true }, y: { auto: true } },
-    axes: [base.axes[0], { ...base.axes[1], label: "rpm", stroke: COLORS.cadence }],
+    axes: [base.axes[0], { ...base.axes[1], stroke: COLORS.cadence }],
     hooks: { draw: elevHook ? [elevHook] : [] },
   };
 
@@ -688,7 +688,7 @@ function renderSpeedChart(timestamps, speed, altData) {
     ...base,
     series: [{}, { label, stroke: COLORS.speed, width: 1, fill: COLORS.speed + "18", spanGaps: false }],
     scales: { x: { time: true }, y: { auto: true } },
-    axes: [base.axes[0], { ...base.axes[1], label: IMPERIAL ? "mph" : "km/h", stroke: COLORS.speed }],
+    axes: [base.axes[0], { ...base.axes[1], stroke: COLORS.speed }],
     hooks: { draw: elevHook ? [elevHook] : [] },
   };
 
