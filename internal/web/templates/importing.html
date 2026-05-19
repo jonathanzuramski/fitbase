@@ -1,0 +1,83 @@
+{{define "importing"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>importing — fitbase</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <style>
+    html, body { height: 100%; margin: 0; background: var(--bg, #0f1117); }
+    .importing-wrap {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .importing-brand {
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 13px;
+      margin-bottom: 18px;
+      letter-spacing: 0.04em;
+    }
+  </style>
+</head>
+<body>
+  <div class="importing-wrap">
+    <div>
+      <div class="importing-brand">fitbase</div>
+      <div class="bulk-modal">
+        <div class="bulk-title">importing your archive…</div>
+        <div class="bulk-filename">restoring workouts — this only happens once</div>
+        <div class="bulk-progress-track">
+          <div class="bulk-progress-bar" id="imp-bar"></div>
+        </div>
+        <div class="bulk-counts">
+          <span id="imp-counter">0 / 0</span>
+          <span class="bulk-results" id="imp-results"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+    // Standalone first-run import screen. The router redirects every page here
+    // while a startup reimport is active; we poll until it finishes, then go
+    // back to the app (a fresh install then lands on /welcome for setup).
+    (function () {
+      var bar = document.getElementById("imp-bar");
+      var counter = document.getElementById("imp-counter");
+      var results = document.getElementById("imp-results");
+
+      async function poll() {
+        var s;
+        try {
+          var res = await fetch("/api/import/status", { cache: "no-store" });
+          if (!res.ok) { setTimeout(poll, 1000); return; }
+          var body = await res.json();
+          s = body.data || body; // API wraps payloads in a {data:…} envelope
+        } catch (e) {
+          setTimeout(poll, 1000);
+          return;
+        }
+
+        // Not (or no longer) importing — return to the app.
+        if (!s.active) { window.location.replace("/"); return; }
+
+        var pct = s.total > 0 ? Math.round((s.completed / s.total) * 100) : 0;
+        bar.style.width = pct + "%";
+        counter.textContent = s.completed + " / " + s.total;
+        var parts = [];
+        if (s.imported > 0) parts.push(s.imported + " imported");
+        if (s.errors > 0) parts.push(s.errors + " failed");
+        results.textContent = parts.join(" · ");
+        setTimeout(poll, 1000);
+      }
+
+      poll();
+    })();
+  </script>
+</body>
+</html>
+{{end}}
