@@ -434,24 +434,35 @@
   margin-bottom: 12px;
   border: 1px solid var(--border);
   border-radius: 6px;
+}
+
+/* Shared thin scrollbar — used by the FTP history table and the AI coach
+   chat log. Add new scrollable panels to these selectors rather than
+   redefining the rules. */
+.ftp-history-table-wrap,
+.coach-chat-log {
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
 }
 
-.ftp-history-table-wrap::-webkit-scrollbar {
+.ftp-history-table-wrap::-webkit-scrollbar,
+.coach-chat-log::-webkit-scrollbar {
   width: 6px;
 }
 
-.ftp-history-table-wrap::-webkit-scrollbar-track {
+.ftp-history-table-wrap::-webkit-scrollbar-track,
+.coach-chat-log::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.ftp-history-table-wrap::-webkit-scrollbar-thumb {
+.ftp-history-table-wrap::-webkit-scrollbar-thumb,
+.coach-chat-log::-webkit-scrollbar-thumb {
   background: var(--border);
   border-radius: 3px;
 }
 
-.ftp-history-table-wrap::-webkit-scrollbar-thumb:hover {
+.ftp-history-table-wrap::-webkit-scrollbar-thumb:hover,
+.coach-chat-log::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
 }
 

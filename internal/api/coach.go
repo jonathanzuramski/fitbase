@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/fitbase/fitbase/internal/aicoach"
@@ -112,6 +113,117 @@ func (h *CoachHandler) GenerateInsights(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+// chatRequest is the body of POST /api/coach/chat. The browser owns the
+// conversation and posts the full history every turn — the server is stateless.
+type chatRequest struct {
+	Messages []aicoach.ChatMessage `json:"messages"`
+}
+
+const maxChatMessages = 40
+
+// Chat runs a tool-augmented conversation with the coach. The model pulls the
+// data it needs via tools (executed against the DB) rather than receiving a
+// pre-built blob. Tool rounds run buffered; the final answer is streamed back
+// re-chunked over SSE so it still types out live. Nothing is cached — chat is
+// ephemeral by design.
+//
+// Events:
+//
+//	tool   {"name":"...","status":"running"|"done"|"error"}  // data fetch progress
+//	chunk  {"text":"..."}                                     // final answer delta
+//	done   {"provider":"...","model":"...","generated_at":""} // finished
+//	error  {"error":"..."}                                    // fatal; stream ends
+//
+// POST /api/coach/chat
+func (h *CoachHandler) Chat(w http.ResponseWriter, r *http.Request) {
+	settings, err := h.db.GetAISettings()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "database error")
+		return
+	}
+	if settings.Provider == "" || settings.APIKey == "" {
+		writeError(w, http.StatusServiceUnavailable, "AI coach not configured — add provider and API key in settings")
+		return
+	}
+	if !aicoach.SupportsChat(settings.Provider) {
+		writeError(w, http.StatusBadRequest,
+			"chat requires a provider that supports tool use — switch to Claude in settings (other providers still support generate insights)")
+		return
+	}
+
+	var req chatRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(req.Messages) == 0 {
+		writeError(w, http.StatusBadRequest, "messages is empty")
+		return
+	}
+	if len(req.Messages) > maxChatMessages {
+		// Keep the most recent turns; old context rarely changes the answer and
+		// bounds token cost / latency.
+		req.Messages = req.Messages[len(req.Messages)-maxChatMessages:]
+		// A trimmed window must still begin on a user turn — providers reject a
+		// conversation that opens with an assistant message.
+		for len(req.Messages) > 0 && req.Messages[0].Role != aicoach.ChatRoleUser {
+			req.Messages = req.Messages[1:]
+		}
+	}
+	for _, m := range req.Messages {
+		if m.Role != aicoach.ChatRoleUser && m.Role != aicoach.ChatRoleAssistant {
+			writeError(w, http.StatusBadRequest, "message role must be 'user' or 'assistant'")
+			return
+		}
+		if strings.TrimSpace(m.Content) == "" {
+			writeError(w, http.StatusBadRequest, "message content is empty")
+			return
+		}
+	}
+	if req.Messages[len(req.Messages)-1].Role != aicoach.ChatRoleUser {
+		writeError(w, http.StatusBadRequest, "last message must be from the user")
+		return
+	}
+
+	coach, err := aicoach.New(settings.Provider, settings.Model, settings.APIKey)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	setupSSE(w)
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+
+	_, err = coach.Chat(r.Context(), req.Messages, aicoach.CoachTools(), h.execTool, aicoach.ChatCallbacks{
+		OnToolStart: func(name string) {
+			writeSSE(w, "tool", map[string]string{"name": name, "status": "running"})
+		},
+		OnToolEnd: func(name string, ok bool) {
+			status := "done"
+			if !ok {
+				status = "error"
+			}
+			writeSSE(w, "tool", map[string]string{"name": name, "status": status})
+		},
+		OnText: func(chunk string) error {
+			writeSSE(w, "chunk", map[string]string{"text": chunk})
+			return nil
+		},
+	})
+	if err != nil {
+		writeSSE(w, "error", map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeSSE(w, "done", map[string]string{
+		"provider":     settings.Provider,
+		"model":        settings.Model,
+		"generated_at": time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
 // collectCoachingData gathers all the raw training data the LLM needs: athlete
 // profile, 90-day fitness history, 56-day workout briefs, 8-week breakdown,
 // key-duration power bests, and 56-day zone totals.
@@ -148,36 +260,7 @@ func (h *CoachHandler) collectCoachingData() (*aicoach.CoachingData, error) {
 	}
 	workouts := make([]aicoach.WorkoutBrief, 0, len(workoutRows))
 	for _, w := range workoutRows {
-		brief := aicoach.WorkoutBrief{
-			Date:            w.RecordedAt.Format("2006-01-02"),
-			Sport:           w.Sport,
-			DurationMins:    float64(w.DurationSecs) / 60,
-			DistanceKM:      w.DistanceMeters / 1000,
-			ElevationM:      w.ElevationGainMeters,
-			AvgPowerWatts:   w.AvgPowerWatts,
-			NormalizedPower: w.NormalizedPower,
-			AvgHR:           w.AvgHeartRate,
-			TSS:             w.TSS,
-			IntensityFactor: w.IntensityFactor,
-			Indoor:          w.IsIndoor,
-		}
-		if w.NormalizedPower != nil && w.AvgHeartRate != nil && *w.AvgHeartRate > 0 {
-			ef := round2(*w.NormalizedPower / float64(*w.AvgHeartRate))
-			brief.EF = &ef
-		}
-		if w.NormalizedPower != nil && w.AvgPowerWatts != nil && *w.AvgPowerWatts > 0 {
-			vi := round2(*w.NormalizedPower / *w.AvgPowerWatts)
-			brief.VI = &vi
-		}
-		// Decoupling needs per-sample data — only pay the stream fetch for rides
-		// long enough for drift to be meaningful (≥60 min, power + HR present).
-		if w.DurationSecs >= 3600 && w.AvgPowerWatts != nil && w.AvgHeartRate != nil {
-			if dec, ok := h.computeDecoupling(w.ID); ok {
-				r := round2(dec)
-				brief.DecouplingPct = &r
-			}
-		}
-		workouts = append(workouts, brief)
+		workouts = append(workouts, h.briefFromWorkout(w))
 	}
 
 	weeklyRaw, err := h.db.GetWeeklyBreakdown(8)
@@ -195,28 +278,19 @@ func (h *CoachHandler) collectCoachingData() (*aicoach.CoachingData, error) {
 		}
 	}
 
-	allTimeCurve, err := h.db.GetAllTimePowerCurve()
+	// Same all-time curve + W/kg + %FTP math as GET /api/athlete/power-curve;
+	// reuse the core and map it into the compact LLM shape.
+	pc, err := powerCurveReport(h.db)
 	if err != nil {
 		return nil, err
 	}
-	var powerBests []aicoach.PowerBest
-	for _, kd := range aicoach.KeyDurations {
-		best, ok := allTimeCurve[kd.Secs]
-		if !ok {
-			continue
-		}
-		var wPerKG, pctFTP float64
-		if athlete.WeightKG > 0 {
-			wPerKG = float64(best.Watts) / athlete.WeightKG
-		}
-		if athlete.FTPWatts > 0 {
-			pctFTP = float64(best.Watts) / float64(athlete.FTPWatts) * 100
-		}
+	powerBests := make([]aicoach.PowerBest, 0, len(pc.Entries))
+	for _, e := range pc.Entries {
 		powerBests = append(powerBests, aicoach.PowerBest{
-			Duration: kd.Label,
-			Watts:    best.Watts,
-			WPerKG:   round2(wPerKG),
-			PctFTP:   round2(pctFTP),
+			Duration: e.DurationLabel,
+			Watts:    e.Watts,
+			WPerKG:   e.WattsPerKG,
+			PctFTP:   e.PctFTP,
 		})
 	}
 

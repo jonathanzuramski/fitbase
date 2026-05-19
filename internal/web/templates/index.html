@@ -214,23 +214,53 @@
 
 <div id="mobile-card-inject"></div>
 
-<section class="card">
+<section class="card" id="ai-coach-card">
   <div class="card-header-row">
     <h2 class="card-title">AI coach{{if .AIProviderLabel}} <span class="muted">powered by {{.AIProviderLabel}}</span>{{end}}</h2>
-    {{if .AIConfigured}}
-    <div class="ai-coach-actions">
-      <span id="ai-generated-at" class="muted" style="font-size:12px" hidden></span>
-      <button class="btn-secondary" id="ai-generate-btn" onclick="generateInsights()">generate insights</button>
+    <div class="ai-coach-header-actions">
+      {{if .AIConfigured}}
+      <div class="ai-coach-actions">
+        <span id="ai-generated-at" class="muted" style="font-size:12px" hidden></span>
+        <button class="btn-secondary" id="ai-generate-btn" onclick="generateInsights()">generate insights</button>
+      </div>
+      {{end}}
+      <button type="button" class="ai-collapse-btn" id="ai-collapse-btn"
+              aria-controls="ai-body" aria-expanded="true" aria-label="Collapse AI coach" title="Hide AI coach">▾</button>
     </div>
-    {{end}}
   </div>
+  <div id="ai-body">
   {{if .AIConfigured}}
   <div id="ai-empty" class="muted" style="font-size:13px" hidden>No insights yet — click generate to analyze your training.</div>
   <div id="ai-insights" class="ai-insights markdown-body" hidden></div>
   <div id="ai-error" class="ai-error" hidden></div>
+
+  {{if .AIChatCapable}}
+  <div class="coach-chat">
+    <div class="coach-chat-header">
+      <span class="coach-chat-title">Ask the coach</span>
+      <button type="button" class="coach-chat-clear" id="chat-clear" hidden>clear</button>
+    </div>
+    <div id="chat-log" class="coach-chat-log" hidden></div>
+    <p id="chat-hint" class="muted coach-chat-hint">
+      Ask anything about your training — the coach pulls your real data to answer.
+      Try “how did my last block go?” or “am I fresh enough to race Saturday?”
+    </p>
+    <form id="chat-form" class="coach-chat-form" autocomplete="off">
+      <textarea id="chat-input" class="coach-chat-input" rows="1"
+                placeholder="Ask about your training…" required></textarea>
+      <button type="submit" class="btn-secondary" id="chat-send">send</button>
+    </form>
+  </div>
+  {{else}}
+  <p class="muted coach-chat-hint">
+    Chat with the coach needs Claude — switch the provider in <a href="/settings">settings</a>.
+    Generate insights still works with your current provider.
+  </p>
+  {{end}}
   {{else}}
   <p class="muted" style="font-size:13px">Configure an AI provider in <a href="/settings">settings</a> to get personalized coaching insights.</p>
   {{end}}
+  </div>
 </section>
 
 <section class="card">
@@ -498,6 +528,30 @@
     setView(localStorage.getItem('activities-view') === 'map' ? 'map' : 'list');
   })();
 
+  // ── AI coach collapse (persisted) ───────────────────────────────────────────
+  // Outside the AIConfigured guards on purpose: anyone can hide the card,
+  // configured or not. The preference sticks across reloads.
+  (function () {
+    const card = document.getElementById('ai-coach-card');
+    const btn  = document.getElementById('ai-collapse-btn');
+    if (!card || !btn) return;
+    const KEY = 'ai-coach-collapsed';
+
+    function apply(collapsed) {
+      card.classList.toggle('ai-collapsed', collapsed);
+      btn.setAttribute('aria-expanded', String(!collapsed));
+      btn.title = collapsed ? 'Show AI coach' : 'Hide AI coach';
+    }
+
+    btn.addEventListener('click', () => {
+      const collapsed = !card.classList.contains('ai-collapsed');
+      apply(collapsed);
+      try { localStorage.setItem(KEY, collapsed ? '1' : '0'); } catch (_) {}
+    });
+
+    apply(localStorage.getItem(KEY) === '1');
+  })();
+
   // ── Mobile layout: pull training load + goals under fitness chart ───────────
   (function () {
     const inject      = document.getElementById('mobile-card-inject');
@@ -654,6 +708,181 @@
   })();
   {{end}}
 
+  // ── Ask the coach (tool-augmented chat) ─────────────────────────────────────
+  // Stateless server: the browser holds the whole conversation and posts it
+  // every turn. The model pulls data via tools; we show that as it happens,
+  // then stream the answer in.
+  {{if .AIChatCapable}}
+  (function () {
+    const form   = document.getElementById('chat-form');
+    const input  = document.getElementById('chat-input');
+    const send   = document.getElementById('chat-send');
+    const log    = document.getElementById('chat-log');
+    const hint   = document.getElementById('chat-hint');
+    const clear  = document.getElementById('chat-clear');
+
+    // Conversation history sent verbatim each turn (user/assistant text only).
+    let history = [];
+    let busy    = false;
+
+    const TOOL_LABELS = {
+      get_athlete_profile:   'your profile',
+      get_current_fitness:   'your current form',
+      get_fitness_trend:     'your fitness trend',
+      list_recent_workouts:  'your recent workouts',
+      get_workout_detail:    'that workout',
+      get_weekly_breakdown:  'your weekly load',
+      get_power_curve:       'your power curve',
+      get_zone_distribution: 'your zone distribution',
+    };
+    const toolLabel = (n) => TOOL_LABELS[n] || n.replace(/_/g, ' ');
+
+    function renderMd(md) {
+      return window.marked ? window.marked.parse(md) : escapeHTML(md);
+    }
+
+    // Add a message row. For the assistant we return the inner element so the
+    // streaming loop can keep re-rendering it as markdown arrives.
+    function addRow(role) {
+      const row = document.createElement('div');
+      row.className = 'chat-msg chat-' + role;
+      const bubble = document.createElement('div');
+      bubble.className = 'chat-bubble' + (role === 'coach' ? ' markdown-body' : '');
+      row.appendChild(bubble);
+      log.appendChild(row);
+      log.scrollTop = log.scrollHeight;
+      return bubble;
+    }
+
+    function setStatus(el, tools) {
+      const names = Object.keys(tools);
+      if (names.length === 0) { el.textContent = 'thinking…'; return; }
+      el.textContent = 'looking up ' + names.map(toolLabel).join(', ') + '…';
+    }
+
+    // Events in the buffer are separated by blank lines; return the unconsumed
+    // tail for the next read. (Local copy — the insights parser is IIFE-scoped.)
+    function parseSSE(buf, onEvent) {
+      const events = buf.split(/\n\n/);
+      const tail   = events.pop();
+      for (const raw of events) {
+        let event = 'message', data = '';
+        for (const line of raw.split('\n')) {
+          if (line.startsWith('event:')) event = line.slice(6).trim();
+          else if (line.startsWith('data:')) data += line.slice(5).trim();
+        }
+        if (data) { try { onEvent(event, JSON.parse(data)); } catch (_) {} }
+      }
+      return tail;
+    }
+
+    async function ask(text) {
+      busy = true;
+      send.disabled = input.disabled = true;
+      hint.hidden = true;
+      log.hidden = false;
+      clear.hidden = false;
+
+      history.push({ role: 'user', content: text });
+      addRow('user').textContent = text;
+
+      const coachEl  = addRow('coach');
+      const statusEl = document.createElement('div');
+      statusEl.className = 'chat-status';
+      coachEl.appendChild(statusEl);
+
+      const running = {};
+      setStatus(statusEl, running);
+
+      let md = '', streamErr = null;
+      try {
+        const res = await fetch('/api/coach/chat', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+          body:    JSON.stringify({ messages: history }),
+        });
+        if (!res.ok || !res.body) {
+          const j = await res.json().catch(() => ({}));
+          throw new Error(j.error || 'request failed');
+        }
+
+        const reader  = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          buf = parseSSE(buf, (event, data) => {
+            if (event === 'tool') {
+              if (data.status === 'running') running[data.name] = true;
+              else delete running[data.name];
+              if (md === '') setStatus(statusEl, running);
+            } else if (event === 'chunk' && data.text) {
+              if (md === '') statusEl.remove();
+              md += data.text;
+              coachEl.innerHTML = renderMd(md);
+              log.scrollTop = log.scrollHeight;
+            } else if (event === 'error') {
+              streamErr = data.error || 'stream error';
+            }
+          });
+        }
+        if (streamErr) throw new Error(streamErr);
+
+        const answer = md.trim();
+        if (answer) {
+          history.push({ role: 'assistant', content: answer });
+        } else {
+          coachEl.innerHTML = '<span class="chat-err">No answer returned.</span>';
+        }
+      } catch (e) {
+        statusEl.remove();
+        coachEl.innerHTML = '<span class="chat-err">Error: ' + escapeHTML(e.message) + '</span>';
+        // Drop the failed user turn so a retry doesn't double it up.
+        if (history.length && history[history.length - 1].role === 'user') history.pop();
+      } finally {
+        busy = false;
+        send.disabled = input.disabled = false;
+        input.focus();
+        log.scrollTop = log.scrollHeight;
+      }
+    }
+
+    function autoGrow() {
+      input.style.height = 'auto';
+      input.style.height = Math.min(input.scrollHeight, 140) + 'px';
+    }
+
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const text = input.value.trim();
+      if (!text || busy) return;
+      input.value = '';
+      autoGrow();
+      ask(text);
+    });
+
+    input.addEventListener('input', autoGrow);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        form.requestSubmit();
+      }
+    });
+
+    clear.addEventListener('click', () => {
+      if (busy) return;
+      history = [];
+      log.innerHTML = '';
+      log.hidden = true;
+      clear.hidden = true;
+      hint.hidden = false;
+      input.focus();
+    });
+  })();
+  {{end}}
+
   function escapeHTML(s) {
     const d = document.createElement('div');
     d.textContent = s;
@@ -738,5 +967,128 @@
     color: #ef4444;
     margin-top: 10px;
   }
+
+  /* ── Ask the coach ──────────────────────────────────────────────────────── */
+  .coach-chat {
+    margin-top: 16px;
+    border-top: 1px solid var(--border);
+    padding-top: 14px;
+  }
+  .coach-chat-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .coach-chat-title {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+  }
+  .coach-chat-clear {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+    padding: 2px 4px;
+  }
+  .coach-chat-clear:hover { color: var(--text); }
+  .coach-chat-hint { font-size: 13px; margin: 6px 0 12px; }
+  .coach-chat-log {
+    max-height: 460px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 12px;
+    padding-right: 4px;
+  }
+  .chat-msg { display: flex; }
+  .chat-user { justify-content: flex-end; }
+  .chat-coach { justify-content: flex-start; }
+  .chat-bubble {
+    max-width: 85%;
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .chat-user .chat-bubble {
+    background: var(--accent, #2563eb);
+    color: #fff;
+    border-bottom-right-radius: 4px;
+    white-space: pre-wrap;
+  }
+  .chat-coach .chat-bubble {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-bottom-left-radius: 4px;
+  }
+  .chat-coach .chat-bubble > :first-child { margin-top: 0; }
+  .chat-coach .chat-bubble > :last-child  { margin-bottom: 0; }
+  .chat-coach .chat-bubble p { margin: 0 0 8px; }
+  .chat-coach .chat-bubble ul,
+  .chat-coach .chat-bubble ol { margin: 6px 0 8px; padding-left: 20px; }
+  .chat-status {
+    color: var(--text-muted);
+    font-size: 13px;
+    font-style: italic;
+  }
+  .chat-err { color: #ef4444; font-size: 13px; }
+  .coach-chat-form {
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+  }
+  .coach-chat-input {
+    flex: 1;
+    resize: none;
+    font: inherit;
+    font-size: 14px;
+    line-height: 1.5;
+    padding: 9px 12px;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    max-height: 140px;
+    overflow-y: auto;
+    /* Still scrolls past max-height, just without a visible scrollbar. */
+    scrollbar-width: none;          /* Firefox */
+    -ms-overflow-style: none;       /* legacy Edge */
+  }
+  .coach-chat-input::-webkit-scrollbar { display: none; } /* WebKit */
+  .coach-chat-input:focus {
+    outline: none;
+    border-color: var(--accent, #2563eb);
+  }
+  .coach-chat-form .btn-secondary { flex-shrink: 0; }
+
+  /* ── AI coach collapse ──────────────────────────────────────────────────── */
+  .ai-coach-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .ai-collapse-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 6px;
+    transition: transform .15s ease, color .15s ease;
+  }
+  .ai-collapse-btn:hover { color: var(--text); }
+  #ai-coach-card.ai-collapsed .ai-collapse-btn { transform: rotate(-90deg); }
+  #ai-coach-card.ai-collapsed #ai-body { display: none; }
+  #ai-coach-card.ai-collapsed .ai-coach-actions { display: none; }
+  #ai-coach-card.ai-collapsed .card-header-row { margin-bottom: 0; }
 </style>
 {{end}}

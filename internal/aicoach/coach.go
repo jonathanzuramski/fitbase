@@ -169,21 +169,10 @@ func (c *Coach) StreamInsights(ctx context.Context, data *CoachingData, onChunk 
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-// KeyDurations lists the effort durations (in seconds) reported in the power curve.
-var KeyDurations = []struct {
-	Secs  int
-	Label string
-}{
-	{5, "5s"},
-	{30, "30s"},
-	{60, "1min"},
-	{300, "5min"},
-	{1200, "20min"},
-	{3600, "60min"},
-}
-
-// sampleEvery picks every Nth element from a slice (always including the last).
-func sampleEvery[T any](items []T, n int) []T {
+// SampleEvery picks every Nth element from a slice, always including the last.
+// Shared by the insights payload (weekly fitness trend) and the chat coach's
+// fitness-trend tool so both thin a long series the same way.
+func SampleEvery[T any](items []T, n int) []T {
 	if n <= 1 || len(items) <= n {
 		return items
 	}
@@ -214,7 +203,7 @@ func BuildData(
 		GeneratedAt:    time.Now().UTC().Format(time.RFC3339),
 		Athlete:        athlete,
 		CurrentFitness: current,
-		FitnessTrend:   sampleEvery(fitnessHistory, 7),
+		FitnessTrend:   SampleEvery(fitnessHistory, 7),
 		RecentWorkouts: workouts,
 		WeeklyLoads:    weekly,
 		PowerCurve:     powerBests,

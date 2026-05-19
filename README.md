@@ -29,6 +29,7 @@ fitbase takes a different approach: sync your FIT files through whatever path wo
 - **GPS route map** - Leaflet dark-tile map, route colored by power/HR zone
 - **Dashboard sorting** - sort by date, sport, duration, distance, power, NP, TSS, HR, or elevation
 - **Google Drive backup** - FIT files archived to Drive automatically, full restore in one command
+- **AI coach** - one-click training-review insights, plus a chat that answers questions by pulling your real data on demand (tool calling; chat requires Claude, bring your own API key)
 - **LLM-ready API** - compact `/summary` endpoint for function-calling and coaching agents
 - **Mobile-ready** - responsive layout, works on phone
 - **Single binary** - pure Go, no CGO, no npm, no Docker required

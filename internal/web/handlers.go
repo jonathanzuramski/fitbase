@@ -385,6 +385,7 @@ func (th *templateHandler) index(w http.ResponseWriter, r *http.Request) {
 		"StreakActive":    activeCount,
 		"AIConfigured":    aiSettings.Provider != "" && aiSettings.APIKey != "",
 		"AIProviderLabel": aicoach.ProviderLabel(aiSettings.Provider),
+		"AIChatCapable":   aiSettings.Provider != "" && aiSettings.APIKey != "" && aicoach.SupportsChat(aiSettings.Provider),
 	})
 }
 

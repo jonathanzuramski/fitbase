@@ -43,6 +43,7 @@ func NewRouter(h *Handler, dropbox *DropboxHandler, intervalsH *IntervalsHandler
 		r.Get("/ftp-history/recompute", h.RecomputePowerLoad)
 		r.Get("/coach/insights", coach.GetCachedInsights)
 		r.Post("/coach/insights", coach.GenerateInsights)
+		r.Post("/coach/chat", coach.Chat)
 
 		r.Route("/integrations/dropbox", func(r chi.Router) {
 			r.Get("/sync", dropbox.Sync)

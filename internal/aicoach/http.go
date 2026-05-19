@@ -67,6 +67,64 @@ func postStream(ctx context.Context, url string, headers map[string]string, body
 	return nil, lastErr
 }
 
+// postJSON POSTs body to url and returns the full response body, with the same
+// 429/5xx retry+backoff as postStream. Used by the chat path: tool-calling
+// rounds run buffered (no SSE) so tool_use parsing stays straightforward.
+func postJSON(ctx context.Context, url string, headers map[string]string, body any) ([]byte, error) {
+	bodyBytes, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request body: %w", err)
+	}
+
+	const maxAttempts = 3
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+
+		resp, err := defaultClient.Do(req)
+		if err != nil {
+			lastErr = err
+			if ctx.Err() != nil {
+				return nil, err
+			}
+			if attempt < maxAttempts {
+				time.Sleep(backoff(attempt))
+				continue
+			}
+			return nil, fmt.Errorf("request failed after %d attempts: %w", maxAttempts, err)
+		}
+
+		respBody, readErr := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			if readErr != nil {
+				return nil, fmt.Errorf("read response body: %w", readErr)
+			}
+			return respBody, nil
+		}
+
+		snippet := respBody
+		if len(snippet) > 512 {
+			snippet = snippet[:512]
+		}
+		lastErr = fmt.Errorf("status %d: %s", resp.StatusCode, string(snippet))
+		if isRetryable(resp.StatusCode) && attempt < maxAttempts && ctx.Err() == nil {
+			time.Sleep(backoff(attempt))
+			continue
+		}
+		return nil, lastErr
+	}
+	return nil, lastErr
+}
+
 // scanSSE reads `data:` lines from an SSE stream and invokes onData for each
 // non-empty payload. Stops on `[DONE]`. Event field names are ignored — every
 // provider encodes event-type info inside the JSON payload.

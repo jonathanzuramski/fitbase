@@ -7,13 +7,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"math"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/fitbase/fitbase/internal/db"
 	"github.com/fitbase/fitbase/internal/fitness"
@@ -404,49 +402,12 @@ func (h *Handler) GetAthleteZones(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/athlete/power-curve
 func (h *Handler) GetPowerCurve(w http.ResponseWriter, r *http.Request) {
-	curve, err := h.db.GetAllTimePowerCurve()
+	report, err := powerCurveReport(h.db)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
-	athlete, err := h.db.GetAthlete()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "database error")
-		return
-	}
-
-	displayDurations := []struct {
-		secs  int
-		label string
-	}{
-		{5, "5s"}, {30, "30s"}, {60, "1min"}, {300, "5min"}, {1200, "20min"}, {3600, "60min"},
-	}
-
-	entries := make([]models.PowerCurveEntry, 0, len(displayDurations))
-	for _, d := range displayDurations {
-		best, ok := curve[d.secs]
-		if !ok {
-			continue
-		}
-		entry := models.PowerCurveEntry{
-			DurationSecs:  d.secs,
-			DurationLabel: d.label,
-			Watts:         best.Watts,
-			WorkoutID:     best.WorkoutID,
-		}
-		if athlete.WeightKG > 0 {
-			entry.WattsPerKG = math.Round(float64(best.Watts)/athlete.WeightKG*100) / 100
-		}
-		if athlete.FTPWatts > 0 {
-			entry.PctFTP = math.Round(float64(best.Watts)/float64(athlete.FTPWatts)*1000) / 10
-		}
-		entries = append(entries, entry)
-	}
-	writeJSON(w, http.StatusOK, models.PowerCurveReport{
-		Entries:  entries,
-		FTPWatts: athlete.FTPWatts,
-		WeightKG: athlete.WeightKG,
-	})
+	writeJSON(w, http.StatusOK, report)
 }
 
 // GET /api/training/weekly
@@ -471,160 +432,26 @@ func (h *Handler) GetWeeklyTraining(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/athlete/readiness
 func (h *Handler) GetReadiness(w http.ResponseWriter, r *http.Request) {
-	today := time.Now().UTC()
-
-	fp, err := h.db.GetFitnessOnDate(today)
+	report, err := readinessReport(h.db)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
-
-	lastDate, err := h.db.GetLastWorkoutDate()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "database error")
-		return
-	}
-	daysSince := 0
-	if lastDate != nil {
-		daysSince = int(today.Sub(*lastDate).Hours() / 24)
-	}
-
-	// Ramp rate: change in fitness (CTL) over the last 28 days.
-	var rampRate float64
-	if history, histErr := h.db.GetFitnessHistory(42); histErr == nil && len(history) >= 29 {
-		rampRate = math.Round((history[len(history)-1].Fitness-history[len(history)-29].Fitness)*10) / 10
-	}
-
-	rec, detail := readinessRecommendation(fp.Form, rampRate, daysSince)
-	writeJSON(w, http.StatusOK, models.ReadinessReport{
-		Date:                 today.Format("2006-01-02"),
-		Fitness:              math.Round(fp.Fitness*10) / 10,
-		Fatigue:              math.Round(fp.Fatigue*10) / 10,
-		Form:                 math.Round(fp.Form*10) / 10,
-		DaysSinceLastWorkout: daysSince,
-		RampRate:             rampRate,
-		Recommendation:       rec,
-		RecommendationDetail: detail,
-	})
-}
-
-func readinessRecommendation(form, rampRate float64, daysSince int) (string, string) {
-	switch {
-	case daysSince > 7:
-		return "Resume Training", "More than a week without training — fitness is declining. Ease back in with a light ride."
-	case rampRate > 10:
-		return "Ease Up", "Training load has increased sharply over the last 4 weeks. Prioritise sleep and monitor fatigue."
-	case form > 15:
-		return "Race Ready", "You're very fresh. Consider a peak effort or race — extended rest risks fitness loss."
-	case form > 5:
-		return "Go Ride", "Good form. Ready for a quality session or race effort."
-	case form >= -10:
-		return "Maintain", "Normal training load. Keep building consistency."
-	case form >= -25:
-		return "Training Block", "Productive fatigue — you're adapting. A recovery day will pay off soon."
-	case form >= -40:
-		return "Ease Up", "Heavy fatigue. Schedule a recovery ride or rest day before your next hard effort."
-	default:
-		return "Rest", "Significant overreach — rest now to avoid illness or injury."
-	}
+	writeJSON(w, http.StatusOK, report)
 }
 
 // GET /api/workouts/{id}/analysis
 func (h *Handler) GetWorkoutAnalysis(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	workout, err := h.db.GetWorkout(id)
+	analysis, err := workoutAnalysis(h.db, id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
-	if workout == nil {
+	if analysis == nil {
 		writeError(w, http.StatusNotFound, "workout not found")
 		return
 	}
-
-	athlete, err := h.db.GetAthlete()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "database error")
-		return
-	}
-
-	powerZoneDefs := fitness.PowerZones(athlete.FTPWatts)
-	hrZoneDefs := fitness.ResolveHRZones(athlete)
-
-	powerSecs, hrSecs, err := h.db.GetZoneTimes(id)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "database error")
-		return
-	}
-
-	analysis := models.WorkoutAnalysis{
-		WorkoutID:  id,
-		PowerZones: []models.ZoneBreakdown{},
-		HRZones:    []models.ZoneBreakdown{},
-	}
-
-	if powerSecs != nil {
-		total := 0
-		for _, s := range powerSecs {
-			total += s
-		}
-		for i, z := range powerZoneDefs[:7] {
-			pct := 0.0
-			if total > 0 {
-				pct = math.Round(float64(powerSecs[i])/float64(total)*1000) / 10
-			}
-			analysis.PowerZones = append(analysis.PowerZones, models.ZoneBreakdown{
-				Label:     z.Label,
-				Name:      z.Name,
-				Seconds:   powerSecs[i],
-				PctTime:   pct,
-				WattsLow:  z.WattsLow,
-				WattsHigh: z.WattsHigh,
-			})
-		}
-	}
-
-	if hrSecs != nil {
-		total := 0
-		for _, s := range hrSecs {
-			total += s
-		}
-		for i, z := range hrZoneDefs {
-			if i >= len(hrSecs) {
-				break
-			}
-			pct := 0.0
-			if total > 0 {
-				pct = math.Round(float64(hrSecs[i])/float64(total)*1000) / 10
-			}
-			analysis.HRZones = append(analysis.HRZones, models.ZoneBreakdown{
-				Label:   z.Label,
-				Name:    z.Name,
-				Seconds: hrSecs[i],
-				PctTime: pct,
-				BPMLow:  z.BPMLow,
-				BPMHigh: z.BPMHigh,
-			})
-		}
-	}
-
-	if workout.NormalizedPower != nil && workout.AvgPowerWatts != nil && *workout.AvgPowerWatts > 0 {
-		vi := math.Round(*workout.NormalizedPower / *workout.AvgPowerWatts * 1000) / 1000
-		analysis.VariabilityIndex = &vi
-	}
-	if workout.NormalizedPower != nil && workout.AvgHeartRate != nil && *workout.AvgHeartRate > 0 {
-		ef := math.Round(*workout.NormalizedPower/float64(*workout.AvgHeartRate)*1000) / 1000
-		analysis.EfficiencyFactor = &ef
-	}
-
-	if avgs, err := h.db.Get90DayAverages(workout.Sport); err == nil && avgs != nil {
-		analysis.AvgNP90Day = avgs.AvgNP
-		analysis.AvgHR90Day = avgs.AvgHR
-		analysis.AvgTSS90Day = avgs.AvgTSS
-		analysis.AvgIF90Day = avgs.AvgIF
-		analysis.AvgDuration90Day = avgs.AvgDurationSecs
-	}
-
 	writeJSON(w, http.StatusOK, analysis)
 }
 
