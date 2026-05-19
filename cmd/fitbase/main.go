@@ -59,9 +59,10 @@ func main() {
 		}
 	}()
 
-	// Rebuild route_coords for any workouts stored with the old 75-point limit.
+	// Rebuild route_coords for any workouts stored in an outdated format
+	// version (e.g. the legacy 75-point downsample). Converges after one pass.
 	go func() {
-		n, err := database.RebuildRouteCoords(200)
+		n, err := database.RebuildRouteCoords()
 		if err != nil {
 			slog.Warn("route coords rebuild failed", "err", err)
 		} else if n > 0 {

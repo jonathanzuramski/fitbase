@@ -969,9 +969,13 @@ func TestGetWorkoutRouteTracks_OutdoorWithGPS(t *testing.T) {
 	d := newTestDB(t)
 	w := sampleWorkout("outdoor1aaaaaaaa")
 	w.IsIndoor = false
+	// Points are intentionally non-collinear: route_coords is RDP-simplified,
+	// which (correctly) drops a midpoint lying on the line between its
+	// neighbours. A bent path keeps all three so this test exercises the
+	// round-trip and [lng, lat] ordering, not the simplifier's thresholds.
 	streams := []models.Stream{
 		gpsStream(w.RecordedAt.Add(1*time.Second), 47.1, -122.1),
-		gpsStream(w.RecordedAt.Add(2*time.Second), 47.2, -122.2),
+		gpsStream(w.RecordedAt.Add(2*time.Second), 47.2, -122.05),
 		gpsStream(w.RecordedAt.Add(3*time.Second), 47.3, -122.3),
 	}
 	if err := d.InsertWorkout(w, streams); err != nil {
