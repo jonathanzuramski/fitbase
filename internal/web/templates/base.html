@@ -32,71 +32,10 @@
     </nav>
     <main class="container{{block "mainClass" .}}{{end}}">{{block "content" .}}{{end}}</main>
 
-    <!-- Fresh-install archive reimport progress. Reuses the bulk-upload modal
-         styling; shown on any page while a startup reimport is running. -->
-    <div class="bulk-overlay" id="startup-import-overlay" hidden>
-      <div class="bulk-modal">
-        <div class="bulk-title">importing your archive…</div>
-        <div class="bulk-filename">restoring workouts from your archive folder</div>
-        <div class="bulk-progress-track">
-          <div class="bulk-progress-bar" id="startup-import-bar"></div>
-        </div>
-        <div class="bulk-counts">
-          <span id="startup-import-counter">0 / 0</span>
-          <span class="bulk-results" id="startup-import-results"></span>
-        </div>
-      </div>
-    </div>
-
     <script src="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.iife.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.min.css" />
     <script src="/static/js/charts.js"></script>
     {{block "scripts" .}}{{end}}
-    <script>
-      // Poll the background archive reimport (fresh install). One cheap request
-      // per page load when idle; only escalates to 1s polling + a blocking
-      // modal while a reimport is actually running, then reloads to reveal the
-      // populated dashboard.
-      (function () {
-        var overlay = document.getElementById("startup-import-overlay");
-        if (!overlay) return;
-        var bar = document.getElementById("startup-import-bar");
-        var counter = document.getElementById("startup-import-counter");
-        var results = document.getElementById("startup-import-results");
-        var shown = false;
-
-        function schedule() { setTimeout(poll, 1000); }
-
-        async function poll() {
-          var s;
-          try {
-            var res = await fetch("/api/import/status", { cache: "no-store" });
-            if (!res.ok) return schedule();
-            s = await res.json();
-          } catch (e) {
-            return schedule();
-          }
-
-          if (s.active) {
-            if (!shown) { overlay.hidden = false; shown = true; }
-            var pct = s.total > 0 ? Math.round((s.completed / s.total) * 100) : 0;
-            bar.style.width = pct + "%";
-            counter.textContent = s.completed + " / " + s.total;
-            var parts = [];
-            if (s.imported > 0) parts.push(s.imported + " imported");
-            if (s.errors > 0) parts.push(s.errors + " failed");
-            results.textContent = parts.join(" · ");
-            return schedule();
-          }
-
-          // Idle. If the modal was up, the reimport just finished — reload so
-          // the freshly populated page renders. Otherwise do nothing further.
-          if (shown) window.location.reload();
-        }
-
-        poll();
-      })();
-    </script>
   </body>
 </html>
 {{end}}

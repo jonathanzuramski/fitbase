@@ -19,12 +19,13 @@ import (
 )
 
 type pageTemplates struct {
-	index    *template.Template
-	workout  *template.Template
-	settings *template.Template
-	welcome  *template.Template
-	calendar *template.Template
-	heatmap  *template.Template
+	index     *template.Template
+	workout   *template.Template
+	settings  *template.Template
+	welcome   *template.Template
+	calendar  *template.Template
+	heatmap   *template.Template
+	importing *template.Template
 }
 
 func loadTemplatesFrom(fsys fs.FS) *pageTemplates {
@@ -34,12 +35,13 @@ func loadTemplatesFrom(fsys fs.FS) *pageTemplates {
 		)
 	}
 	return &pageTemplates{
-		index:    parse("templates/base.html", "templates/index.html"),
-		workout:  parse("templates/base.html", "templates/workout.html"),
-		settings: parse("templates/base.html", "templates/settings.html"),
-		welcome:  parse("templates/welcome.html"),
-		calendar: parse("templates/base.html", "templates/calendar.html"),
-		heatmap:  parse("templates/base.html", "templates/heatmap.html"),
+		index:     parse("templates/base.html", "templates/index.html"),
+		workout:   parse("templates/base.html", "templates/workout.html"),
+		settings:  parse("templates/base.html", "templates/settings.html"),
+		welcome:   parse("templates/welcome.html"),
+		calendar:  parse("templates/base.html", "templates/calendar.html"),
+		heatmap:   parse("templates/base.html", "templates/heatmap.html"),
+		importing: parse("templates/importing.html"),
 	}
 }
 
@@ -82,6 +84,7 @@ func NewTemplateHandler(database *db.DB, dev bool, webFS fs.FS) http.Handler {
 	mux.HandleFunc("POST /goals/mileage", th.saveMileageGoal)
 	mux.HandleFunc("GET /heatmap", th.heatmap)
 	mux.HandleFunc("GET /calendar", th.calendar)
+	mux.HandleFunc("GET /importing", th.importing)
 	mux.HandleFunc("GET /welcome", th.welcomeGet)
 	mux.HandleFunc("POST /welcome", th.welcomePost)
 	mux.HandleFunc("GET /welcome/skip", th.welcomeSkip)
@@ -588,6 +591,13 @@ func (th *templateHandler) updateAthlete(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	http.Redirect(w, r, "/settings", http.StatusSeeOther)
+}
+
+// importing serves the standalone first-run import screen. The API router
+// redirects all page requests here while a startup archive reimport is active;
+// the page polls /api/import/status and returns to the app when it finishes.
+func (th *templateHandler) importing(w http.ResponseWriter, r *http.Request) {
+	renderTemplate(w, th.templates().importing, "importing", nil)
 }
 
 func (th *templateHandler) welcomeGet(w http.ResponseWriter, r *http.Request) {
