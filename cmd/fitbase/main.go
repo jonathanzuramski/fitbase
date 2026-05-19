@@ -81,12 +81,17 @@ func main() {
 	}()
 
 	// If the DB is empty but the archive has files, reimport everything.
-	// This handles the case where the user deleted the DB and restarted.
+	// This handles a fresh install (or a deleted DB) where the archive still
+	// has all the originals. Run it in the background so the HTTP server comes
+	// up immediately — the UI polls /api/import/status and shows a progress
+	// modal until the reimport finishes.
 	if n, _ := database.CountWorkouts(); n == 0 {
-		imported, errCount := imp.ReimportArchive()
-		if imported > 0 {
-			slog.Info("reimported workouts from archive", "imported", imported, "errors", errCount)
-		}
+		go func() {
+			imported, errCount := imp.ReimportArchive()
+			if imported > 0 {
+				slog.Info("reimported workouts from archive", "imported", imported, "errors", errCount)
+			}
+		}()
 	}
 
 	watcher, err := importer.NewWatcher(cfg.WatchDir, imp)

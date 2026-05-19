@@ -300,6 +300,13 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]string{"id": id, "status": "imported"})
 }
 
+// GET /api/import/status — progress of a background startup archive reimport.
+// Cheap, in-memory only; the UI polls this so a fresh install shows an import
+// modal instead of an empty dashboard. Reports Active=false when idle.
+func (h *Handler) ImportStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, h.importer.ReimportStatus())
+}
+
 func queryInt(r *http.Request, key string, def int) int {
 	if v := r.URL.Query().Get(key); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {

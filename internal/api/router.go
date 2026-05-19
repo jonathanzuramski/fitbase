@@ -19,6 +19,7 @@ func NewRouter(h *Handler, dropbox *DropboxHandler, intervalsH *IntervalsHandler
 		r.Delete("/workouts", h.DeleteAllWorkouts)
 		r.Get("/workouts/routes", h.GetWorkoutRouteTracks)
 		r.Post("/upload", h.Upload)
+		r.Get("/import/status", h.ImportStatus)
 
 		r.Route("/workouts/{id}", func(r chi.Router) {
 			r.Get("/", h.GetWorkout)
@@ -64,7 +65,22 @@ func NewRouter(h *Handler, dropbox *DropboxHandler, intervalsH *IntervalsHandler
 	})
 
 	r.Handle("/static/*", http.StripPrefix("/static", http.FileServer(staticFS)))
-	r.Mount("/", templateHandler)
+	r.Mount("/", importGate(h, templateHandler))
 
 	return r
+}
+
+// importGate redirects page requests to the standalone /importing screen while
+// a first-run archive reimport is active, so a fresh install shows progress
+// instead of an empty/half-rendered app. Only wraps the page handler — /api
+// and /static are matched by earlier routes — and exempts /importing itself
+// to avoid a redirect loop.
+func importGate(h *Handler, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/importing" && h.importer.ReimportStatus().Active {
+			http.Redirect(w, r, "/importing", http.StatusSeeOther)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
