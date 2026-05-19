@@ -19,6 +19,7 @@ func NewRouter(h *Handler, dropbox *DropboxHandler, intervalsH *IntervalsHandler
 		r.Delete("/workouts", h.DeleteAllWorkouts)
 		r.Get("/workouts/routes", h.GetWorkoutRouteTracks)
 		r.Post("/upload", h.Upload)
+		r.Get("/import/status", h.ImportStatus)
 
 		r.Route("/workouts/{id}", func(r chi.Router) {
 			r.Get("/", h.GetWorkout)

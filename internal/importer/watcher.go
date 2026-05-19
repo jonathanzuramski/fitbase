@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fitbase/fitbase/internal/db"
@@ -30,12 +31,48 @@ type DriveUploader interface {
 	Upload(ctx context.Context, workoutID, year, month string, data []byte) error
 }
 
+// reimportProgress tracks an in-flight ReimportArchive so the UI can show a
+// progress modal on a fresh install instead of an unreachable server. The
+// counters are updated while parallel import workers run, so they are atomic.
+type reimportProgress struct {
+	started   atomic.Bool  // a reimport has begun at least once this process
+	active    atomic.Bool  // a reimport is running right now
+	total     atomic.Int64 // files discovered in the archive
+	completed atomic.Int64 // files processed so far (imported + errored)
+	imported  atomic.Int64
+	errors    atomic.Int64
+}
+
+// ReimportStatus is a JSON-friendly snapshot of a startup archive reimport.
+type ReimportStatus struct {
+	Active    bool `json:"active"`
+	Started   bool `json:"started"`
+	Total     int  `json:"total"`
+	Completed int  `json:"completed"`
+	Imported  int  `json:"imported"`
+	Errors    int  `json:"errors"`
+}
+
 // Importer handles FIT file import, archiving, and optional Drive backup.
 type Importer struct {
 	db         *db.DB
 	archiveDir string
 	mu         sync.RWMutex
 	drive      DriveUploader // nil if Google Drive backup is not configured
+	reimport   reimportProgress
+}
+
+// ReimportStatus returns a snapshot of the current/last archive reimport.
+// Safe to call at any time; reports Active=false when nothing is running.
+func (imp *Importer) ReimportStatus() ReimportStatus {
+	return ReimportStatus{
+		Active:    imp.reimport.active.Load(),
+		Started:   imp.reimport.started.Load(),
+		Total:     int(imp.reimport.total.Load()),
+		Completed: int(imp.reimport.completed.Load()),
+		Imported:  int(imp.reimport.imported.Load()),
+		Errors:    int(imp.reimport.errors.Load()),
+	}
 }
 
 func NewImporter(database *db.DB, archiveDir string) *Importer {
@@ -503,6 +540,14 @@ func (imp *Importer) ImportDir(dir string) error {
 // Useful after deleting the database — the archive has all the originals.
 // Returns the number of workouts imported and the number of errors.
 func (imp *Importer) ReimportArchive() (imported, errCount int) {
+	imp.reimport.started.Store(true)
+	imp.reimport.active.Store(true)
+	imp.reimport.total.Store(0)
+	imp.reimport.completed.Store(0)
+	imp.reimport.imported.Store(0)
+	imp.reimport.errors.Store(0)
+	defer imp.reimport.active.Store(false)
+
 	var paths []string
 	walkErr := filepath.WalkDir(imp.archiveDir, func(path string, e fs.DirEntry, werr error) error {
 		if werr != nil || e.IsDir() || !isFIT(e.Name()) {
@@ -515,6 +560,7 @@ func (imp *Importer) ReimportArchive() (imported, errCount int) {
 		slog.Error("reimport: walk archive", "dir", imp.archiveDir, "err", walkErr)
 		return
 	}
+	imp.reimport.total.Store(int64(len(paths)))
 	if len(paths) == 0 {
 		return
 	}
@@ -570,9 +616,12 @@ func (imp *Importer) ReimportArchive() (imported, errCount int) {
 	for r := range results {
 		if r.err != nil {
 			errCount++
+			imp.reimport.errors.Add(1)
 		} else if r.imported {
 			imported++
+			imp.reimport.imported.Add(1)
 		}
+		imp.reimport.completed.Add(1)
 	}
 	return
 }
