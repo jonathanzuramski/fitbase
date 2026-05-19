@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,6 +67,15 @@ func Open(path string, key []byte) (*DB, error) {
 		return nil, fmt.Errorf("create training_day index: %w", err)
 	}
 
+	// Migration: add route_coords_v — the format version of the route_coords
+	// JSON. Lets the startup rebuild detect legacy (NULL/older) rows, rebuild
+	// them once, and then converge, instead of re-running every boot.
+	if _, err := sqldb.Exec(`ALTER TABLE workouts ADD COLUMN route_coords_v INTEGER DEFAULT NULL`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name") {
+			return nil, fmt.Errorf("migrate route_coords_v: %w", err)
+		}
+	}
+
 	// Migration: imported_files PK (hash) → (hash, filename). The old shape
 	// silently dropped subsequent INSERTs for the same hash, so a file imported
 	// once under name A and later seen under name B was never recorded as B —
@@ -109,6 +119,7 @@ func (db *DB) InsertWorkout(w *models.Workout, streams []models.Stream) error {
 	// Pre-compute downsampled GPS coords for outdoor workouts so the heatmap
 	// and card thumbnails never need to JOIN against workout_streams.
 	var routeCoords *string
+	var routeCoordsV *int
 	if !w.IsIndoor {
 		pts := make([][2]float64, 0, len(streams))
 		for _, s := range streams {
@@ -117,10 +128,12 @@ func (db *DB) InsertWorkout(w *models.Workout, streams []models.Stream) error {
 			}
 			pts = append(pts, [2]float64{*s.Lng, *s.Lat})
 		}
-		coords := downsampleCoords(pts, 75)
+		coords := simplifyCoords(pts, 500)
 		js, _ := json.Marshal(coords)
 		s := string(js)
 		routeCoords = &s
+		v := routeCoordsVersion
+		routeCoordsV = &v
 	}
 
 	// Calendar day the athlete recorded this workout, in their local timezone.
@@ -139,13 +152,13 @@ func (db *DB) InsertWorkout(w *models.Workout, streams []models.Stream) error {
 			id, filename, recorded_at, sport, duration_secs, elapsed_secs, distance_meters,
 			elevation_gain_meters, avg_power_watts, max_power_watts, normalized_power,
 			avg_heart_rate, max_heart_rate, avg_cadence, avg_speed_mps,
-			tss, intensity_factor, is_indoor, route_coords, training_day
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			tss, intensity_factor, is_indoor, route_coords, route_coords_v, training_day
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		w.ID, w.Filename, w.RecordedAt.UTC().Format(time.RFC3339),
 		w.Sport, w.DurationSecs, w.ElapsedSecs, w.DistanceMeters, w.ElevationGainMeters,
 		w.AvgPowerWatts, w.MaxPowerWatts, w.NormalizedPower,
 		w.AvgHeartRate, w.MaxHeartRate, w.AvgCadenceRPM, w.AvgSpeedMPS,
-		w.TSS, w.IntensityFactor, w.IsIndoor, routeCoords, trainingDay,
+		w.TSS, w.IntensityFactor, w.IsIndoor, routeCoords, routeCoordsV, trainingDay,
 	)
 	if err != nil {
 		return fmt.Errorf("insert workout: %w", err)
@@ -1395,29 +1408,89 @@ func (db *DB) GetMileageProgress(sport string, tz *time.Location) (MileageProgre
 
 // ── Route tracks ─────────────────────────────────────────────────────────────
 
+// routeCoordsVersion is the format version of the route_coords JSON produced by
+// simplifyCoords. Bump it whenever the simplification changes: the startup
+// rebuild re-processes every row whose stored version is older exactly once,
+// then converges. NULL/absent = legacy uniform downsample (pre-RDP).
+const routeCoordsVersion = 2
+
 // WorkoutRouteTrack is a simplified GPS track for a single workout.
 type WorkoutRouteTrack struct {
-	WorkoutID string
-	Sport     string
-	Date      time.Time
-	Coords    [][2]float64 // GeoJSON order: [lng, lat]
+	WorkoutID           string
+	Sport               string
+	Date                time.Time
+	DistanceMeters      float64
+	DurationSecs        int
+	ElevationGainMeters float64
+	Coords              [][2]float64 // GeoJSON order: [lng, lat]
 }
 
-// downsampleCoords reduces pts to at most maxPts points while always preserving
-// the final point. Returns an empty (non-nil) slice when there are fewer than 2 points.
-func downsampleCoords(pts [][2]float64, maxPts int) [][2]float64 {
+// simplifyCoords reduces GPS coords using Ramer-Douglas-Peucker, which preserves
+// corners and road curves while aggressively dropping redundant points on straight
+// sections. Falls back to uniform downsampling only if RDP still exceeds maxPts.
+func simplifyCoords(pts [][2]float64, maxPts int) [][2]float64 {
 	if len(pts) < 2 {
 		return [][2]float64{}
 	}
-	step := max(len(pts)/maxPts, 1)
-	out := make([][2]float64, 0, len(pts)/step+1)
-	for i := 0; i < len(pts); i += step {
-		out = append(out, pts[i])
+	// ~5 m tolerance in degree space; keeps all meaningful bends in the road.
+	simplified := rdpSimplify(pts, 0.00005)
+	if len(simplified) <= maxPts {
+		return simplified
 	}
-	if (len(pts)-1)%step != 0 {
-		out = append(out, pts[len(pts)-1])
+	// Safety cap: uniformly thin the already-simplified set. The step is
+	// rounded up so the sampled count can never exceed maxPts.
+	step := (len(simplified) + maxPts - 1) / maxPts
+	out := make([][2]float64, 0, maxPts)
+	for i := 0; i < len(simplified); i += step {
+		out = append(out, simplified[i])
+	}
+	// Always keep the true final point, without breaching the cap.
+	if last := simplified[len(simplified)-1]; out[len(out)-1] != last {
+		if len(out) < maxPts {
+			out = append(out, last)
+		} else {
+			out[len(out)-1] = last
+		}
 	}
 	return out
+}
+
+// rdpSimplify is the recursive Ramer-Douglas-Peucker simplification algorithm.
+func rdpSimplify(pts [][2]float64, epsilon float64) [][2]float64 {
+	if len(pts) < 3 {
+		// Return a copy: callers must never receive a slice that aliases the
+		// input backing array (see the combine step below for why).
+		return append([][2]float64(nil), pts...)
+	}
+	maxDist, maxIdx := 0.0, 0
+	first, last := pts[0], pts[len(pts)-1]
+	for i := 1; i < len(pts)-1; i++ {
+		if d := rdpPerpDist(pts[i], first, last); d > maxDist {
+			maxDist, maxIdx = d, i
+		}
+	}
+	if maxDist > epsilon {
+		left := rdpSimplify(pts[:maxIdx+1], epsilon)
+		right := rdpSimplify(pts[maxIdx:], epsilon)
+		// Build a fresh slice. `append(left[:len(left)-1], right...)` would
+		// write into a backing array that can still alias the shared input
+		// (pts[:maxIdx+1] keeps the original capacity), corrupting points the
+		// sibling recursion has not read yet.
+		out := make([][2]float64, 0, len(left)-1+len(right))
+		out = append(out, left[:len(left)-1]...)
+		out = append(out, right...)
+		return out
+	}
+	return [][2]float64{first, last}
+}
+
+// rdpPerpDist returns the perpendicular distance from point p to the line a→b.
+func rdpPerpDist(p, a, b [2]float64) float64 {
+	dx, dy := b[0]-a[0], b[1]-a[1]
+	if dx == 0 && dy == 0 {
+		return math.Sqrt((p[0]-a[0])*(p[0]-a[0]) + (p[1]-a[1])*(p[1]-a[1]))
+	}
+	return math.Abs(dy*p[0]-dx*p[1]+b[0]*a[1]-b[1]*a[0]) / math.Sqrt(dx*dx+dy*dy)
 }
 
 // GetWorkoutRouteTracks returns pre-computed GPS tracks for the given workout IDs.
@@ -1428,7 +1501,7 @@ func (db *DB) GetWorkoutRouteTracks(ids []string) ([]WorkoutRouteTrack, error) {
 	var err error
 	if len(ids) == 0 {
 		rows, err = db.Query(`
-			SELECT id, sport, recorded_at, route_coords
+			SELECT id, sport, recorded_at, distance_meters, duration_secs, elevation_gain_meters, route_coords
 			FROM workouts
 			WHERE is_indoor = 0
 			  AND route_coords IS NOT NULL
@@ -1441,7 +1514,7 @@ func (db *DB) GetWorkoutRouteTracks(ids []string) ([]WorkoutRouteTrack, error) {
 			args[i] = id
 		}
 		rows, err = db.Query(fmt.Sprintf(`
-			SELECT id, sport, recorded_at, route_coords
+			SELECT id, sport, recorded_at, distance_meters, duration_secs, elevation_gain_meters, route_coords
 			FROM workouts
 			WHERE id IN (%s)
 			  AND route_coords IS NOT NULL
@@ -1455,7 +1528,9 @@ func (db *DB) GetWorkoutRouteTracks(ids []string) ([]WorkoutRouteTrack, error) {
 	var out []WorkoutRouteTrack
 	for rows.Next() {
 		var id, sport, recAt, coordsJSON string
-		if err := rows.Scan(&id, &sport, &recAt, &coordsJSON); err != nil {
+		var distM, elevM float64
+		var durSecs int
+		if err := rows.Scan(&id, &sport, &recAt, &distM, &durSecs, &elevM, &coordsJSON); err != nil {
 			return nil, err
 		}
 		var coords [][2]float64
@@ -1463,50 +1538,96 @@ func (db *DB) GetWorkoutRouteTracks(ids []string) ([]WorkoutRouteTrack, error) {
 			continue
 		}
 		t, _ := time.Parse(time.RFC3339, recAt)
-		out = append(out, WorkoutRouteTrack{WorkoutID: id, Sport: sport, Date: t, Coords: coords})
+		out = append(out, WorkoutRouteTrack{
+			WorkoutID:           id,
+			Sport:               sport,
+			Date:                t,
+			DistanceMeters:      distM,
+			DurationSecs:        durSecs,
+			ElevationGainMeters: elevM,
+			Coords:              coords,
+		})
 	}
 	return out, rows.Err()
 }
 
-// BackfillRouteCoords populates the route_coords column for any outdoor workouts
-// that pre-date the migration. Safe to call concurrently with normal operation.
-// Returns the number of workouts updated.
+// queryWorkoutIDs runs an id-only query and collects the results. The rows are
+// fully drained and closed before returning so callers can safely issue writes
+// afterwards on the single-connection pool.
+func (db *DB) queryWorkoutIDs(query string, args ...any) ([]string, error) {
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// rebuildCoordsFor recomputes route_coords for the given workout ids and stamps
+// each with the current routeCoordsVersion. Per-workout failures are counted
+// and logged rather than aborting the batch, so one unreadable workout cannot
+// stall startup. Returns the number successfully updated.
+func (db *DB) rebuildCoordsFor(ids []string) int {
+	updated, failed := 0, 0
+	for _, id := range ids {
+		pts, err := db.gpsPointsForWorkout(id)
+		if err != nil {
+			failed++
+			continue
+		}
+		coords := simplifyCoords(pts, 500)
+		js, _ := json.Marshal(coords)
+		if _, err := db.Exec(
+			`UPDATE workouts SET route_coords = ?, route_coords_v = ? WHERE id = ?`,
+			string(js), routeCoordsVersion, id); err != nil {
+			failed++
+			continue
+		}
+		updated++
+	}
+	if failed > 0 {
+		slog.Warn("route coords rebuild skipped workouts", "failed", failed, "updated", updated)
+	}
+	return updated
+}
+
+// BackfillRouteCoords computes route_coords for outdoor workouts that have none
+// yet (e.g. imported before the column existed). Rows are stamped to the
+// current format version so the rebuild never reprocesses them. Returns the
+// number of workouts updated.
 func (db *DB) BackfillRouteCoords() (int, error) {
-	rows, err := db.Query(`
+	ids, err := db.queryWorkoutIDs(`
 		SELECT id FROM workouts
 		WHERE is_indoor = 0 AND route_coords IS NULL
 		ORDER BY recorded_at DESC`)
 	if err != nil {
 		return 0, err
 	}
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return 0, err
-		}
-		ids = append(ids, id)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
+	return db.rebuildCoordsFor(ids), nil
+}
+
+// RebuildRouteCoords re-simplifies route_coords for any outdoor workout whose
+// stored format predates routeCoordsVersion. Idempotent and convergent: each
+// matching row is rebuilt exactly once and stamped to the current version, so
+// subsequent startups select zero rows. Safe to call at startup.
+func (db *DB) RebuildRouteCoords() (int, error) {
+	ids, err := db.queryWorkoutIDs(`
+		SELECT id FROM workouts
+		WHERE is_indoor = 0
+		  AND route_coords IS NOT NULL
+		  AND (route_coords_v IS NULL OR route_coords_v < ?)`, routeCoordsVersion)
+	if err != nil {
 		return 0, err
 	}
-
-	updated := 0
-	for _, id := range ids {
-		pts, err := db.gpsPointsForWorkout(id)
-		if err != nil {
-			continue
-		}
-		coords := downsampleCoords(pts, 75)
-		js, _ := json.Marshal(coords)
-		if _, err := db.Exec(`UPDATE workouts SET route_coords = ? WHERE id = ?`, string(js), id); err != nil {
-			continue
-		}
-		updated++
-	}
-	return updated, nil
+	return db.rebuildCoordsFor(ids), nil
 }
 
 // BackfillTrainingDay populates the training_day column for any workouts that

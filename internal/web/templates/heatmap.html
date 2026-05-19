@@ -4,30 +4,55 @@
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
 {{end}}
 
+{{define "mainClass"}} heatmap-page{{end}}
+
 {{define "content"}}
-<div class="page-header">
-  <h1>heatmap</h1>
-</div>
-<div id="heatmap" class="heatmap-map">
-  <div id="heatmap-loading" style="display:flex;height:100%;align-items:center;justify-content:center;color:var(--text-muted);font-size:13px">
-    loading routes…
+<div class="heatmap-wrap">
+  <div id="heatmap" class="heatmap-map"></div>
+
+  <div id="heatmap-loading" class="heatmap-loading">loading routes…</div>
+
+  <div class="heatmap-overlay-tl">
+    <span class="heatmap-title">heatmap</span>
+    <div class="heatmap-filters" id="heatmap-filters"></div>
+  </div>
+
+  <div class="heatmap-info" id="heatmap-info">
+    <div class="heatmap-info-row">
+      <span class="heatmap-info-dot" id="heatmap-info-dot"></span>
+      <span class="heatmap-info-sport" id="heatmap-info-sport"></span>
+      <span class="heatmap-info-date" id="heatmap-info-date"></span>
+    </div>
+    <div class="heatmap-info-stats" id="heatmap-info-stats"></div>
+    <div class="heatmap-info-hint">click to open workout</div>
   </div>
 </div>
 {{end}}
 
 {{define "scripts"}}
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="/static/js/heatmap.js"></script>
 <script>
+  const imperial = document.body.dataset.imperial === "true";
+
   fetch('/api/workouts/routes')
     .then(r => r.json())
     .then(j => {
-      const el = document.getElementById('heatmap');
+      const loading = document.getElementById('heatmap-loading');
       if (j.data && j.data.length) {
-        renderActivitiesMap('heatmap', j.data);
+        loading.style.display = 'none';
+        renderHeatmap('heatmap', j.data, imperial);
       } else {
-        el.style.cssText = 'display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:13px';
-        el.textContent = 'No outdoor activities with GPS data yet.';
+        loading.textContent = 'No outdoor activities with GPS data yet.';
       }
     });
+
+  function renderHeatmap(containerId, tracks, imperial) {
+    renderHeatMap(containerId, tracks, {
+      infoPanel: 'heatmap-info',
+      filters: 'heatmap-filters',
+      imperial,
+    });
+  }
 </script>
 {{end}}
