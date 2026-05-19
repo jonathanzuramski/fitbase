@@ -23,7 +23,7 @@ const LINE_LAYOUT = { "line-cap": "round", "line-join": "round" };
 // Here we use it to have the heatmap lines get thicker and more opaque as you zoom in, and thinner and fainter as you zoom out.
 // The breakpoints and values are tuned by eye to look good on typical data.
 const GLOW_WIDTH = ["interpolate", ["linear"], ["zoom"], 7, 0.01, 10, 3, 13, 5];
-const LINE_WIDTH = ["interpolate", ["linear"], ["zoom"], 7, 0.05, 10, 2, 13, 1.5];
+const LINE_WIDTH = ["interpolate", ["linear"], ["zoom"], 7, 0.05, 10, 2, 13, 2.5];
 
 // Single source of truth for the two visible track layers. `base` is the
 // resting look; on hover the hovered workout gets `hover` while every other
@@ -296,9 +296,6 @@ function renderHeatMap(containerId, tracks, opts) {
           `<span class="heatmap-popup-body">` +
           `<span class="heatmap-popup-sport">${escHtml(p.sport)}</span>` +
           `<span class="heatmap-popup-meta">${escHtml(p.date)}&nbsp;&nbsp;${escHtml(fmtDist(p.distance_meters))}&nbsp;&nbsp;${escHtml(fmtDuration(p.duration_secs || 0))}</span>` +
-
-          `<span class="heatmap-popup-sport">${p.sport}</span>` +
-          `<span class="heatmap-popup-meta">${p.date}&nbsp;&nbsp;${fmtDist(p.distance_meters)}&nbsp;&nbsp;${fmtDuration(p.duration_secs || 0)}</span>` +
           `</span></a>`;
       }).join("");
 
