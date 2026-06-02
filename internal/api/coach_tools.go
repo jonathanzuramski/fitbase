@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/fitbase/fitbase/internal/aicoach"
+	"github.com/fitbase/fitbase/internal/fitness"
 	"github.com/fitbase/fitbase/internal/models"
 )
 
@@ -39,16 +40,16 @@ func (h *CoachHandler) briefFromWorkout(w models.Workout) aicoach.WorkoutBrief {
 		IntensityFactor: w.IntensityFactor,
 		Indoor:          w.IsIndoor,
 	}
-	if ef, ok := efficiencyFactor(w.NormalizedPower, w.AvgHeartRate); ok {
+	if ef, ok := fitness.EfficiencyFactor(w.NormalizedPower, w.AvgHeartRate); ok {
 		r := round2(ef)
 		brief.EF = &r
 	}
-	if vi, ok := variabilityIndex(w.NormalizedPower, w.AvgPowerWatts); ok {
+	if vi, ok := fitness.VariabilityIndex(w.NormalizedPower, w.AvgPowerWatts); ok {
 		r := round2(vi)
 		brief.VI = &r
 	}
 	if w.DurationSecs >= 3600 && w.AvgPowerWatts != nil && w.AvgHeartRate != nil {
-		if dec, ok := h.computeDecoupling(w.ID); ok {
+		if dec, ok := h.decouplingForWorkout(w.ID); ok {
 			r := round2(dec)
 			brief.DecouplingPct = &r
 		}
@@ -92,6 +93,8 @@ func (h *CoachHandler) execTool(_ context.Context, name string, input json.RawMe
 		return h.toolPowerCurve()
 	case aicoach.ToolGetZoneDistribution:
 		return h.toolZoneDistribution(input)
+	case aicoach.ToolProposeSchedule:
+		return h.toolProposeSchedule(input)
 	default:
 		return "", fmt.Errorf("unknown tool %q", name)
 	}
@@ -225,7 +228,7 @@ func (h *CoachHandler) toolWorkoutDetail(input json.RawMessage) (string, error) 
 		"analysis": analysis,
 	}
 	if w.DurationSecs >= 3600 && w.AvgPowerWatts != nil && w.AvgHeartRate != nil {
-		if dec, ok := h.computeDecoupling(w.ID); ok {
+		if dec, ok := h.decouplingForWorkout(w.ID); ok {
 			res["aerobic_decoupling_pct"] = round2(dec)
 		}
 	}
@@ -259,6 +262,44 @@ func (h *CoachHandler) toolPowerCurve() (string, error) {
 	return jsonResult(report)
 }
 
+// toolProposeSchedule is the only write tool. It validates each proposed
+// workout (via the same plannedRequest.toModel path the manual quick-add uses)
+// and stores the batch as a coach draft in planned_workout_drafts. The
+// returned preview_id is sniffed by the Chat HTTP handler, which forwards it
+// to the browser over SSE so the UI can render a preview card. Nothing lands
+// on the calendar until the rider commits the draft.
+func (h *CoachHandler) toolProposeSchedule(input json.RawMessage) (string, error) {
+	var args struct {
+		Workouts []plannedRequest `json:"workouts"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return "", fmt.Errorf("invalid arguments: %w", err)
+	}
+	if len(args.Workouts) == 0 {
+		return "", fmt.Errorf("workouts is empty — propose at least one")
+	}
+	// Validate every item before persisting so a malformed entry doesn't leave
+	// the model with a draft id pointing at unreviewable content.
+	for i, req := range args.Workouts {
+		if _, err := req.toModel("coach"); err != nil {
+			return "", fmt.Errorf("workouts[%d]: %s", i, err.Error())
+		}
+	}
+	payload, err := json.Marshal(draftPayload{Workouts: args.Workouts})
+	if err != nil {
+		return "", err
+	}
+	id, err := h.db.SavePlannedDraft(string(payload))
+	if err != nil {
+		return "", err
+	}
+	return jsonResult(map[string]any{
+		"preview_id": id,
+		"count":      len(args.Workouts),
+		"message":    "Saved as a draft. The rider sees a preview card; tell them to review it and click 'Add to calendar' to accept.",
+	})
+}
+
 // toolZoneDistribution has no REST equivalent (the analysis endpoint is
 // per-workout; this aggregates time-in-zone across a recent window).
 func (h *CoachHandler) toolZoneDistribution(input json.RawMessage) (string, error) {
@@ -268,13 +309,22 @@ func (h *CoachHandler) toolZoneDistribution(input json.RawMessage) (string, erro
 	_ = json.Unmarshal(input, &args)
 	days := clampInt(args.Days, 56, 1, 365)
 
-	power, hr, err := h.db.GetRecentZoneTotals(days)
+	power, hr, ssSecs, err := h.db.GetRecentZoneTotals(days)
 	if err != nil {
 		return "", err
 	}
+	// SS is a parallel band (88–94% FTP) that overlaps Z3/Z4 — surface as a
+	// single value alongside the partitioned zones so the model treats it as a
+	// quality indicator, not as an 8th bucket.
+	ss := formatZoneValues([]int{ssSecs})
 	return jsonResult(map[string]any{
 		"window_days": days,
 		"power_zones": formatZoneValues(power[:]),
 		"hr_zones":    formatZoneValues(hr[:]),
+		"sweet_spot": map[string]any{
+			"unit":  ss.Unit,
+			"value": ss.Values[0],
+			"note":  "Sweet Spot (88–94% FTP) overlaps Z3/Z4 — counted in parallel, not subtracted from the 7-zone totals.",
+		},
 	})
 }

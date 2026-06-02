@@ -1,27 +1,29 @@
-package aicoach
+package providers
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+	"github.com/fitbase/fitbase/internal/aicoach"
 )
 
-func init() { Register(openaiProvider{}) }
+func init() { aicoach.Register(openaiProvider{}) }
 
 type openaiProvider struct{}
 
 func (openaiProvider) Name() string  { return "openai" }
 func (openaiProvider) Label() string { return "ChatGPT" }
 
-func (openaiProvider) Models() []ModelOption {
-	return []ModelOption{
+func (openaiProvider) Models() []aicoach.ModelOption {
+	return []aicoach.ModelOption{
 		{Value: "gpt-4o", Label: "GPT-4o (recommended)"},
 		{Value: "gpt-4o-mini", Label: "GPT-4o mini (fast)"},
 		{Value: "gpt-4-turbo", Label: "GPT-4 Turbo"},
 	}
 }
 
-func (openaiProvider) Stream(ctx context.Context, cfg CallConfig, onChunk func(string) error) error {
+func (openaiProvider) Stream(ctx context.Context, cfg aicoach.CallConfig, onChunk func(string) error) error {
 	reqBody := map[string]any{
 		"model": cfg.Model,
 		"messages": []map[string]string{
@@ -32,13 +34,13 @@ func (openaiProvider) Stream(ctx context.Context, cfg CallConfig, onChunk func(s
 		"stream":     true,
 	}
 	headers := map[string]string{"Authorization": "Bearer " + cfg.APIKey}
-	body, err := postStream(ctx, "https://api.openai.com/v1/chat/completions", headers, reqBody)
+	body, err := aicoach.PostStream(ctx, "https://api.openai.com/v1/chat/completions", headers, reqBody)
 	if err != nil {
 		return fmt.Errorf("openai: %w", err)
 	}
 	defer body.Close() //nolint:errcheck
 
-	return scanSSE(body, func(data []byte) error {
+	return aicoach.ScanSSE(body, func(data []byte) error {
 		var evt struct {
 			Choices []struct {
 				Delta struct {

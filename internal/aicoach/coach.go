@@ -89,8 +89,9 @@ type ZoneValues struct {
 }
 
 type ZoneDist struct {
-	PowerZones ZoneValues `json:"power_zones"`
-	HRZones    ZoneValues `json:"hr_zones"`
+	PowerZones    ZoneValues `json:"power_zones"`
+	HRZones       ZoneValues `json:"hr_zones"`
+	SweetSpotSecs int        `json:"sweet_spot_secs"` // 88–94% FTP, overlaps Z3/Z4
 }
 
 // ── Prompt ────────────────────────────────────────────────────────────────────

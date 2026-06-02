@@ -447,11 +447,12 @@ func (th *templateHandler) workout(w http.ResponseWriter, r *http.Request) {
 	ftpAtTime := th.db.GetFTPAtDate(workout.RecordedAt)
 
 	// Zone times — fetched from DB (computed at import); fall back to on-the-fly.
-	powerZoneSecs, hrZoneSecs, _ := th.db.GetZoneTimes(workout.ID)
+	powerZoneSecs, hrZoneSecs, _, _ := th.db.GetZoneTimes(workout.ID)
 	if powerZoneSecs == nil || hrZoneSecs == nil {
 		pz := fitness.PowerZones(ftpAtTime)[:7]
 		hz := fitness.ResolveHRZones(athlete)
-		pw, hr := fitness.ComputeZoneTimes(streams, pz, hz)
+		ssLow, ssHigh := fitness.SweetSpotBand(ftpAtTime)
+		pw, hr, _ := fitness.ComputeZoneTimes(streams, pz, hz, ssLow, ssHigh)
 		powerZoneSecs, hrZoneSecs = &pw, &hr
 	}
 
@@ -893,7 +894,15 @@ func (th *templateHandler) calendar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cal := buildCalendarData(year, month, workouts, tz)
+	first := time.Date(year, month, 1, 0, 0, 0, 0, time.UTC)
+	last := first.AddDate(0, 1, -1)
+	planned, err := th.db.ListPlannedWorkoutsBetween(first, last)
+	if err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+
+	cal := buildCalendarData(year, month, workouts, planned, tz)
 
 	renderTemplate(w, th.templates().calendar, "base", map[string]any{
 		"Imperial": th.isImperial(),

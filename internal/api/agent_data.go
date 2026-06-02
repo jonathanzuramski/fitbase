@@ -14,26 +14,6 @@ import (
 // handlers.go and the AI coach's tool executor (coach_tools.go) both call
 // these so the REST surface and the coach can never drift apart.
 
-// efficiencyFactor is normalized power ÷ average HR — aerobic efficiency, where
-// a rising value at matched intensity signals fitness gains. Returns false when
-// the inputs aren't all present. The single definition of the formula; callers
-// round to whatever precision their output contract needs.
-func efficiencyFactor(np *float64, avgHR *int) (float64, bool) {
-	if np == nil || avgHR == nil || *avgHR <= 0 {
-		return 0, false
-	}
-	return *np / float64(*avgHR), true
-}
-
-// variabilityIndex is normalized power ÷ average power — 1.00 is perfectly
-// steady, >1.05 surgey. Returns false when inputs aren't all present.
-func variabilityIndex(np, avgP *float64) (float64, bool) {
-	if np == nil || avgP == nil || *avgP <= 0 {
-		return 0, false
-	}
-	return *np / *avgP, true
-}
-
 // readinessReport computes today's readiness snapshot: current Fitness/Fatigue/
 // Form, days since last workout, 28-day CTL ramp rate, and a recommendation.
 // Backs GET /api/athlete/readiness and the coach's readiness tool.
@@ -54,10 +34,9 @@ func readinessReport(database *db.DB) (models.ReadinessReport, error) {
 		daysSince = int(today.Sub(*lastDate).Hours() / 24)
 	}
 
-	// Ramp rate: change in fitness (CTL) over the last 28 days.
 	var rampRate float64
-	if history, histErr := database.GetFitnessHistory(42); histErr == nil && len(history) >= 29 {
-		rampRate = math.Round((history[len(history)-1].Fitness-history[len(history)-29].Fitness)*10) / 10
+	if history, histErr := database.GetFitnessHistory(42); histErr == nil {
+		rampRate = fitness.RampRate(history, 28)
 	}
 
 	rec, detail := readinessRecommendation(fp.Form, rampRate, daysSince)
@@ -126,12 +105,8 @@ func powerCurveReport(database *db.DB) (models.PowerCurveReport, error) {
 			Watts:         best.Watts,
 			WorkoutID:     best.WorkoutID,
 		}
-		if athlete.WeightKG > 0 {
-			entry.WattsPerKG = math.Round(float64(best.Watts)/athlete.WeightKG*100) / 100
-		}
-		if athlete.FTPWatts > 0 {
-			entry.PctFTP = math.Round(float64(best.Watts)/float64(athlete.FTPWatts)*1000) / 10
-		}
+		entry.WattsPerKG = fitness.WPerKG(best.Watts, athlete.WeightKG)
+		entry.PctFTP = fitness.PctFTP(best.Watts, athlete.FTPWatts)
 		entries = append(entries, entry)
 	}
 	return models.PowerCurveReport{
@@ -161,7 +136,7 @@ func workoutAnalysis(database *db.DB, id string) (*models.WorkoutAnalysis, error
 	powerZoneDefs := fitness.PowerZones(athlete.FTPWatts)
 	hrZoneDefs := fitness.ResolveHRZones(athlete)
 
-	powerSecs, hrSecs, err := database.GetZoneTimes(id)
+	powerSecs, hrSecs, ssSecs, err := database.GetZoneTimes(id)
 	if err != nil {
 		return nil, err
 	}
@@ -191,6 +166,30 @@ func workoutAnalysis(database *db.DB, id string) (*models.WorkoutAnalysis, error
 				WattsHigh: z.WattsHigh,
 			})
 		}
+		// Sweet Spot is reported as a parallel band — its pct uses the same
+		// power-time denominator as the 7-zone breakdown so the model can read
+		// "X% of the ride was in SS" without re-doing the math.
+		if ssSecs != nil {
+			var ssDef models.PowerZone
+			for _, z := range powerZoneDefs {
+				if z.Label == "SS" {
+					ssDef = z
+					break
+				}
+			}
+			pct := 0.0
+			if total > 0 {
+				pct = math.Round(float64(*ssSecs)/float64(total)*1000) / 10
+			}
+			analysis.SweetSpot = &models.ZoneBreakdown{
+				Label:     ssDef.Label,
+				Name:      ssDef.Name,
+				Seconds:   *ssSecs,
+				PctTime:   pct,
+				WattsLow:  ssDef.WattsLow,
+				WattsHigh: ssDef.WattsHigh,
+			}
+		}
 	}
 
 	if hrSecs != nil {
@@ -217,11 +216,11 @@ func workoutAnalysis(database *db.DB, id string) (*models.WorkoutAnalysis, error
 		}
 	}
 
-	if vi, ok := variabilityIndex(workout.NormalizedPower, workout.AvgPowerWatts); ok {
+	if vi, ok := fitness.VariabilityIndex(workout.NormalizedPower, workout.AvgPowerWatts); ok {
 		r := math.Round(vi*1000) / 1000
 		analysis.VariabilityIndex = &r
 	}
-	if ef, ok := efficiencyFactor(workout.NormalizedPower, workout.AvgHeartRate); ok {
+	if ef, ok := fitness.EfficiencyFactor(workout.NormalizedPower, workout.AvgHeartRate); ok {
 		r := math.Round(ef*1000) / 1000
 		analysis.EfficiencyFactor = &r
 	}

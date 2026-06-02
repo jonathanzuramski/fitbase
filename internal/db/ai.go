@@ -55,24 +55,28 @@ func (db *DB) SaveAISettings(s AISettings) error {
 	return err
 }
 
-// GetRecentZoneTotals sums time in each power zone (7 zones) and HR zone (5 zones)
-// for all workouts recorded in the last N days.
-func (db *DB) GetRecentZoneTotals(days int) ([7]int, [5]int, error) {
+// GetRecentZoneTotals sums time in each power zone (7 zones), HR zone (5 zones),
+// and the Sweet Spot reference band for all workouts recorded in the last N
+// days. SS is a parallel counter — it overlaps Z3/Z4 and is not part of the
+// 7-zone partition.
+func (db *DB) GetRecentZoneTotals(days int) ([7]int, [5]int, int, error) {
 	rows, err := db.Query(`
-		SELECT wzt.power_secs, wzt.hr_secs
+		SELECT wzt.power_secs, wzt.hr_secs, wzt.ss_secs
 		FROM workout_zone_times wzt
 		JOIN workouts w ON w.id = wzt.workout_id
 		WHERE w.recorded_at >= date('now', ?)`, fmt.Sprintf("-%d days", days))
 	if err != nil {
-		return [7]int{}, [5]int{}, err
+		return [7]int{}, [5]int{}, 0, err
 	}
 	defer rows.Close() //nolint:errcheck
 	var power [7]int
 	var hr [5]int
+	var ss int
 	for rows.Next() {
 		var ps, hs string
-		if err := rows.Scan(&ps, &hs); err != nil {
-			return [7]int{}, [5]int{}, err
+		var ssRow sql.NullInt64
+		if err := rows.Scan(&ps, &hs, &ssRow); err != nil {
+			return [7]int{}, [5]int{}, 0, err
 		}
 		var p [7]int
 		var h [5]int
@@ -84,8 +88,11 @@ func (db *DB) GetRecentZoneTotals(days int) ([7]int, [5]int, error) {
 		for i := range h {
 			hr[i] += h[i]
 		}
+		if ssRow.Valid {
+			ss += int(ssRow.Int64)
+		}
 	}
-	return power, hr, rows.Err()
+	return power, hr, ss, rows.Err()
 }
 
 // ListWorkoutsSince returns workouts with recorded_at >= since, newest first.

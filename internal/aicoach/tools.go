@@ -6,6 +6,7 @@ const (
 	ToolGetAthleteProfile   = "get_athlete_profile"
 	ToolGetReadiness        = "get_readiness"
 	ToolGetFitnessTrend     = "get_fitness_trend"
+	ToolProposeSchedule     = "propose_schedule"
 	ToolListRecentWorkouts  = "list_recent_workouts"
 	ToolGetWorkoutDetail    = "get_workout_detail"
 	ToolGetWeeklyBreakdown  = "get_weekly_breakdown"
@@ -36,6 +37,12 @@ func intProp(desc string) map[string]any {
 }
 func stringProp(desc string) map[string]any {
 	return map[string]any{"type": "string", "description": desc}
+}
+func numberProp(desc string) map[string]any {
+	return map[string]any{"type": "number", "description": desc}
+}
+func arrayProp(items map[string]any, desc string) map[string]any {
+	return map[string]any{"type": "array", "items": items, "description": desc}
 }
 
 // CoachTools is the catalog the conversational coach may call. Specs only —
@@ -72,7 +79,7 @@ func CoachTools() []ToolSpec {
 		},
 		{
 			Name:        ToolGetWorkoutDetail,
-			Description: "Deep detail for one workout: the summary metrics, full power/HR zone distribution, variability index, efficiency factor, 90-day context for the same sport, and aerobic decoupling (Pw:HR drift) for rides long enough to compute it. Use when the rider asks about a specific session surfaced by list_recent_workouts.",
+			Description: "Deep detail for one workout: the summary metrics, full power/HR zone distribution, a separate Sweet Spot (88–94% FTP) time-in-band reading, variability index, efficiency factor, 90-day context for the same sport, and aerobic decoupling (Pw:HR drift) for rides long enough to compute it. SS overlaps Z3/Z4 — treat it as a parallel indicator, not an additional zone. Use when the rider asks about a specific session surfaced by list_recent_workouts.",
 			InputSchema: objSchema(map[string]any{
 				"id": stringProp("The workout id from list_recent_workouts."),
 			}, "id"),
@@ -91,10 +98,36 @@ func CoachTools() []ToolSpec {
 		},
 		{
 			Name:        ToolGetZoneDistribution,
-			Description: "Time spent in each power zone (7) and HR zone (5) over the last N days. Use for polarized-vs-threshold distribution and intensity-balance questions.",
+			Description: "Time spent in each power zone (7) and HR zone (5) over the last N days, plus a parallel Sweet Spot (88–94% FTP) total. SS overlaps Z3/Z4 — it is reported alongside, not as an 8th bucket, so 'did the rider do sweet spot work?' is answerable independently of how Z3/Z4 are split. Use for polarized-vs-threshold distribution and intensity-balance questions.",
 			InputSchema: objSchema(map[string]any{
 				"days": intProp("Look-back window in days, 1–365. Default 56 if omitted."),
 			}),
+		},
+		{
+			Name:        ToolProposeSchedule,
+			Description: "Draft a structured training schedule for the rider to review. Pass one or more planned workouts (typically one per day for a week). The server stores them as a DRAFT and returns a preview id — the rider sees a preview card and clicks 'Add to calendar' to accept, or discards. Use after you've gathered enough context (readiness, recent load, power curve) to plan something specific; don't propose blindly. Use this when the rider asks for a plan/schedule — do not just describe the plan in prose, propose it through this tool so it can actually land on their calendar.",
+			InputSchema: objSchema(map[string]any{
+				"workouts": arrayProp(
+					objSchema(map[string]any{
+						"date":             stringProp("ISO date YYYY-MM-DD."),
+						"sport":            stringProp("Defaults to 'cycling' if omitted."),
+						"title":            stringProp("Short label, e.g. '2x20 sweet spot' or 'Endurance Z2'."),
+						"description":      stringProp("Plain-English description of the session and its purpose."),
+						"duration_secs":    intProp("Total target duration in seconds."),
+						"intensity_factor": numberProp("Overall IF (e.g. 0.65 endurance, 0.85 threshold, 0.95 race). TSS is estimated as IF^2 * hours * 100 if tss is omitted."),
+						"tss":              numberProp("Target TSS; estimated from IF + duration if omitted."),
+						"intervals": arrayProp(objSchema(map[string]any{
+							"kind":           stringProp("One of: warmup | work | recovery | cooldown | endurance | sweet_spot | threshold | vo2max."),
+							"duration_secs":  intProp("Duration of this step in seconds."),
+							"target_pct_ftp": intProp("0–200; takes precedence over target_zone if both are set."),
+							"target_zone":    stringProp("Z1..Z7 when not specifying %FTP."),
+							"note":           stringProp("Optional cue or prescription detail."),
+							"repeats":        intProp("How many times to repeat this step back-to-back; default 1."),
+						}, "kind", "duration_secs"), "Optional structured intervals — warmup, the work set, cooldown."),
+					}, "date", "duration_secs"),
+					"One or more planned workouts. Typically one entry per training day across a week.",
+				),
+			}, "workouts"),
 		},
 	}
 }

@@ -1,27 +1,33 @@
-package aicoach
+// Package providers registers every concrete LLM provider with the aicoach
+// registry. Importing it (typically as a blank import in main) is what wires
+// the providers up — aicoach itself has no compile-time knowledge of which
+// backends exist.
+package providers
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+	"github.com/fitbase/fitbase/internal/aicoach"
 )
 
-func init() { Register(anthropicProvider{}) }
+func init() { aicoach.Register(anthropicProvider{}) }
 
 type anthropicProvider struct{}
 
 func (anthropicProvider) Name() string  { return "anthropic" }
 func (anthropicProvider) Label() string { return "Claude" }
 
-func (anthropicProvider) Models() []ModelOption {
-	return []ModelOption{
+func (anthropicProvider) Models() []aicoach.ModelOption {
+	return []aicoach.ModelOption{
 		{Value: "claude-opus-4-7", Label: "Claude Opus 4.7 (best)"},
 		{Value: "claude-sonnet-4-6", Label: "Claude Sonnet 4.6 (recommended)"},
 		{Value: "claude-haiku-4-5-20251001", Label: "Claude Haiku 4.5 (fast)"},
 	}
 }
 
-func (anthropicProvider) Stream(ctx context.Context, cfg CallConfig, onChunk func(string) error) error {
+func (anthropicProvider) Stream(ctx context.Context, cfg aicoach.CallConfig, onChunk func(string) error) error {
 	reqBody := map[string]any{
 		"model":      cfg.Model,
 		"max_tokens": cfg.MaxTokens,
@@ -33,13 +39,13 @@ func (anthropicProvider) Stream(ctx context.Context, cfg CallConfig, onChunk fun
 		"x-api-key":         cfg.APIKey,
 		"anthropic-version": "2023-06-01",
 	}
-	body, err := postStream(ctx, "https://api.anthropic.com/v1/messages", headers, reqBody)
+	body, err := aicoach.PostStream(ctx, "https://api.anthropic.com/v1/messages", headers, reqBody)
 	if err != nil {
 		return fmt.Errorf("anthropic: %w", err)
 	}
 	defer body.Close() //nolint:errcheck
 
-	return scanSSE(body, func(data []byte) error {
+	return aicoach.ScanSSE(body, func(data []byte) error {
 		var evt struct {
 			Type  string `json:"type"`
 			Delta struct {
@@ -64,16 +70,17 @@ func (anthropicProvider) Stream(ctx context.Context, cfg CallConfig, onChunk fun
 	})
 }
 
-// ChatTurn implements ChatProvider: one buffered (non-streamed) round-trip
-// against the Messages API with tools enabled. It rebuilds the full provider
-// transcript from the client history plus every resolved tool round, sends it,
-// and returns either the model's final text or the tool calls it wants run.
-func (anthropicProvider) ChatTurn(ctx context.Context, in ChatTurnInput) (*ChatTurnOutput, error) {
+// ChatTurn implements aicoach.ChatProvider: one buffered (non-streamed)
+// round-trip against the Messages API with tools enabled. It rebuilds the full
+// provider transcript from the client history plus every resolved tool round,
+// sends it, and returns either the model's final text or the tool calls it
+// wants run.
+func (anthropicProvider) ChatTurn(ctx context.Context, in aicoach.ChatTurnInput) (*aicoach.ChatTurnOutput, error) {
 	messages := make([]map[string]any, 0, len(in.History)+2*len(in.Rounds))
 
 	for _, m := range in.History {
 		role := "user"
-		if m.Role == ChatRoleAssistant {
+		if m.Role == aicoach.ChatRoleAssistant {
 			role = "assistant"
 		}
 		messages = append(messages, map[string]any{"role": role, "content": m.Content})
@@ -82,32 +89,32 @@ func (anthropicProvider) ChatTurn(ctx context.Context, in ChatTurnInput) (*ChatT
 	// Replay each completed tool round as the assistant's tool_use message
 	// followed by our tool_result message, exactly as the API expects.
 	for _, rnd := range in.Rounds {
-		assistantBlocks := make([]map[string]any, 0, len(rnd.Calls)+1)
+		assistantBlocks := make([]map[string]any, 0, len(rnd.Exchanges)+1)
 		if rnd.AssistantText != "" {
 			assistantBlocks = append(assistantBlocks, map[string]any{
 				"type": "text", "text": rnd.AssistantText,
 			})
 		}
-		for _, c := range rnd.Calls {
-			input := json.RawMessage(c.Input)
+		for _, ex := range rnd.Exchanges {
+			input := json.RawMessage(ex.Input)
 			if len(input) == 0 {
 				input = json.RawMessage("{}")
 			}
 			assistantBlocks = append(assistantBlocks, map[string]any{
 				"type":  "tool_use",
-				"id":    c.ID,
-				"name":  c.Name,
+				"id":    ex.ID,
+				"name":  ex.Name,
 				"input": input,
 			})
 		}
 		messages = append(messages, map[string]any{"role": "assistant", "content": assistantBlocks})
 
-		resultBlocks := make([]map[string]any, 0, len(rnd.Results))
-		for _, r := range rnd.Results {
+		resultBlocks := make([]map[string]any, 0, len(rnd.Exchanges))
+		for _, ex := range rnd.Exchanges {
 			resultBlocks = append(resultBlocks, map[string]any{
 				"type":        "tool_result",
-				"tool_use_id": r.ID,
-				"content":     r.Result,
+				"tool_use_id": ex.ID,
+				"content":     ex.Result,
 			})
 		}
 		messages = append(messages, map[string]any{"role": "user", "content": resultBlocks})
@@ -135,7 +142,7 @@ func (anthropicProvider) ChatTurn(ctx context.Context, in ChatTurnInput) (*ChatT
 		"x-api-key":         in.APIKey,
 		"anthropic-version": "2023-06-01",
 	}
-	raw, err := postJSON(ctx, "https://api.anthropic.com/v1/messages", headers, reqBody)
+	raw, err := aicoach.PostJSON(ctx, "https://api.anthropic.com/v1/messages", headers, reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("anthropic: %w", err)
 	}
@@ -160,13 +167,13 @@ func (anthropicProvider) ChatTurn(ctx context.Context, in ChatTurnInput) (*ChatT
 		return nil, fmt.Errorf("anthropic API error: %s", resp.Error.Message)
 	}
 
-	out := &ChatTurnOutput{}
+	out := &aicoach.ChatTurnOutput{}
 	for _, blk := range resp.Content {
 		switch blk.Type {
 		case "text":
 			out.Text += blk.Text
 		case "tool_use":
-			out.Calls = append(out.Calls, ToolInvocation{
+			out.Calls = append(out.Calls, aicoach.ToolExchange{
 				ID:    blk.ID,
 				Name:  blk.Name,
 				Input: blk.Input,

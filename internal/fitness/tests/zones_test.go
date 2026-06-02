@@ -42,7 +42,7 @@ func TestPowerZones_WattsCalculation(t *testing.T) {
 		{4, 263, 300}, // Z5: 106–120% → 263–300w
 		{5, 301, 375}, // Z6: 121–150% → 301–375w
 		{6, 376, 0},   // Z7: 151%+ → open-ended
-		{7, 210, 242}, // SS: 84–97% → 210–242w
+		{7, 220, 235}, // SS: 88–94% → 220–235w
 	}
 
 	for _, tt := range tests {

@@ -110,10 +110,14 @@ CREATE INDEX IF NOT EXISTS idx_ftp_history_effective_from ON ftp_history(effecti
 -- Pre-computed time spent in each power zone (7 zones) and HR zone (5 zones).
 -- Stored as JSON int arrays, e.g. [120,3600,900,300,0,0,0].
 -- Computed at import time using FTP and threshold HR in effect at that moment.
+-- ss_secs is the time in the Sweet Spot reference band (88–94% FTP). It overlaps
+-- Z3/Z4 by design, so it's stored separately rather than as part of the 7-zone
+-- partition. NULL means not yet computed (legacy rows are backfilled on boot).
 CREATE TABLE IF NOT EXISTS workout_zone_times (
     workout_id TEXT PRIMARY KEY REFERENCES workouts(id) ON DELETE CASCADE,
     power_secs TEXT NOT NULL DEFAULT '[]',
-    hr_secs    TEXT NOT NULL DEFAULT '[]'
+    hr_secs    TEXT NOT NULL DEFAULT '[]',
+    ss_secs    INTEGER
 );
 
 -- Per-sport mileage goals. One row per sport; upserted on save.
@@ -155,3 +159,33 @@ CREATE TABLE IF NOT EXISTS ai_insights_cache_v2 (
     generated_at DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
 DROP TABLE IF EXISTS ai_insights_cache;
+
+-- Planned (future) workouts shown on the calendar. Independent of the
+-- completed `workouts` table — no auto-matching by date in v1.
+-- intervals_json is a JSON array of structured steps (warmup/work/recovery/
+-- cooldown with target %FTP, watts, or zone); empty string when there are
+-- no structured intervals.
+CREATE TABLE IF NOT EXISTS planned_workouts (
+    id               TEXT PRIMARY KEY,
+    planned_date     DATE NOT NULL,
+    sport            TEXT NOT NULL DEFAULT 'cycling',
+    title            TEXT NOT NULL DEFAULT '',
+    description      TEXT NOT NULL DEFAULT '',
+    duration_secs    INTEGER NOT NULL DEFAULT 0,
+    tss              REAL,
+    intensity_factor REAL,
+    intervals_json   TEXT NOT NULL DEFAULT '',
+    source           TEXT NOT NULL DEFAULT 'manual',   -- 'manual' | 'coach'
+    created_at       DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_planned_workouts_date ON planned_workouts(planned_date);
+
+-- Coach-proposed schedules pending user review. The AI tool writes the
+-- proposed payload here keyed by a short preview id; the chat UI fetches it
+-- to render the preview card and commits it (or discards). Drafts are tiny
+-- JSON blobs — periodic cleanup isn't required for v1.
+CREATE TABLE IF NOT EXISTS planned_workout_drafts (
+    id           TEXT PRIMARY KEY,
+    payload_json TEXT NOT NULL,
+    created_at   DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);

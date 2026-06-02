@@ -11,6 +11,11 @@ import (
 	"syscall"
 	"time"
 
+	// Blank import registers every concrete LLM provider with the aicoach
+	// registry via init(). aicoach itself has no compile-time knowledge of
+	// which backends exist.
+	_ "github.com/fitbase/fitbase/internal/aicoach/providers"
+
 	"github.com/fitbase/fitbase/internal/api"
 	"github.com/fitbase/fitbase/internal/config"
 	"github.com/fitbase/fitbase/internal/crypto"
@@ -22,6 +27,8 @@ import (
 )
 
 func main() {
+
+	// loads config from
 	cfg := config.Load()
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
@@ -106,6 +113,7 @@ func main() {
 	handler := api.NewHandler(database, imp)
 	gdriveHandler := api.NewGDriveHandler(database, imp)
 	coachHandler := api.NewCoachHandler(database)
+	plannedHandler := api.NewPlannedHandler(database)
 
 	// Sync sources and manager — sources are created here, registered with the
 	// manager for mutual exclusivity, then passed to their HTTP handlers.
@@ -136,7 +144,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	router := api.NewRouter(handler, dropboxHandler, intervalsHandler, gdriveHandler, coachHandler, http.FS(staticSub), tmplHandler)
+	router := api.NewRouter(handler, dropboxHandler, intervalsHandler, gdriveHandler, coachHandler, plannedHandler, http.FS(staticSub), tmplHandler)
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%s", cfg.Port),

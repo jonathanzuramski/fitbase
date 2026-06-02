@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/fitbase/fitbase/internal/aicoach"
+	// Register the real providers so SupportsChat/New can see "anthropic" etc.
+	_ "github.com/fitbase/fitbase/internal/aicoach/providers"
 )
 
 // scriptedProvider is a fake ChatProvider whose behavior each test sets via
@@ -48,7 +50,7 @@ func TestChatExecutesToolThenAnswers(t *testing.T) {
 	fake.fn = func(in aicoach.ChatTurnInput) (*aicoach.ChatTurnOutput, error) {
 		if len(in.Rounds) == 0 {
 			return &aicoach.ChatTurnOutput{
-				Calls: []aicoach.ToolInvocation{{
+				Calls: []aicoach.ToolExchange{{
 					ID:    "call_1",
 					Name:  aicoach.ToolGetReadiness,
 					Input: json.RawMessage(`{}`),
@@ -56,7 +58,7 @@ func TestChatExecutesToolThenAnswers(t *testing.T) {
 			}, nil
 		}
 		// The result we returned must be replayed back to us.
-		if got := in.Rounds[0].Results[0].Result; got != `{"fitness_ctl":61}` {
+		if got := in.Rounds[0].Exchanges[0].Result; got != `{"fitness_ctl":61}` {
 			t.Errorf("tool result not threaded back: got %q", got)
 		}
 		return &aicoach.ChatTurnOutput{Text: finalAnswer}, nil
@@ -70,6 +72,7 @@ func TestChatExecutesToolThenAnswers(t *testing.T) {
 	c := newCoach(t)
 	out, err := c.Chat(context.Background(),
 		[]aicoach.ChatMessage{{Role: aicoach.ChatRoleUser, Content: "how's my fitness?"}},
+		"",
 		aicoach.CoachTools(),
 		func(_ context.Context, name string, _ json.RawMessage) (string, error) {
 			execName = name
@@ -104,11 +107,11 @@ func TestChatToolErrorSurfacesToModelAndContinues(t *testing.T) {
 	fake.fn = func(in aicoach.ChatTurnInput) (*aicoach.ChatTurnOutput, error) {
 		if len(in.Rounds) == 0 {
 			return &aicoach.ChatTurnOutput{
-				Calls: []aicoach.ToolInvocation{{ID: "c1", Name: aicoach.ToolGetPowerCurve, Input: json.RawMessage(`{}`)}},
+				Calls: []aicoach.ToolExchange{{ID: "c1", Name: aicoach.ToolGetPowerCurve, Input: json.RawMessage(`{}`)}},
 			}, nil
 		}
-		if !strings.Contains(in.Rounds[0].Results[0].Result, "boom") {
-			t.Errorf("tool error not surfaced to model: %q", in.Rounds[0].Results[0].Result)
+		if !strings.Contains(in.Rounds[0].Exchanges[0].Result, "boom") {
+			t.Errorf("tool error not surfaced to model: %q", in.Rounds[0].Exchanges[0].Result)
 		}
 		return &aicoach.ChatTurnOutput{Text: "Couldn't read your power curve right now."}, nil
 	}
@@ -117,6 +120,7 @@ func TestChatToolErrorSurfacesToModelAndContinues(t *testing.T) {
 	c := newCoach(t)
 	out, err := c.Chat(context.Background(),
 		[]aicoach.ChatMessage{{Role: aicoach.ChatRoleUser, Content: "power curve?"}},
+		"",
 		aicoach.CoachTools(),
 		func(context.Context, string, json.RawMessage) (string, error) {
 			return "", errBoom
@@ -149,13 +153,14 @@ func TestChatConvergesWhenModelKeepsCallingTools(t *testing.T) {
 			return &aicoach.ChatTurnOutput{Text: "Best read I can give with what I have."}, nil
 		}
 		return &aicoach.ChatTurnOutput{
-			Calls: []aicoach.ToolInvocation{{ID: "x", Name: aicoach.ToolGetWeeklyBreakdown, Input: json.RawMessage(`{}`)}},
+			Calls: []aicoach.ToolExchange{{ID: "x", Name: aicoach.ToolGetWeeklyBreakdown, Input: json.RawMessage(`{}`)}},
 		}, nil
 	}
 
 	c := newCoach(t)
 	out, err := c.Chat(context.Background(),
 		[]aicoach.ChatMessage{{Role: aicoach.ChatRoleUser, Content: "loop forever?"}},
+		"",
 		aicoach.CoachTools(),
 		func(context.Context, string, json.RawMessage) (string, error) {
 			calls++
@@ -227,6 +232,7 @@ func TestCoachToolsCatalogWellFormed(t *testing.T) {
 		aicoach.ToolGetFitnessTrend, aicoach.ToolListRecentWorkouts,
 		aicoach.ToolGetWorkoutDetail, aicoach.ToolGetWeeklyBreakdown,
 		aicoach.ToolGetPowerCurve, aicoach.ToolGetZoneDistribution,
+		aicoach.ToolProposeSchedule,
 	} {
 		if !seen[name] {
 			t.Errorf("catalog missing tool %q", name)

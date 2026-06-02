@@ -1,27 +1,29 @@
-package aicoach
+package providers
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+	"github.com/fitbase/fitbase/internal/aicoach"
 )
 
-func init() { Register(geminiProvider{}) }
+func init() { aicoach.Register(geminiProvider{}) }
 
 type geminiProvider struct{}
 
 func (geminiProvider) Name() string  { return "gemini" }
 func (geminiProvider) Label() string { return "Gemini" }
 
-func (geminiProvider) Models() []ModelOption {
-	return []ModelOption{
+func (geminiProvider) Models() []aicoach.ModelOption {
+	return []aicoach.ModelOption{
 		{Value: "gemini-2.0-flash", Label: "Gemini 2.0 Flash (recommended)"},
 		{Value: "gemini-1.5-pro", Label: "Gemini 1.5 Pro"},
 		{Value: "gemini-1.5-flash", Label: "Gemini 1.5 Flash (fast)"},
 	}
 }
 
-func (geminiProvider) Stream(ctx context.Context, cfg CallConfig, onChunk func(string) error) error {
+func (geminiProvider) Stream(ctx context.Context, cfg aicoach.CallConfig, onChunk func(string) error) error {
 	reqBody := map[string]any{
 		"systemInstruction": map[string]any{
 			"parts": []map[string]string{{"text": cfg.System}},
@@ -33,13 +35,13 @@ func (geminiProvider) Stream(ctx context.Context, cfg CallConfig, onChunk func(s
 	}
 	url := "https://generativelanguage.googleapis.com/v1beta/models/" + cfg.Model +
 		":streamGenerateContent?alt=sse&key=" + cfg.APIKey
-	body, err := postStream(ctx, url, nil, reqBody)
+	body, err := aicoach.PostStream(ctx, url, nil, reqBody)
 	if err != nil {
 		return fmt.Errorf("gemini: %w", err)
 	}
 	defer body.Close() //nolint:errcheck
 
-	return scanSSE(body, func(data []byte) error {
+	return aicoach.ScanSSE(body, func(data []byte) error {
 		var evt struct {
 			Candidates []struct {
 				Content struct {

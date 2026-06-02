@@ -1,0 +1,247 @@
+.ai-insights {
+  margin-top: 14px;
+  padding: 18px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--text);
+}
+.ai-insights h2 {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin: 18px 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.ai-insights h2:first-child { margin-top: 0; }
+.ai-insights h3 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 14px 0 6px;
+  color: var(--text);
+}
+.ai-insights p       { margin: 0 0 10px; }
+.ai-insights p:last-child { margin-bottom: 0; }
+.ai-insights strong  { color: var(--text); font-weight: 600; }
+.ai-insights em      { color: var(--text-muted); font-style: italic; }
+.ai-insights ul,
+.ai-insights ol      { margin: 6px 0 12px; padding-left: 22px; }
+.ai-insights li      { margin-bottom: 4px; }
+.ai-insights code    {
+  background: var(--bg);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+.ai-insights table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 10px 0 14px;
+  font-size: 13px;
+}
+.ai-insights th,
+.ai-insights td {
+  padding: 6px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.ai-insights th {
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+.ai-insights tr:last-child td { border-bottom: none; }
+.ai-error {
+  font-size: 13px;
+  color: #ef4444;
+  margin-top: 10px;
+}
+
+/* ── Ask the coach ──────────────────────────────────────────────────────── */
+.coach-chat {
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+.coach-chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.coach-chat-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.coach-chat-clear {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.coach-chat-clear:hover { color: var(--text); }
+.coach-chat-hint { font-size: 13px; margin: 6px 0 12px; }
+.coach-chat-log {
+  max-height: 460px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding-right: 4px;
+}
+.chat-msg { display: flex; }
+.chat-user { justify-content: flex-end; }
+.chat-coach { justify-content: flex-start; }
+.chat-bubble {
+  max-width: 85%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.chat-user .chat-bubble {
+  background: var(--accent, #2563eb);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+  white-space: pre-wrap;
+}
+.chat-coach .chat-bubble {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-bottom-left-radius: 4px;
+}
+.chat-coach .chat-bubble > :first-child { margin-top: 0; }
+.chat-coach .chat-bubble > :last-child  { margin-bottom: 0; }
+.chat-coach .chat-bubble p { margin: 0 0 8px; }
+.chat-coach .chat-bubble ul,
+.chat-coach .chat-bubble ol { margin: 6px 0 8px; padding-left: 20px; }
+.chat-status {
+  color: var(--text-muted);
+  font-size: 13px;
+  font-style: italic;
+}
+.chat-err { color: #ef4444; font-size: 13px; }
+.coach-chat-form {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+.coach-chat-input {
+  flex: 1;
+  resize: none;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  padding: 9px 12px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  max-height: 140px;
+  overflow-y: auto;
+  /* Still scrolls past max-height, just without a visible scrollbar. */
+  scrollbar-width: none;          /* Firefox */
+  -ms-overflow-style: none;       /* legacy Edge */
+}
+.coach-chat-input::-webkit-scrollbar { display: none; } /* WebKit */
+.coach-chat-input:focus {
+  outline: none;
+  border-color: var(--accent, #2563eb);
+}
+.coach-chat-form .btn-secondary { flex-shrink: 0; }
+
+/* ── AI coach collapse ──────────────────────────────────────────────────── */
+.ai-coach-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ai-collapse-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  transition: transform .15s ease, color .15s ease;
+}
+.ai-collapse-btn:hover { color: var(--text); }
+#ai-coach-card.ai-collapsed .ai-collapse-btn { transform: rotate(-90deg); }
+#ai-coach-card.ai-collapsed #ai-body { display: none; }
+#ai-coach-card.ai-collapsed .ai-coach-actions { display: none; }
+#ai-coach-card.ai-collapsed .card-header-row { margin-bottom: 0; }
+
+/* ── Coach-proposed schedule preview card ───────────────────────────────── */
+.coach-preview-card {
+  background: var(--surface);
+  border: 1px solid var(--accent, #2563eb);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 13px;
+  color: var(--text);
+  max-width: 100%;
+}
+.coach-preview-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.coach-preview-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.coach-preview-item {
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.coach-preview-date {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 3px;
+}
+.coach-preview-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.coach-preview-title-line { font-weight: 600; }
+.coach-preview-meta { color: var(--text-muted); font-size: 12px; }
+.coach-preview-desc {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-top: 4px;
+}
+.coach-preview-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.coach-preview-done,
+.coach-preview-discarded {
+  color: var(--text-muted);
+  font-size: 13px;
+}

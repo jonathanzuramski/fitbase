@@ -41,30 +41,25 @@ type ToolSpec struct {
 	InputSchema map[string]any
 }
 
-// ToolInvocation is a single tool call the model asked for. ID is the
-// provider-assigned identifier that the matching result must echo back.
-type ToolInvocation struct {
-	ID    string
-	Name  string
-	Input json.RawMessage
-}
-
-// ToolOutcome is the result we return for one ToolInvocation. Result is a
-// JSON (or plain text) string the model reads as the tool's output.
-type ToolOutcome struct {
+// ToolExchange is one tool call paired with its result. ID is the
+// provider-assigned identifier replayed on the result block. Result is filled
+// in by the coach after the executor runs — empty in ChatTurnOutput, populated
+// by the time the exchange is stored in a ToolRound.
+type ToolExchange struct {
 	ID     string
+	Name   string
+	Input  json.RawMessage
 	Result string
 }
 
-// ToolRound pairs the calls the assistant requested with the results we
-// produced, in the same order. Completed rounds are replayed to the provider
-// on each subsequent turn so it sees the full reasoning trail. AssistantText
-// is any prose the model emitted alongside the tool calls that turn (often
-// empty) — replayed so the transcript stays faithful.
+// ToolRound is the assistant's tool-use turn plus the results we produced.
+// Completed rounds are replayed to the provider on each subsequent turn so it
+// sees the full reasoning trail. AssistantText is any prose the model emitted
+// alongside the tool calls (often empty) — replayed so the transcript stays
+// faithful.
 type ToolRound struct {
 	AssistantText string
-	Calls         []ToolInvocation
-	Results       []ToolOutcome
+	Exchanges     []ToolExchange
 }
 
 // ChatTurnInput is one provider round-trip: the client history plus every
@@ -84,7 +79,7 @@ type ChatTurnInput struct {
 // append a ToolRound, and call ChatTurn again.
 type ChatTurnOutput struct {
 	Text  string
-	Calls []ToolInvocation
+	Calls []ToolExchange
 }
 
 // ChatProvider is an optional capability: providers that support multi-turn,
@@ -113,16 +108,39 @@ const maxToolRounds = 6
 
 // ChatSystemPrompt steers the conversational coach. Unlike SystemPrompt it has
 // no fixed output structure: the model answers the rider's actual question and
-// is told to pull data with tools rather than guess.
-const ChatSystemPrompt = `You are an experienced cycling coach having a conversation with a rider about their training. You have tools that read the rider's real training database — workouts, fitness trend (CTL/ATL/TSB), weekly load, power curve, zone distribution, and athlete profile.
+// is told to pull data with tools rather than guess. The rider profile is
+// appended as a dynamic suffix by the caller so the model never needs to call
+// get_athlete_profile to know FTP/HR — eliminating the most common drift mode.
+const ChatSystemPrompt = `You are an experienced cycling coach having a conversation with a rider about their training. You have tools that read the rider's real training database — workouts, readiness, fitness trend (CTL/ATL/TSB), weekly load, power curve, zone distribution, and athlete profile — and one tool that drafts a future schedule for them to review.
 
-Rules:
-- Always ground answers in the rider's actual data. Call the tools to fetch what you need instead of guessing or asking the rider to paste numbers. Prefer the narrowest tool and shortest window that answers the question.
-- You may call several tools before answering, and call more after seeing results if needed. Don't narrate tool use ("let me check…") — just fetch, then answer.
-- Cite concrete numbers from the data ("CTL rose 52→61 over the block" beats "fitness improved"). If the data is thin or missing, say so plainly.
+Hard rules — these are not suggestions:
+- NEVER cite a specific number (FTP, threshold HR, max HR, weight, CTL, ATL, TSB, TSS, IF, NP, watts, bpm, W/kg, %FTP, workout duration, dates) unless you got it from a tool result this turn OR from the "Rider profile" block in this system prompt. If you don't have the number, call a tool first. Plausible-sounding guesses are forbidden — readers act on these numbers.
+- The "Rider profile" block below is authoritative for FTP, weight, threshold HR, and max HR. Use those numbers verbatim. Do not call get_athlete_profile unless the rider explicitly asks to verify the profile.
+- For anything about recent training (workouts, fitness, form, ramp, zone time, power curve, weekly load): CALL the matching tool before answering. Prefer the narrowest tool and shortest window. You may call several tools before answering, and more after seeing results.
+- Don't narrate tool use ("let me check…") — fetch silently, then answer.
+- If a tool returns thin/missing data, say so plainly. Don't fill the gap with a guess.
+
+Style:
+- Cite concrete numbers from the data ("CTL rose 52→61 over the block" beats "fitness improved").
 - Use cycling vocabulary the rider knows (FTP, IF, TSS, sweet spot, Z2, threshold, VO2, EF, decoupling).
 - Be direct and concise — a few tight paragraphs, not an essay. Use Markdown. No medical, nutrition, weight, or injury advice.
-- Answer the question the rider actually asked. Follow-ups build on the conversation.`
+- Answer the question the rider actually asked. Follow-ups build on the conversation.
+
+When the rider asks for a plan, week, schedule, or "what should I do" over multiple days:
+- Gather context first (readiness + weekly load at minimum; power curve and recent workouts if relevant).
+- Then CALL propose_schedule with one workout per day. Do not just describe the plan in prose — the UI shows a preview card from that tool call so the rider can accept it onto their calendar. After it's drafted, summarize the plan in one short paragraph and tell the rider to review the preview.
+- Build the schedule against current form (TSB) and ramp rate: recover when form is deeply negative, build when neutral, sharpen when positive.`
+
+// GetSystemPrompt returns the chat system prompt with an optional rider-profile
+// suffix appended verbatim. Callers build profileBlock from current athlete
+// data (FTP, weight, LTHR, MaxHR) so the model has authoritative numbers in
+// context and never needs to fetch them via the athlete-profile tool.
+func GetSystemPrompt(profileBlock string) string {
+	if profileBlock == "" {
+		return ChatSystemPrompt
+	}
+	return ChatSystemPrompt + "\n\n" + profileBlock
+}
 
 // ToolExecutor runs one tool call and returns its result as a string the model
 // will read (JSON preferred). An error aborts the whole chat turn.
@@ -149,11 +167,16 @@ func (c *Coach) SupportsChat() bool {
 // calls it requests against exec, feed the results back, and repeat until the
 // model returns a final text answer (or the round cap is hit). The final
 // answer is delivered through cb.OnText in chunks and also returned whole.
-func (c *Coach) Chat(ctx context.Context, history []ChatMessage, tools []ToolSpec, exec ToolExecutor, cb ChatCallbacks) (string, error) {
+// systemContext is appended to ChatSystemPrompt — used by callers to inject
+// the rider profile so the model has authoritative FTP/HR numbers in context.
+func (c *Coach) Chat(ctx context.Context, history []ChatMessage, systemContext string, tools []ToolSpec, exec ToolExecutor, cb ChatCallbacks) (string, error) {
+	// assert the provider supports ChatProvider interface.
 	cp, ok := c.provider.(ChatProvider)
 	if !ok {
 		return "", fmt.Errorf("provider %q does not support chat", c.provider.Name())
 	}
+	// get the system prompt with profile context appended.
+	system := GetSystemPrompt(systemContext)
 
 	var rounds []ToolRound
 	for attempt := 0; attempt <= maxToolRounds; attempt++ {
@@ -167,7 +190,7 @@ func (c *Coach) Chat(ctx context.Context, history []ChatMessage, tools []ToolSpe
 		out, err := cp.ChatTurn(ctx, ChatTurnInput{
 			Model:     c.model,
 			APIKey:    c.apiKey,
-			System:    ChatSystemPrompt,
+			System:    system,
 			History:   history,
 			Rounds:    rounds,
 			Tools:     turnTools,
@@ -192,26 +215,26 @@ func (c *Coach) Chat(ctx context.Context, history []ChatMessage, tools []ToolSpe
 			return text, nil
 		}
 
-		results := make([]ToolOutcome, 0, len(out.Calls))
-		for _, call := range out.Calls {
+		exchanges := out.Calls
+		for i := range exchanges {
+			ex := &exchanges[i]
 			if cb.OnToolStart != nil {
-				cb.OnToolStart(call.Name)
+				cb.OnToolStart(ex.Name)
 			}
-			res, err := exec(ctx, call.Name, call.Input)
+			res, err := exec(ctx, ex.Name, ex.Input)
 			if cb.OnToolEnd != nil {
-				cb.OnToolEnd(call.Name, err == nil)
+				cb.OnToolEnd(ex.Name, err == nil)
 			}
 			if err != nil {
 				// Surface the failure to the model rather than aborting — it
 				// can apologize or try a different tool.
 				res = fmt.Sprintf(`{"error":%q}`, err.Error())
 			}
-			results = append(results, ToolOutcome{ID: call.ID, Result: res})
+			ex.Result = res
 		}
 		rounds = append(rounds, ToolRound{
 			AssistantText: out.Text,
-			Calls:         out.Calls,
-			Results:       results,
+			Exchanges:     exchanges,
 		})
 	}
 

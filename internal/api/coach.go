@@ -1,12 +1,17 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/fitbase/fitbase/internal/aicoach"
 	"github.com/fitbase/fitbase/internal/db"
+	"github.com/fitbase/fitbase/internal/fitness"
+	"github.com/fitbase/fitbase/internal/models"
 )
 
 // CoachHandler serves AI coaching insight requests.
@@ -191,12 +196,38 @@ func (h *CoachHandler) Chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Build the rider-profile suffix so the model has FTP/HR in context from
+	// turn 1. Failing to load is non-fatal — the chat still works, the model
+	// just has to fall back to calling get_athlete_profile.
+	var systemContext string
+	if athlete, err := h.db.GetAthlete(); err == nil && athlete != nil {
+		systemContext = buildRiderProfileBlock(athlete)
+	}
+
 	setupSSE(w)
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}
 
-	_, err = coach.Chat(r.Context(), req.Messages, aicoach.CoachTools(), h.execTool, aicoach.ChatCallbacks{
+	// Wrap the executor so that when propose_schedule successfully creates a
+	// draft, the preview id is forwarded to the browser as a dedicated SSE
+	// event. The chat UI uses it to fetch the draft and render the
+	// "review and add to calendar" card.
+	exec := func(ctx context.Context, name string, input json.RawMessage) (string, error) {
+		res, err := h.execTool(ctx, name, input)
+		if err == nil && name == aicoach.ToolProposeSchedule {
+			var meta struct {
+				PreviewID string `json:"preview_id"`
+				Count     int    `json:"count"`
+			}
+			if json.Unmarshal([]byte(res), &meta) == nil && meta.PreviewID != "" {
+				writeSSE(w, "preview", map[string]any{"id": meta.PreviewID, "count": meta.Count})
+			}
+		}
+		return res, err
+	}
+
+	_, err = coach.Chat(r.Context(), req.Messages, systemContext, aicoach.CoachTools(), exec, aicoach.ChatCallbacks{
 		OnToolStart: func(name string) {
 			writeSSE(w, "tool", map[string]string{"name": name, "status": "running"})
 		},
@@ -294,13 +325,14 @@ func (h *CoachHandler) collectCoachingData() (*aicoach.CoachingData, error) {
 		})
 	}
 
-	powerZones, hrZones, err := h.db.GetRecentZoneTotals(56)
+	powerZones, hrZones, ssSecs, err := h.db.GetRecentZoneTotals(56)
 	if err != nil {
 		return nil, err
 	}
 	zones := aicoach.ZoneDist{
-		PowerZones: formatZoneValues(powerZones[:]),
-		HRZones:    formatZoneValues(hrZones[:]),
+		PowerZones:    formatZoneValues(powerZones[:]),
+		HRZones:       formatZoneValues(hrZones[:]),
+		SweetSpotSecs: ssSecs,
 	}
 
 	return aicoach.BuildData(profile, fitnessPts, workouts, weekly, powerBests, zones), nil
@@ -312,6 +344,37 @@ func round2(f float64) float64 {
 
 func round1(f float64) float64 {
 	return float64(int(f*10+0.5)) / 10
+}
+
+// buildRiderProfileBlock renders the athlete's authoritative numbers as a
+// system-prompt suffix the model must treat as ground truth (see the prompt's
+// hard rules). Only fields with real values are emitted — a 0 here would
+// otherwise read as "rider weighs 0 kg" rather than "not configured".
+func buildRiderProfileBlock(a *models.Athlete) string {
+	var b strings.Builder
+	b.WriteString("Rider profile (authoritative — use these exact numbers, do not call get_athlete_profile to re-fetch them):\n")
+	if a.FTPWatts > 0 {
+		fmt.Fprintf(&b, "- FTP: %d W\n", a.FTPWatts)
+	}
+	if a.WeightKG > 0 {
+		fmt.Fprintf(&b, "- Weight: %.1f kg\n", a.WeightKG)
+		if a.FTPWatts > 0 {
+			fmt.Fprintf(&b, "- FTP W/kg: %.2f\n", fitness.WPerKG(a.FTPWatts, a.WeightKG))
+		}
+	}
+	if a.ThresholdHR > 0 {
+		fmt.Fprintf(&b, "- Threshold HR (LTHR): %d bpm\n", a.ThresholdHR)
+	}
+	if a.MaxHR > 0 {
+		fmt.Fprintf(&b, "- Max HR: %d bpm\n", a.MaxHR)
+	}
+	if a.RestingHR > 0 {
+		fmt.Fprintf(&b, "- Resting HR: %d bpm\n", a.RestingHR)
+	}
+	if a.Age > 0 {
+		fmt.Fprintf(&b, "- Age: %d\n", a.Age)
+	}
+	return b.String()
 }
 
 // formatZoneValues picks a readable unit for a zone-time array: hours (1 decimal)
@@ -337,50 +400,13 @@ func formatZoneValues(secs []int) aicoach.ZoneValues {
 	return aicoach.ZoneValues{Unit: "minutes", Values: values}
 }
 
-// computeDecoupling returns aerobic decoupling % for a ride: the drop in
-// Pw:HR ratio from the first half of the ride to the second. Positive =
-// heart rate drifted up relative to power, which flags aerobic limitation.
-// Under 5% on 2h+ rides is the standard "aerobically durable" threshold.
-// Returns (0, false) if the stream lacks enough paired power/HR samples.
-func (h *CoachHandler) computeDecoupling(workoutID string) (float64, bool) {
+// decouplingForWorkout fetches a workout's stream and runs the centralized
+// aerobic-decoupling calculation. Thin wrapper so callers don't repeat the
+// "load streams → compute" two-step.
+func (h *CoachHandler) decouplingForWorkout(workoutID string) (float64, bool) {
 	streams, err := h.db.GetStreams(workoutID)
-	if err != nil || len(streams) < 2 {
+	if err != nil {
 		return 0, false
 	}
-	start := streams[0].Timestamp
-	end := streams[len(streams)-1].Timestamp
-	mid := start.Add(end.Sub(start) / 2)
-
-	var p1Sum, hr1Sum, p2Sum, hr2Sum float64
-	var p1N, hr1N, p2N, hr2N int
-	for _, s := range streams {
-		inFirst := s.Timestamp.Before(mid)
-		if s.PowerWatts != nil {
-			if inFirst {
-				p1Sum += float64(*s.PowerWatts)
-				p1N++
-			} else {
-				p2Sum += float64(*s.PowerWatts)
-				p2N++
-			}
-		}
-		if s.HeartRateBPM != nil {
-			if inFirst {
-				hr1Sum += float64(*s.HeartRateBPM)
-				hr1N++
-			} else {
-				hr2Sum += float64(*s.HeartRateBPM)
-				hr2N++
-			}
-		}
-	}
-	if p1N == 0 || hr1N == 0 || p2N == 0 || hr2N == 0 {
-		return 0, false
-	}
-	r1 := (p1Sum / float64(p1N)) / (hr1Sum / float64(hr1N))
-	r2 := (p2Sum / float64(p2N)) / (hr2Sum / float64(hr2N))
-	if r1 == 0 {
-		return 0, false
-	}
-	return (r1 - r2) / r1 * 100, true
+	return fitness.AerobicDecoupling(streams)
 }

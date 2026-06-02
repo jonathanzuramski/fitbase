@@ -51,4 +51,3 @@ func TestLoad_EnvOverrides(t *testing.T) {
 		t.Errorf("ArchiveDir: got %q want %q", cfg.ArchiveDir, "/tmp/archive")
 	}
 }
-

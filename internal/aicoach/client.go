@@ -16,10 +16,10 @@ import (
 // 20–60s but reasoning models on long prompts occasionally take longer.
 var defaultClient = &http.Client{Timeout: 3 * time.Minute}
 
-// postStream POSTs body (marshaled as JSON) to url, retries on 429/5xx with
+// PostStream POSTs body (marshaled as JSON) to url, retries on 429/5xx with
 // exponential backoff (1s/4s/9s), and on success returns the response body
 // for the caller to read as an SSE stream. Caller must Close the body.
-func postStream(ctx context.Context, url string, headers map[string]string, body any) (io.ReadCloser, error) {
+func PostStream(ctx context.Context, url string, headers map[string]string, body any) (io.ReadCloser, error) {
 	bodyBytes, err := json.Marshal(body)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request body: %w", err)
@@ -67,10 +67,10 @@ func postStream(ctx context.Context, url string, headers map[string]string, body
 	return nil, lastErr
 }
 
-// postJSON POSTs body to url and returns the full response body, with the same
-// 429/5xx retry+backoff as postStream. Used by the chat path: tool-calling
+// PostJSON POSTs body to url and returns the full response body, with the same
+// 429/5xx retry+backoff as PostStream. Used by the chat path: tool-calling
 // rounds run buffered (no SSE) so tool_use parsing stays straightforward.
-func postJSON(ctx context.Context, url string, headers map[string]string, body any) ([]byte, error) {
+func PostJSON(ctx context.Context, url string, headers map[string]string, body any) ([]byte, error) {
 	bodyBytes, err := json.Marshal(body)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request body: %w", err)
@@ -125,10 +125,10 @@ func postJSON(ctx context.Context, url string, headers map[string]string, body a
 	return nil, lastErr
 }
 
-// scanSSE reads `data:` lines from an SSE stream and invokes onData for each
+// ScanSSE reads `data:` lines from an SSE stream and invokes onData for each
 // non-empty payload. Stops on `[DONE]`. Event field names are ignored — every
 // provider encodes event-type info inside the JSON payload.
-func scanSSE(body io.Reader, onData func([]byte) error) error {
+func ScanSSE(body io.Reader, onData func([]byte) error) error {
 	scanner := bufio.NewScanner(body)
 	// SSE lines can carry large JSON blobs (tool-call manifests in particular).
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)

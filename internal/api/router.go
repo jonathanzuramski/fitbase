@@ -7,7 +7,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-func NewRouter(h *Handler, dropbox *DropboxHandler, intervalsH *IntervalsHandler, gdrive *GDriveHandler, coach *CoachHandler, staticFS http.FileSystem, templateHandler http.Handler) http.Handler {
+func NewRouter(h *Handler, dropbox *DropboxHandler, intervalsH *IntervalsHandler, gdrive *GDriveHandler, coach *CoachHandler, planned *PlannedHandler, staticFS http.FileSystem, templateHandler http.Handler) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.Logger)
@@ -44,6 +44,15 @@ func NewRouter(h *Handler, dropbox *DropboxHandler, intervalsH *IntervalsHandler
 		r.Get("/coach/insights", coach.GetCachedInsights)
 		r.Post("/coach/insights", coach.GenerateInsights)
 		r.Post("/coach/chat", coach.Chat)
+
+		r.Route("/planned-workouts", func(r chi.Router) {
+			r.Get("/", planned.List)
+			r.Post("/", planned.Create)
+			r.Delete("/{id}", planned.Delete)
+			r.Get("/drafts/{id}", planned.GetDraft)
+			r.Post("/drafts/{id}/commit", planned.CommitDraft)
+			r.Delete("/drafts/{id}", planned.DiscardDraft)
+		})
 
 		r.Route("/integrations/dropbox", func(r chi.Router) {
 			r.Get("/sync", dropbox.Sync)
