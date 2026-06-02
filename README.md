@@ -6,46 +6,60 @@
 
 Self-hosted fitness platform for endurance athletes. Your data, on your machine.
 
-The big players in the fitness industry, Garmin Connect, Wahoo, TrainingPeaks - lock your workout data behind their cloud platforms, make exports painful, and charge subscriptions for analysis you could do yourself. Getting a simple CSV of your own power data shouldn't require a premium plan.
-
-fitbase takes a different approach: sync your FIT files through whatever path works for you, Dropbox, intervals.icu, USB, or direct upload, and store everything locally in a SQLite database you own. A clean REST API makes your data accessible to LLM coaching agents, custom dashboards, or anything else you want to build.
+Garmin, Wahoo, and TrainingPeaks lock your workouts behind their clouds and charge a subscription to analyze data you already own. With fitbase you own your data: sync your FIT files however you like — intervals.icu, Dropbox, USB, or direct upload — and keep everything in a local SQLite database. A clean REST API makes it all available to coaching agents, dashboards, or whatever you want to build.
 
 **No cloud dependency. No subscriptions. No data hostage situations.**
 
-![Example of fitbases dashboard](./dashboard.png)
+![Example of fitbase's dashboard](./dashboard.png)
 
 ---
 
 ## Features
 
-- **Automatic import** - drop a `.fit` file into a watched directory and it gets parsed and stored
-- **intervals.icu sync** - pull activities from intervals.icu (aggregates from Wahoo Cloud, Garmin Connect, Strava, etc.)
-- **Dropbox sync** - import FIT files from a Dropbox folder (Wahoo head units can sync there directly)
-- **Power analytics** - Normalized Power, Intensity Factor, TSS, Variability Index, eFTP
-- **All-time power curve** - best efforts at every duration, with a grey reference overlay on each ride to show PRs
-- **Heart rate analytics** - hrTSS for non-power activities (running, hiking), HR zones, Efficiency Factor
-- **Training load** - Fitness/Fatigue/Form chart with 180-day EMA warmup so values are accurate from day one
-- **Zone-colored charts** - power and HR charts colored by training zone with dynamic smoothing
-- **GPS route map** - Leaflet dark-tile map, route colored by power/HR zone
-- **Dashboard sorting** - sort by date, sport, duration, distance, power, NP, TSS, HR, or elevation
-- **Google Drive backup** - FIT files archived to Drive automatically, full restore in one command
-- **LLM-ready API** - compact `/summary` endpoint for function-calling and coaching agents
-- **Mobile-ready** - responsive layout, works on phone
-- **Single binary** - pure Go, no CGO, no npm, no Docker required
+- **Automatic import** — drop a `.fit` file in a watched directory and it's parsed and stored
+- **Sync from anywhere** — intervals.icu (Wahoo/Garmin/Strava bridge), Dropbox, USB, or web upload
+- **Power analytics** — NP, IF, TSS, Variability Index, eFTP, and an all-time power curve overlaid on every ride
+- **Heart rate analytics** — hrTSS for non-power activities, HR zones, Efficiency Factor
+- **Training load** — Fitness/Fatigue/Form chart, accurate from day one thanks to a 180-day EMA warmup
+- **Zone-colored charts + GPS route map** — power and HR colored by zone, route on a dark Leaflet map
+- **Google Drive backup** — FIT files archived automatically, full restore in one command
+- **LLM-ready API** — compact `/summary` endpoint built for coaching agents and function calling
+- **Single binary** — pure Go. No CGO, no npm, no Docker required
 
 ---
 
 ## Quick start
 
-### Docker Compose (recommended)
+### Docker (recommended)
+
+Docker lets you run fitbase in a self-contained box without installing Go or any other dependencies. If you've never used it, install [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows/Mac) or [Docker Engine](https://docs.docker.com/engine/install/) (Linux) first — that's the only prerequisite.
+
+Then, from the folder containing the repo's `docker-compose.yml`, run:
 
 ```bash
 docker compose up -d
 ```
 
-That's it. This uses the `docker-compose.yml` included in the repo, which pulls the pre-built image from GitHub Container Registry.
+Here's what that does:
 
-To use a host path instead of a Docker volume:
+- **`docker compose`** reads the `docker-compose.yml` file, which describes how to run fitbase.
+- It **downloads the prebuilt image** from GitHub Container Registry (no building required) and starts it.
+- **`-d`** ("detached") runs it in the background so it keeps going after you close the terminal.
+
+That's it. Open **`http://localhost:8780`** in your browser and you'll see the setup screen.
+
+A few commands worth knowing:
+
+```bash
+docker compose logs -f      # watch the logs (Ctrl+C to stop watching)
+docker compose down         # stop fitbase
+docker compose pull         # download the latest version...
+docker compose up -d        # ...then restart to apply it
+```
+
+Your data (database, encryption key, FIT archive) lives in `/data` inside the container, mapped to a Docker volume so it survives restarts and updates.
+
+**Prefer a folder you can see on your own machine?** Skip Compose and run the container directly, pointing `-v` at a real path:
 
 ```bash
 docker run -d --name fitbase --restart unless-stopped \
@@ -54,59 +68,11 @@ docker run -d --name fitbase --restart unless-stopped \
   ghcr.io/jonathanzuramski/fitbase:latest
 ```
 
-All data (database, encryption key, archived FIT files) lives in `/data` inside the container.
+Replace `/path/to/your/data` with wherever you want the files to live (e.g. `~/fitbase-data`). The `-p 8780:8780` part maps the container's port to your machine, and `--restart unless-stopped` brings fitbase back automatically after a reboot.
 
-Open `http://localhost:8780` to get started.
+**Running on TrueNAS Scale?** Go to **Apps → Discover Apps → Custom App**, paste the same service definition from `docker-compose.yml`, and point the volume at a dataset you've created for fitbase.
 
-### TrueNAS (step by step)
-
-TrueNAS Scale can run Docker containers through its Apps system. Here's how to get fitbase running.
-
-The Docker image is published to GitHub Container Registry automatically on every push to main. The image name is:
-
-```
-ghcr.io/jonathanzuramski/fitbase:latest
-```
-
-**Step 1 - Create a dataset for fitbase data**
-
-In the TrueNAS web UI:
-
-1. Go to **Storage** (or **Datasets**)
-2. Select your pool and click **Add Dataset**
-3. Name it `fitbase` (e.g. the full path will be something like `/mnt/pool/apps/fitbase`)
-4. Click **Save**
-
-This gives fitbase a dedicated place on your pool to store its database, encryption key, and FIT file archive.
-
-**Step 2 - Create a custom app**
-
-1. Go to **Apps** in the TrueNAS web UI
-2. Click **Discover Apps**, then **Custom App** (top right)
-3. Paste the following into the YAML configuration:
-
-```yaml
-services:
-  fitbase:
-    image: ghcr.io/jonathanzuramski/fitbase:latest
-    container_name: fitbase
-    restart: unless-stopped
-    ports:
-      - "8780:8780"
-    volumes:
-      - /mnt/pool/apps/fitbase:/data
-```
-
-4. Update the volume path to match the dataset you created in Step 1
-5. Click **Install**
-
-TrueNAS will pull the image and start the container.
-
-**Step 3 - Open fitbase**
-
-Visit `http://<your-truenas-ip>:8780` in your browser. You'll see the welcome screen to set up your athlete profile.
-
-### From Source
+### From source
 
 ```bash
 git clone https://github.com/jonathanzuramski/fitbase
@@ -115,188 +81,77 @@ go build -o fitbase ./cmd/fitbase
 ./fitbase
 ```
 
-Open `http://localhost:8080`. On first run you'll see a setup screen to enter your FTP, weight, and heart rate zones.
-
-Drop a `.fit` file into `~/.fitbase/watch/` and it will be imported automatically.
-
----
-
-## Configuration
-
-All configuration is via environment variables. Defaults work out of the box.
-
-| Variable              | Default                 | Description                                              |
-| --------------------- | ----------------------- | -------------------------------------------------------- |
-| `FITBASE_PORT`        | `8780`                  | HTTP listen port                                         |
-| `FITBASE_DB_PATH`     | `~/.fitbase/fitbase.db` | SQLite database path                                     |
-| `FITBASE_KEY_PATH`    | `~/.fitbase/master.key` | Path to your 32-byte AES-256 master key (see Security)   |
-| `FITBASE_WATCH_DIR`   | `~/.fitbase/watch`      | Directory watched for new FIT files                      |
-| `FITBASE_ARCHIVE_DIR` | `~/.fitbase/archive`    | Local archive of original FIT files                      |
-| `FITBASE_DEV`         | `false`                 | Set to `true` to serve templates from disk (live reload) |
-
----
-
-## Security - master key and token encryption
-
-fitbase encrypts all integration credentials and OAuth tokens at rest using **AES-256-GCM** before writing them to the database. The encryption key is stored separately from the database so a leaked `.db` file alone is useless.
-
-### How it works
-
-- On first run fitbase generates a random 256-bit key and saves it to `~/.fitbase/master.key` with `0600` permissions (only your user account can read it)
-- Every OAuth token in the database is encrypted with this key. What's in SQLite is ciphertext, not a readable token.
-- The key and the database are kept in separate files. Back up **both** if you want to be able to restore.
-
-### Bring Your Own Key (BYOK)
-
-If you want to control the key yourself instead of using the auto-generated one:
-
-**Step 1 - Generate a 32-byte key:**
-
-```bash
-# macOS / Linux
-openssl rand -out ~/.fitbase/master.key 32
-chmod 600 ~/.fitbase/master.key
-```
-
-```powershell
-# Windows (PowerShell)
-$key = New-Object byte[] 32
-[Security.Cryptography.RNGCryptoServiceProvider]::Create().GetBytes($key)
-[IO.File]::WriteAllBytes("$env:USERPROFILE\.fitbase\master.key", $key)
-```
-
-**Step 2 - Tell fitbase where the key is** (optional if using the default path):
-
-```bash
-export FITBASE_KEY_PATH=/path/to/your/master.key
-```
-
-**Step 3 - Start fitbase as normal.** It will use your key instead of generating one.
-
-> **Important:** Back up your key file. If you lose it, stored OAuth tokens become unreadable and you'll need to reconnect each integration. Workout data is not affected.
-
-> **Important:** Do not commit your key to version control. Add `master.key` to your `.gitignore`.
+Open `http://localhost:8080`. On first run you'll set up your profile (FTP, weight, HR zones), then drop a `.fit` file into `~/.fitbase/watch/` to import it.
 
 ---
 
 ## Getting files onto fitbase
 
-Most head units don't give you a clean way to get FIT files off the device without going through a proprietary cloud. Wahoo and Garmin both push to their own platforms first. fitbase pulls from intermediaries that actually let you access your data.
+Most head units store clean FIT files, but getting them off usually means plugging in over USB and copying by hand. To avoid the hassle of manually syncing, fitbase pulls from intermediaries that grab your activities automatically:
 
-### Option 1 - intervals.icu (recommended)
+- **intervals.icu** (recommended) — a free platform that pulls from Wahoo, Garmin, and Strava. Connect it under **Settings**, enter your Athlete ID + API key, and hit **Sync Now**.
+- **Dropbox** — Wahoo head units can sync FIT files here directly. Enter your token and folder path in **Settings**.
+- **Web upload** — the dashboard upload button, or `POST /api/upload` with a `.fit`/`.fit.gz` file.
+- **USB** — copy `.fit` files from your device's `ACTIVITIES/` folder into `~/.fitbase/watch/`.
 
-[intervals.icu](https://intervals.icu) is a free training platform that can pull your activities from Wahoo Cloud, Garmin Connect, Strava, and others. Once your rides land in intervals.icu, fitbase syncs them.
-
-1. In intervals.icu, connect your Wahoo or Garmin account under **Settings > Connections**
-2. In fitbase, go to **Settings** and enter your intervals.icu Athlete ID and API key
-3. Click **Sync Now** to pull your full history, or check **Sync future workouts** to have new rides appear automatically
-
-This is the easiest path if your head unit syncs to any major cloud platform. intervals.icu acts as the bridge that gives you access to the raw FIT files.
-
-### Option 2 - Dropbox
-
-Wahoo head units can sync FIT files directly to Dropbox. If you have this set up:
-
-1. In fitbase, go to **Settings** and enter your Dropbox access token and folder path
-2. Click **Sync Now** to import existing files, or check **Sync future workouts** to auto-import new rides as they land
-
-Only one integration can auto-sync future workouts at a time. Enabling one disables the other.
-
-### Option 3 - Web upload
-
-Use the upload button on the dashboard, or POST directly:
-
-```bash
-curl -X POST http://localhost:8080/api/upload \
-  -F "file=@my_ride.fit"
-```
-
-Supports `.fit` and `.fit.gz` files. Bulk upload (multiple files at once) is supported through the UI.
-
-### Option 4 - Watch directory (USB)
-
-Plug your Wahoo ELEMNT or Garmin device in via USB. Copy `.fit` files from the device's `ACTIVITIES/` folder into `~/.fitbase/watch/`. fitbase detects new files automatically.
-
-You can also point `FITBASE_WATCH_DIR` directly at the device's activity folder for automatic import on connect.
-
-### Option 5 - Google Drive restore _(see below)_
+Only one integration can auto-sync future workouts at a time; enabling one disables the other.
 
 ---
 
-## Google Drive integration
+## Configuration
 
-fitbase can back up every imported FIT file to Google Drive and restore your entire history onto a new server from Drive.
+All config is via environment variables, and the defaults work out of the box:
 
-### How it works
+| Variable              | Default                 | Description                                       |
+| --------------------- | ----------------------- | ------------------------------------------------- |
+| `FITBASE_PORT`        | `8780`                  | HTTP listen port                                  |
+| `FITBASE_DB_PATH`     | `~/.fitbase/fitbase.db` | SQLite database path                              |
+| `FITBASE_KEY_PATH`    | `~/.fitbase/master.key` | Path to your AES-256 master key                   |
+| `FITBASE_WATCH_DIR`   | `~/.fitbase/watch`      | Directory watched for new FIT files               |
+| `FITBASE_ARCHIVE_DIR` | `~/.fitbase/archive`    | Local archive of original FIT files               |
+| `FITBASE_DEV`         | `false`                 | `true` serves templates from disk (live reload)   |
 
-- Every time a FIT file is imported, it gets uploaded to `fitbase-archive/YYYY/MM/{id}.fit` in your Google Drive in the background
-- If you lose your server, a single restore command downloads everything from Drive and rebuilds the database
+---
 
-### Setup
+## Security
 
-1. Create an OAuth app in [Google Cloud Console](https://console.cloud.google.com). Enable the **Google Drive API**, then create **OAuth 2.0 credentials** (type: **Desktop application**)
-2. In fitbase, go to **Settings > Google Drive** and enter your Client ID and Client Secret
-3. Click **Connect Google Drive**. You'll be redirected to Google to authorize.
+fitbase encrypts all integration credentials and OAuth tokens with **AES-256-GCM** before they touch the database. On first run it generates a random 256-bit key at `~/.fitbase/master.key` (`0600` permissions) and stores it separately from the database — so a leaked `.db` file alone is useless.
 
-> **Note:** Google may show an "unverified app" warning. Click **Advanced > Go to fitbase (unsafe)** to proceed. The app only requests access to files _it creates_ and cannot read any other files in your Drive.
+Want to supply your own key? Point `FITBASE_KEY_PATH` at a 32-byte file and fitbase will use it instead of generating one.
 
-### Restoring from Google Drive
+> **Back up both `fitbase.db` and `master.key`.** The key decrypts your stored credentials — lose it and you'll need to reconnect each integration (your workout data is unaffected). Don't commit the key to version control.
 
-On a fresh install, after connecting Drive:
+---
+
+## Google Drive backup
+
+fitbase can mirror every imported FIT file to Google Drive and rebuild your entire history onto a fresh server.
+
+Create an OAuth app in the [Google Cloud Console](https://console.cloud.google.com) (enable the **Drive API**, create **Desktop** OAuth credentials), enter the Client ID + Secret under **Settings → Google Drive**, and connect. From then on, files upload to `fitbase-archive/YYYY/MM/{id}.fit` in the background. fitbase only ever touches files it creates.
+
+To restore on a new install after connecting Drive:
 
 ```bash
 curl -X POST http://localhost:8080/api/integrations/gdrive/restore
-```
-
-```json
-{ "data": { "total": 312, "imported": 312, "skipped": 0, "failed": 0 } }
 ```
 
 ---
 
 ## API
 
-Full spec at [`openapi.yaml`](./openapi.yaml). Key endpoints:
+Full spec in [`openapi.yaml`](./openapi.yaml), which doubles as a tool schema for function calling. A few key endpoints:
 
 ```
-# Workouts
-GET    /api/workouts                  list workouts (limit/offset)
-GET    /api/workouts/{id}             full workout data
-DELETE /api/workouts/{id}             delete a workout
-GET    /api/workouts/{id}/streams     per-second power, HR, cadence, GPS
-GET    /api/workouts/{id}/summary     compact summary for LLM consumption
-GET    /api/workouts/{id}/analysis    zone distribution, variability index, 90-day comparison
-GET    /api/workouts/{id}/download    original .fit file
-GET    /api/workouts/{id}/route       route history (all workouts on the same course)
-POST   /api/upload                    upload a .fit or .fit.gz file
-
-# Athlete
-GET  /api/athlete                     athlete profile
-PUT  /api/athlete                     update profile (FTP, weight, HR zones, etc.)
-GET  /api/athlete/zones               power zones (Z1–Z7 + Sweet Spot) and HR zones
-GET  /api/athlete/power-curve         all-time best power: 5s, 30s, 1min, 5min, 20min, 60min
-GET  /api/athlete/readiness           today's coaching snapshot: form, ramp rate, recommendation
-
-# Training
-GET  /api/fitness?days=90             daily Fitness/Fatigue/Form history (EMA)
-GET  /api/training/weekly?weeks=12    per-week TSS, duration, distance, load classification
+GET    /api/workouts                  list workouts
+GET    /api/workouts/{id}/summary     compact summary for LLMs
+GET    /api/workouts/{id}/analysis    zones, variability, 90-day comparison
+GET    /api/athlete/readiness         today's form, ramp rate, recommendation
+GET    /api/athlete/power-curve       all-time best power at each duration
+GET    /api/fitness?days=90           Fitness/Fatigue/Form history
+POST   /api/upload                    upload a .fit file
 ```
 
-### LLM / agent usage
-
-The API is designed for AI coaching agents. A recommended call sequence:
-
-1. `GET /api/athlete/readiness` — understand today's training state before making any recommendation
-2. `GET /api/athlete/power-curve` — establish the athlete's capability profile (w/kg at each duration)
-3. `GET /api/athlete/zones` — know what each zone means for this specific athlete
-4. `GET /api/training/weekly?weeks=8` — identify training patterns and periodization
-5. `GET /api/workouts/{id}/analysis` — give specific post-workout feedback
-
-The `/summary` endpoint returns a compact representation good for function-calling:
-
-```bash
-curl http://localhost:8080/api/workouts/75336285a477ca34/summary
-```
+The API is built for AI coaching agents. A good call sequence: start with `/athlete/readiness` for today's state, `/athlete/power-curve` and `/athlete/zones` for capability, `/training/weekly` for patterns, then `/workouts/{id}/analysis` for specific feedback. The `/summary` endpoint returns a compact, function-call-friendly shape:
 
 ```json
 {
@@ -306,17 +161,13 @@ curl http://localhost:8080/api/workouts/75336285a477ca34/summary
     "sport": "cycling",
     "duration_mins": 138.4,
     "distance_km": 59.0,
-    "elevation_gain_meters": 119,
     "avg_power_watts": 154,
     "normalized_power_watts": 164.5,
-    "avg_heart_rate_bpm": 142,
     "tss": 99.9,
     "intensity_factor": 0.658
   }
 }
 ```
-
-The `openapi.yaml` spec can be used as a tool schema for function calling directly.
 
 ---
 
@@ -324,55 +175,110 @@ The `openapi.yaml` spec can be used as a tool schema for function calling direct
 
 ```
 ~/.fitbase/
-├── fitbase.db            SQLite, all parsed workout data and streams
-├── master.key            AES-256 encryption key for OAuth tokens (600 permissions)
+├── fitbase.db            SQLite — all parsed workout data and streams
+├── master.key            AES-256 key for OAuth tokens (600 permissions)
 ├── watch/                drop .fit files here for auto-import
-└── archive/
-    └── 2026/
-        └── 03/
-            └── 75336285a477ca34.fit    original FIT file, untouched
+└── archive/2026/03/      original FIT files, untouched
 ```
 
-The workout database is fully derived from the archived FIT files and can be rebuilt at any time. The archive is the source of truth.
-
-> **Back up both `fitbase.db` and `master.key`** if you want to be able to restore integrations (Google Drive, Dropbox, intervals.icu) on a new machine. The key is required to decrypt the credentials stored in the database.
+The database is fully derived from the archived FIT files and can be rebuilt anytime — the archive is the source of truth.
 
 ---
 
 ## Development
 
 ```bash
-# Build and run with live template reload
-FITBASE_DEV=true go run ./cmd/fitbase
-
-# Run all tests
-go test ./...
-
-# Lint
-go vet ./...
+FITBASE_DEV=true go run ./cmd/fitbase   # run with live template reload
+go test ./...                           # tests
+go vet ./...                            # lint
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for architecture notes, code style, and how to submit a pull request.
+`FITBASE_DEV=true` serves templates and static files from disk, so HTML/CSS/JS changes show up on a browser refresh — no rebuild needed.
+
+### Project layout
+
+The whole thing compiles to one Go binary. `cmd/` holds the entry point; everything else lives under `internal/`, split into small single-responsibility packages. Go's `internal/` rule means nothing here is importable from outside the module, so these are free to change without breaking anyone.
+
+```
+cmd/fitbase/main.go         Entry point — loads config, opens the DB, starts the watcher and sync jobs, mounts the HTTP server
+
+internal/
+  api/                      JSON REST API
+    router.go               Route table — maps URL paths to handlers
+    handlers.go             Core endpoints: workouts, athlete, fitness, training, upload
+    response.go             Shared {"data": ...} / {"error": ...} envelope helpers
+    intervals_handler.go    intervals.icu connect/sync endpoints
+    dropbox_handler.go      Dropbox connect/sync endpoints
+    gdrive_handler.go       Google Drive connect/backup/restore endpoints
+
+  web/                      Server-rendered UI (Go html/template, no JS framework)
+    web.go                  Template loading (embedded in prod, from disk when FITBASE_DEV=true)
+    handlers.go             Page handlers — dashboard, workout, settings, welcome
+    calendar.go             Calendar view data assembly
+    template_funcs.go       Custom template helpers (formatting, zone colors, …)
+    templates/              base.html + one file per page
+    static/                 css/ (dark theme), js/ (uPlot charts, heatmap), images/
+
+  db/                       SQLite persistence layer
+    schema.sql              Table definitions — the source of truth for the schema
+    db.go                   Open(), migrations (ALTER TABLE on startup), and all queries — plain database/sql, no ORM
+
+  models/workout.go         Shared domain types (Workout, Athlete, stream samples, zones)
+  config/config.go          Reads FITBASE_* environment variables into a Config struct
+  crypto/crypto.go          AES-256-GCM encrypt/decrypt for credentials stored in the DB
+
+  fitparser/parser.go       Decodes raw .fit (and .fit.gz) bytes into a Workout + per-second streams
+  fitness/                  Analytics over a parsed workout
+    power.go                Normalized Power, Intensity Factor, TSS, Variability Index, eFTP
+    load.go                 Fitness/Fatigue/Form (CTL/ATL/TSB) via EMA over training history
+    zones.go                Power and HR zone boundaries and time-in-zone
+  route/route.go            GPS route extraction and matching workouts to the same course
+
+  importer/watcher.go       Watches FITBASE_WATCH_DIR and runs the import pipeline on new files
+  syncer/                   Pulls activities from cloud sources on a schedule
+    sync_manager.go         Coordinates which integration auto-syncs (only one at a time)
+    intervals_sync.go       intervals.icu pull job
+    dropbox_sync.go         Dropbox pull job
+  intervals/intervals.go    intervals.icu API client
+  dropbox/dropbox.go        Dropbox API client
+  gdrive/gdrive.go          Google Drive client — background upload + full restore
+
+openapi.yaml                REST API spec — keep it in sync with the api/ handlers
+```
+
+**How a workout flows through the system:**
+
+1. A `.fit` file arrives — dropped in the watch dir (`importer/`), pulled from the cloud (`syncer/` → `intervals/` or `dropbox/`), or uploaded via `api/`.
+2. `fitparser/` decodes it into a `Workout` plus per-second streams (`models/`).
+3. `fitness/` computes the derived metrics (power, load, zones); `route/` handles GPS.
+4. `db/` persists everything to SQLite, and `gdrive/` archives the original file in the background.
+5. Reads go the other way: `web/` renders pages and `api/` serves JSON, both querying `db/`.
+
+A few conventions worth knowing before you dig in:
+
+- **Plain `database/sql`** — no ORM. Queries live in `db/db.go`.
+- **Schema changes are additive** — add `ALTER TABLE` migrations in `db.Open()` rather than editing `schema.sql` history.
+- **`log/slog`** for all server-side logging — no `fmt.Print` in production paths.
+- **Standard `testing` only** — no external frameworks. Tests run against real SQLite and real FIT decoding, so there are no mocks to wire up.
+- **`openapi.yaml` leads** — update the spec before changing API handlers.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide, including how to add a feature and submit a PR.
 
 ---
 
 ## Roadmap
 
 - [ ] **Mobile UI polish** — calendar sizing, graph rendering, metrics layout
-- [ ] **Calendar mini power graph** — sparkline-style power curve in each calendar day cell
-- [ ] **Planned workouts & projected fitness** — create future workouts with target duration/TSS, see projected fitness trend for the week
-- [ ] **User Heatmaps** - create a overall map view that shows heatmaps for the places you ride the most!
-- [x] **Mileage Goals** - allow users to create mileage goals. 
+- [ ] **Calendar mini power graph** — sparkline power curve in each day cell
+- [ ] **Planned workouts & projected fitness** — schedule future workouts with target TSS and see the projected fitness trend
+- [x] **User heatmaps** — a map view of the places you ride most
+- [x] **Mileage goals** — set and track mileage targets
 
 ---
 
 ## Contributing
 
-Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a PR.
-
-Bug reports are especially valuable. If a FIT file from your device isn't parsing correctly, open an issue and attach the file.
-
----
+Contributions are welcome — please read [CONTRIBUTING.md](CONTRIBUTING.md) first. Bug reports are especially valuable: if a FIT file from your device won't parse, open an issue and attach the file.
 
 ## License
 
