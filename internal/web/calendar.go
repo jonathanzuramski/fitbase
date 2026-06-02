@@ -16,12 +16,26 @@ type CalendarWorkout struct {
 	TSS          *float64
 }
 
+// CalendarPlanned is a compact representation of a planned workout for the
+// calendar grid. Source is "manual" or "coach" so the UI can flag the
+// provenance of the entry.
+type CalendarPlanned struct {
+	ID           string
+	Sport        string
+	Title        string
+	DurationSecs int
+	TSS          *float64
+	Source       string
+}
+
 // CalendarDay represents a single day cell in the calendar.
 type CalendarDay struct {
 	Date     time.Time
-	InMonth  bool // false for padding days from adjacent months
+	DateISO  string // YYYY-MM-DD — used by the quick-add modal as a data attribute
+	InMonth  bool   // false for padding days from adjacent months
 	IsToday  bool
 	Workouts []CalendarWorkout
+	Planned  []CalendarPlanned
 }
 
 // CalendarWeek represents one row of the calendar grid.
@@ -47,7 +61,7 @@ type CalendarData struct {
 // buildCalendarData organises workouts into a monthly calendar grid.
 // Weeks start on Monday. Padding days from adjacent months are included
 // with InMonth=false so the grid is always rectangular.
-func buildCalendarData(year int, month time.Month, workouts []models.Workout, tz *time.Location) CalendarData {
+func buildCalendarData(year int, month time.Month, workouts []models.Workout, planned []models.PlannedWorkout, tz *time.Location) CalendarData {
 	now := time.Now().In(tz)
 	todayY, todayM, todayD := now.Date()
 
@@ -62,6 +76,23 @@ func buildCalendarData(year int, month time.Month, workouts []models.Workout, tz
 			DurationSecs: w.DurationSecs,
 			DistanceM:    w.DistanceMeters,
 			TSS:          w.TSS,
+		})
+	}
+
+	// Index planned workouts by day-of-month. planned_date is a DATE; no
+	// timezone conversion needed — match it directly against the grid day.
+	plannedByDay := map[int][]CalendarPlanned{}
+	for _, p := range planned {
+		if p.PlannedDate.Year() != year || p.PlannedDate.Month() != month {
+			continue
+		}
+		plannedByDay[p.PlannedDate.Day()] = append(plannedByDay[p.PlannedDate.Day()], CalendarPlanned{
+			ID:           p.ID,
+			Sport:        p.Sport,
+			Title:        p.Title,
+			DurationSecs: p.DurationSecs,
+			TSS:          p.TSS,
+			Source:       p.Source,
 		})
 	}
 
@@ -84,11 +115,13 @@ func buildCalendarData(year int, month time.Month, workouts []models.Workout, tz
 			inMonth := cm == month && cy == year
 			day := CalendarDay{
 				Date:    cursor,
+				DateISO: cursor.Format("2006-01-02"),
 				InMonth: inMonth,
 				IsToday: cy == todayY && cm == todayM && cd == todayD,
 			}
 			if inMonth {
 				day.Workouts = byDay[cd]
+				day.Planned = plannedByDay[cd]
 			}
 			// Accumulate weekly totals for all days (including padding).
 			for _, cw := range day.Workouts {

@@ -132,3 +132,23 @@ CREATE TABLE IF NOT EXISTS routes (
     cell_count INTEGER NOT NULL,
     created_at DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
+
+-- Planned (future) workouts shown on the calendar. Independent of the
+-- completed `workouts` table — no auto-matching by date in v1.
+-- intervals_json is a JSON array of structured steps (warmup/work/recovery/
+-- cooldown with target %FTP, watts, or zone); empty string when there are
+-- no structured intervals.
+CREATE TABLE IF NOT EXISTS planned_workouts (
+    id               TEXT PRIMARY KEY,
+    planned_date     DATE NOT NULL,
+    sport            TEXT NOT NULL DEFAULT 'cycling',
+    title            TEXT NOT NULL DEFAULT '',
+    description      TEXT NOT NULL DEFAULT '',
+    duration_secs    INTEGER NOT NULL DEFAULT 0,
+    tss              REAL,
+    intensity_factor REAL,
+    intervals_json   TEXT NOT NULL DEFAULT '',
+    source           TEXT NOT NULL DEFAULT 'manual',   -- 'manual' | 'coach'
+    created_at       DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_planned_workouts_date ON planned_workouts(planned_date);
