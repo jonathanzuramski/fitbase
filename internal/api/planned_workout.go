@@ -50,10 +50,8 @@ func (r plannedRequest) toModel(source string) (models.PlannedWorkout, error) {
 		return models.PlannedWorkout{}, errors.New("intensity_factor must be between 0 and 1.5")
 	}
 
-	// When structured intervals are present they are the source of truth for
-	// total duration: validate each node (recursing into repeat groups) and sum
-	// their wall-clock time so the calendar total can't disagree with the steps.
-	// A workout with no intervals falls back to the explicit duration_secs.
+	// duration should be built from the intervals, if they are
+	// present they are the source of truth for our planned workout.
 	durationSecs := r.DurationSecs
 	if len(r.Intervals) > 0 {
 		total := 0
@@ -130,12 +128,13 @@ func (h *PlannedHandler) List(w http.ResponseWriter, r *http.Request) {
 //
 // POST /api/planned-workouts
 func (h *PlannedHandler) Create(w http.ResponseWriter, r *http.Request) {
-	var req plannedRequest
-	if err := decodeJSON(r, &req); err != nil {
+	var pRequest plannedRequest
+	// decodes JSON directly into the planntedRequest struct
+	if err := decodeJSON(r, &pRequest); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	p, err := req.toModel("manual")
+	p, err := pRequest.toModel("manual")
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

@@ -893,5 +893,6 @@ func (th *templateHandler) calendar(w http.ResponseWriter, r *http.Request) {
 	renderTemplate(w, th.templates().calendar, "base", map[string]any{
 		"Imperial": th.isImperial(),
 		"Calendar": cal,
+		"FTP":      athlete.FTPWatts, // used by the plan modal's power-profile preview
 	})
 }

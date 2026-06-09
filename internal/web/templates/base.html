@@ -5,10 +5,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{{block "title" .}}fitbase{{end}}</title>
-    <link rel="stylesheet" href="/static/css/style.css" />
+    <link rel="stylesheet" href="/static/css/base.css" />
+    <link rel="stylesheet" href="/static/css/components.css" />
+    <link rel="stylesheet" href="/static/css/dashboard.css" />
+    <link rel="stylesheet" href="/static/css/calendar.css" />
+    <link rel="stylesheet" href="/static/css/heatmap.css" />
+    <link rel="stylesheet" href="/static/css/welcome.css" />
     <link rel="stylesheet" href="/static/css/workout.css" />
     <link rel="stylesheet" href="/static/css/settings.css" />
-    <link rel="stylesheet" href="/static/css/mobile.css" />
+    <!-- responsive.css must load last so its @media rules win -->
+    <link rel="stylesheet" href="/static/css/responsive.css" />
     {{block "head" .}}{{end}}
   </head>
   <body data-imperial="{{.Imperial}}">

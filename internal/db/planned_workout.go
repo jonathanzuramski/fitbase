@@ -1,34 +1,22 @@
 package db
 
 import (
-	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/fitbase/fitbase/internal/models"
 )
-
-// newID returns a short random hex id used for planned workouts and drafts.
-// 16 hex chars = 64 bits of entropy — collision-safe for a personal app.
-func newID() string {
-	b := make([]byte, 8)
-	if _, err := rand.Read(b); err != nil {
-		// rand.Read failing on a healthy machine is exceptional; fall back to
-		// a time-based id so the caller still gets a usable string.
-		return fmt.Sprintf("%x", time.Now().UnixNano())
-	}
-	return hex.EncodeToString(b)
-}
 
 // CreatePlannedWorkout persists p, generating an id if one isn't supplied and
 // returning the stored row (with id and created_at populated). Intervals are
 // serialized to JSON for storage.
 func (db *DB) CreatePlannedWorkout(p models.PlannedWorkout) (models.PlannedWorkout, error) {
 	if p.ID == "" {
-		p.ID = newID()
+		p.ID = uuid.NewString()
 	}
 	if p.Sport == "" {
 		p.Sport = "cycling"

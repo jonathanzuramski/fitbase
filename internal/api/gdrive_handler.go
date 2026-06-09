@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/fitbase/fitbase/internal/db"
 	"github.com/fitbase/fitbase/internal/gdrive"
 	"github.com/fitbase/fitbase/internal/importer"
@@ -46,7 +48,8 @@ func (h *GDriveHandler) Connect(w http.ResponseWriter, r *http.Request) {
 
 	port := ln.Addr().(*net.TCPAddr).Port
 	redirectURI := fmt.Sprintf("http://localhost:%d", port)
-	state := fmt.Sprintf("%d", time.Now().UnixNano())
+	// Random, unpredictable CSRF state token for the OAuth round-trip.
+	state := uuid.NewString()
 	authURL := gdrive.AuthURL(clientID, clientSecret, redirectURI, state)
 
 	go h.runCallbackServer(ln, state, clientID, clientSecret, redirectURI)

@@ -24,7 +24,7 @@ func TestPlannedWorkoutCRUD(t *testing.T) {
 		TSS:             &tss,
 		IntensityFactor: &intf,
 		Intervals: []models.PlannedInterval{
-			{Kind: "warmup", DurationSecs: 15 * 60, TargetPctFTPLow: intPtr(50), TargetPctFTPHigh: intPtr(75)},
+			{Kind: "warmup", DurationSecs: 15 * 60, TargetPctFTPStart: intPtr(50), TargetPctFTPEnd: intPtr(75)},
 			{Repeat: 2, Steps: []models.PlannedInterval{
 				{Kind: "sweet_spot", DurationSecs: 20 * 60, TargetPctFTP: intPtr(88)},
 				{Kind: "recovery", DurationSecs: 5 * 60},
@@ -54,10 +54,10 @@ func TestPlannedWorkoutCRUD(t *testing.T) {
 	if len(saved.Intervals) != 3 {
 		t.Fatalf("intervals lost in round trip: got %d, want 3", len(saved.Intervals))
 	}
-	// The warmup ramp's low/high must survive.
-	if saved.Intervals[0].TargetPctFTPLow == nil || *saved.Intervals[0].TargetPctFTPLow != 50 ||
-		saved.Intervals[0].TargetPctFTPHigh == nil || *saved.Intervals[0].TargetPctFTPHigh != 75 {
-		t.Errorf("ramp low/high lost in round trip")
+	// The warmup ramp's start/end must survive.
+	if saved.Intervals[0].TargetPctFTPStart == nil || *saved.Intervals[0].TargetPctFTPStart != 50 ||
+		saved.Intervals[0].TargetPctFTPEnd == nil || *saved.Intervals[0].TargetPctFTPEnd != 75 {
+		t.Errorf("ramp start/end lost in round trip")
 	}
 	// The repeat group and its nested target must survive.
 	grp := saved.Intervals[1]

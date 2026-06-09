@@ -1,0 +1,352 @@
+/* welcome.css — onboarding / welcome screen + its inputs. */
+/* ── Welcome screen ──────────────────────────────────── */
+.welcome-body {
+  min-height: 100vh;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 48px 16px;
+  background: var(--bg);
+}
+
+.welcome-wrap {
+  width: 100%;
+  max-width: 700px;
+}
+
+.welcome-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 48px 52px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+}
+
+.welcome-header {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.welcome-logo {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 16px;
+}
+
+.welcome-header h1 {
+  font-size: 26px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 10px;
+  letter-spacing: -0.01em;
+}
+
+.welcome-sub {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0;
+  max-width: 380px;
+  margin-inline: auto;
+}
+
+.welcome-section {
+  margin-bottom: 32px;
+}
+
+.welcome-section:last-of-type {
+  margin-bottom: 0;
+}
+
+.welcome-section-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0 0 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.welcome-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 20px;
+}
+
+.welcome-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.welcome-field-wide {
+  grid-column: 1 / -1;
+}
+
+.welcome-field > label {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.field-unit {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: none;
+  letter-spacing: 0;
+  opacity: 0.7;
+}
+
+.field-hint {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-muted);
+  text-transform: none;
+  letter-spacing: 0;
+  opacity: 0.6;
+  font-style: italic;
+}
+
+/* ── Welcome inputs & selects ────────────────────────── */
+.welcome-field input,
+.welcome-field select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  padding: 9px 11px;
+  outline: none;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+  width: 100%;
+  box-sizing: border-box;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.welcome-field select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2364748b' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 30px;
+}
+
+.welcome-field input:focus,
+.welcome-field select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+
+.welcome-field input::placeholder {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
+.welcome-field select option,
+.welcome-field select optgroup {
+  background: var(--bg-card);
+}
+
+/* Units radio */
+.units-radio-group {
+  display: flex;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.units-radio {
+  cursor: pointer;
+  padding: 5px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: 12px;
+  color: var(--text-muted);
+  transition:
+    border-color 0.15s,
+    color 0.15s;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.units-radio:has(input:checked) {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.units-radio input[type="radio"] {
+  display: none;
+}
+
+.units-detail {
+  color: var(--text-muted);
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+/* Timezone status indicator */
+.tz-status {
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  margin-left: auto;
+}
+
+.tz-status.detecting {
+  color: var(--text-muted);
+}
+
+.tz-status.resolved {
+  color: var(--green);
+}
+
+/* Location autocomplete */
+.autocomplete-wrap {
+  position: relative;
+}
+
+.location-suggestions {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  z-index: 100;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.location-suggestion {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+  line-height: 1.4;
+  transition: background 0.1s;
+}
+
+.location-suggestion:hover {
+  background: var(--bg-hover);
+}
+
+/* Google Drive row */
+.welcome-gdrive {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+
+.welcome-gdrive-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.welcome-gdrive-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  line-height: 1;
+}
+
+.welcome-gdrive-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 3px;
+}
+
+.welcome-gdrive-btn {
+  padding: 6px 16px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--text);
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    color 0.15s;
+  flex-shrink: 0;
+}
+
+.welcome-gdrive-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.welcome-gdrive-status.connected {
+  font-size: 12px;
+  color: var(--green);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.welcome-actions {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding-top: 28px;
+  margin-top: 32px;
+  border-top: 1px solid var(--border);
+}
+
+.welcome-submit {
+  padding: 10px 24px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s;
+  letter-spacing: 0.01em;
+}
+
+.welcome-submit:hover {
+  background: #2563eb;
+}
+
+.welcome-skip {
+  font-size: 13px;
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+.welcome-skip:hover {
+  color: var(--text);
+}
+

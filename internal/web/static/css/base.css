@@ -1,0 +1,206 @@
+/* base.css — design tokens, reset, typography, scrollbar, nav, layout. */
+/* fitbase — dark theme, intervals.icu-inspired */
+
+/* Remove number input spinners globally */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+:root {
+  --bg: #0f1117;
+  --bg-card: #171b24;
+  --bg-hover: #1e2330;
+  --border: #252b38;
+  --text: #e2e8f0;
+  --text-muted: #64748b;
+  --accent: #3b82f6;
+  --green: #22c55e;
+  --yellow: #eab308;
+  --red: #ef4444;
+  --orange: #f97316;
+
+  --power-color: #60a5fa;
+  --hr-color: #f87171;
+  --cadence-color: #a78bfa;
+  --speed-color: #34d399;
+  --ctl-color: #3b82f6;
+  --atl-color: #f97316;
+  --tsb-color: #22c55e;
+
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+/* ── Global scrollbar theme ───────────────────────────────
+   Styled once here (style.css loads on every page) so every scrollable
+   element matches the app theme — no per-element rules needed.
+   Firefox/standard: scrollbar-width/color inherit from html.
+   WebKit (Chrome/Safari/Edge): the unscoped ::-webkit-scrollbar
+   pseudo-elements apply to all scrollable elements. */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 5px;
+  /* Inset via a transparent border so the thumb reads thinner and doesn't
+     touch the track edges, matching the subtle look elsewhere. */
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 0.85em;
+  background: var(--border);
+  padding: 2px 5px;
+  border-radius: 3px;
+}
+
+/* ── Navigation ───────────────────────────────────────── */
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 clamp(16px, 3vw, 48px);
+  height: 48px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.nav-brand {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  color: var(--text);
+}
+
+.nav-links {
+  display: flex;
+  gap: 20px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.nav-links a {
+  color: var(--text-muted);
+}
+.nav-links a:hover {
+  color: var(--text);
+}
+
+.units-toggle {
+  display: flex;
+  align-items: center;
+}
+
+.units-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-family: var(--mono);
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    color 0.15s;
+}
+
+.units-btn:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.units-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ── Layout ───────────────────────────────────────────── */
+.container {
+  max-width: 1500px;
+  margin: 0 auto;
+  padding: 24px clamp(16px, 3vw, 48px);
+}
+.container--narrow {
+  max-width: 1200px;
+}
+
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.page-header h1 {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 4px 0 0;
+}
+
+.back-link {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-decoration: none;
+  letter-spacing: 0.02em;
+}
+
+.back-link:hover {
+  color: var(--text);
+}
+
