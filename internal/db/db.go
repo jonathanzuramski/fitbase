@@ -117,6 +117,26 @@ func Open(path string, key []byte) (*DB, error) {
 		}
 	}
 
+	// Migration: idx_workouts_sport_recorded_at was created ASC; rebuild it DESC
+	// so per-sport "newest first" listings scan the index forward. Guarded on the
+	// stored definition so it only rebuilds once, not on every boot.
+	{
+		var def string
+		err := sqldb.QueryRow(`SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_workouts_sport_recorded_at'`).Scan(&def)
+		if err != nil && err != sql.ErrNoRows {
+			return nil, fmt.Errorf("inspect idx_workouts_sport_recorded_at: %w", err)
+		}
+		if err == nil && !strings.Contains(def, "recorded_at DESC") {
+			if _, err := sqldb.Exec(`
+				DROP INDEX idx_workouts_sport_recorded_at;
+				CREATE INDEX idx_workouts_sport_recorded_at ON workouts(sport, recorded_at DESC);
+			`); err != nil {
+				return nil, fmt.Errorf("migrate idx_workouts_sport_recorded_at: %w", err)
+			}
+			slog.Info("rebuilt idx_workouts_sport_recorded_at as DESC")
+		}
+	}
+
 	return &DB{sqldb, key}, nil
 }
 
