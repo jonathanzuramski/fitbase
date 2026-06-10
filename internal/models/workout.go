@@ -136,17 +136,21 @@ type ZoneBreakdown struct {
 }
 
 // WorkoutAnalysis contains zone distribution, effort quality metrics, and 90-day context.
+// SweetSpot, when present, is a reference band (88–94% FTP) reported alongside
+// the 7-zone partition. Its time overlaps Z3/Z4 and is NOT subtracted from them
+// — consumers should treat SweetSpotPct as a parallel slice, not an 8th zone.
 type WorkoutAnalysis struct {
-	WorkoutID            string          `json:"workout_id"`
-	PowerZones           []ZoneBreakdown `json:"power_zones"`
-	HRZones              []ZoneBreakdown `json:"hr_zones"`
-	VariabilityIndex     *float64        `json:"variability_index,omitempty"`
-	EfficiencyFactor     *float64        `json:"efficiency_factor,omitempty"`
-	AvgNP90Day           *float64        `json:"avg_np_90day_watts,omitempty"`
-	AvgHR90Day           *float64        `json:"avg_hr_90day_bpm,omitempty"`
-	AvgTSS90Day          *float64        `json:"avg_tss_90day,omitempty"`
-	AvgIF90Day           *float64        `json:"avg_if_90day,omitempty"`
-	AvgDuration90Day     *float64        `json:"avg_duration_90day_secs,omitempty"`
+	WorkoutID        string          `json:"workout_id"`
+	PowerZones       []ZoneBreakdown `json:"power_zones"`
+	HRZones          []ZoneBreakdown `json:"hr_zones"`
+	SweetSpot        *ZoneBreakdown  `json:"sweet_spot,omitempty"`
+	VariabilityIndex *float64        `json:"variability_index,omitempty"`
+	EfficiencyFactor *float64        `json:"efficiency_factor,omitempty"`
+	AvgNP90Day       *float64        `json:"avg_np_90day_watts,omitempty"`
+	AvgHR90Day       *float64        `json:"avg_hr_90day_bpm,omitempty"`
+	AvgTSS90Day      *float64        `json:"avg_tss_90day,omitempty"`
+	AvgIF90Day       *float64        `json:"avg_if_90day,omitempty"`
+	AvgDuration90Day *float64        `json:"avg_duration_90day_secs,omitempty"`
 }
 
 // ReadinessReport is a coaching snapshot: current form, load context, and a recommendation.

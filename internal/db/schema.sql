@@ -110,10 +110,14 @@ CREATE INDEX IF NOT EXISTS idx_ftp_history_effective_from ON ftp_history(effecti
 -- Pre-computed time spent in each power zone (7 zones) and HR zone (5 zones).
 -- Stored as JSON int arrays, e.g. [120,3600,900,300,0,0,0].
 -- Computed at import time using FTP and threshold HR in effect at that moment.
+-- ss_secs is the time in the Sweet Spot reference band (88–94% FTP). It overlaps
+-- Z3/Z4 by design, so it's stored separately rather than as part of the 7-zone
+-- partition. NULL means not yet computed (legacy rows are backfilled on boot).
 CREATE TABLE IF NOT EXISTS workout_zone_times (
     workout_id TEXT PRIMARY KEY REFERENCES workouts(id) ON DELETE CASCADE,
     power_secs TEXT NOT NULL DEFAULT '[]',
-    hr_secs    TEXT NOT NULL DEFAULT '[]'
+    hr_secs    TEXT NOT NULL DEFAULT '[]',
+    ss_secs    INTEGER
 );
 
 -- Per-sport mileage goals. One row per sport; upserted on save.
