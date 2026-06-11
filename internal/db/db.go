@@ -76,6 +76,14 @@ func Open(path string, key []byte) (*DB, error) {
 		}
 	}
 
+	// Migration: Sweet Spot time-in-band stored alongside the 7 power zones.
+	// NULL on existing rows signals "not yet computed" — backfilled on boot.
+	if _, err := sqldb.Exec(`ALTER TABLE workout_zone_times ADD COLUMN ss_secs INTEGER`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name") {
+			return nil, fmt.Errorf("migrate ss_secs: %w", err)
+		}
+	}
+
 	// Migration: imported_files PK (hash) → (hash, filename). The old shape
 	// silently dropped subsequent INSERTs for the same hash, so a file imported
 	// once under name A and later seen under name B was never recorded as B —
@@ -106,6 +114,26 @@ func Open(path string, key []byte) (*DB, error) {
 				return nil, fmt.Errorf("migrate imported_files PK: %w", err)
 			}
 			slog.Info("imported_files migration complete")
+		}
+	}
+
+	// Migration: idx_workouts_sport_recorded_at was created ASC; rebuild it DESC
+	// so per-sport "newest first" listings scan the index forward. Guarded on the
+	// stored definition so it only rebuilds once, not on every boot.
+	{
+		var def string
+		err := sqldb.QueryRow(`SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_workouts_sport_recorded_at'`).Scan(&def)
+		if err != nil && err != sql.ErrNoRows {
+			return nil, fmt.Errorf("inspect idx_workouts_sport_recorded_at: %w", err)
+		}
+		if err == nil && !strings.Contains(def, "recorded_at DESC") {
+			if _, err := sqldb.Exec(`
+				DROP INDEX idx_workouts_sport_recorded_at;
+				CREATE INDEX idx_workouts_sport_recorded_at ON workouts(sport, recorded_at DESC);
+			`); err != nil {
+				return nil, fmt.Errorf("migrate idx_workouts_sport_recorded_at: %w", err)
+			}
+			slog.Info("rebuilt idx_workouts_sport_recorded_at as DESC")
 		}
 	}
 
@@ -533,32 +561,73 @@ func (db *DB) GetAllTimePowerCurve() (map[int]models.AllTimeBest, error) {
 
 // ── Zone times ────────────────────────────────────────────────────────────────
 
-// InsertZoneTimes stores pre-computed zone seconds for a workout.
-func (db *DB) InsertZoneTimes(workoutID string, power [7]int, hr [5]int) error {
+// InsertZoneTimes stores pre-computed zone seconds for a workout. ss is the
+// Sweet Spot reference band (88–94% FTP) — a parallel counter, not a 7-zone
+// bucket. Pass -1 to leave ss_secs NULL (e.g. when FTP was unknown).
+func (db *DB) InsertZoneTimes(workoutID string, power [7]int, hr [5]int, ss int) error {
 	ps, _ := json.Marshal(power)
 	hs, _ := json.Marshal(hr)
+	var ssArg any
+	if ss >= 0 {
+		ssArg = ss
+	}
 	_, err := db.Exec(`
-		INSERT OR REPLACE INTO workout_zone_times (workout_id, power_secs, hr_secs)
-		VALUES (?, ?, ?)`, workoutID, string(ps), string(hs))
+		INSERT OR REPLACE INTO workout_zone_times (workout_id, power_secs, hr_secs, ss_secs)
+		VALUES (?, ?, ?, ?)`, workoutID, string(ps), string(hs), ssArg)
 	return err
 }
 
-// GetZoneTimes returns the stored zone seconds for a workout.
-// Returns (nil, nil, nil) if no data exists yet.
-func (db *DB) GetZoneTimes(workoutID string) (*[7]int, *[5]int, error) {
+// GetZoneTimes returns the stored zone seconds for a workout. The third return
+// is Sweet Spot seconds, nil if not yet computed for this workout (NULL in DB).
+// Returns (nil, nil, nil, nil) if no row exists at all.
+func (db *DB) GetZoneTimes(workoutID string) (*[7]int, *[5]int, *int, error) {
 	var ps, hs string
-	err := db.QueryRow(`SELECT power_secs, hr_secs FROM workout_zone_times WHERE workout_id = ?`, workoutID).Scan(&ps, &hs)
+	var ss sql.NullInt64
+	err := db.QueryRow(`SELECT power_secs, hr_secs, ss_secs FROM workout_zone_times WHERE workout_id = ?`, workoutID).Scan(&ps, &hs, &ss)
 	if err == sql.ErrNoRows {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	var power [7]int
 	var hr [5]int
 	json.Unmarshal([]byte(ps), &power) //nolint:errcheck
 	json.Unmarshal([]byte(hs), &hr)    //nolint:errcheck
-	return &power, &hr, nil
+	var ssPtr *int
+	if ss.Valid {
+		v := int(ss.Int64)
+		ssPtr = &v
+	}
+	return &power, &hr, ssPtr, nil
+}
+
+// WorkoutIDsWithoutSSZone returns IDs of workouts whose zone-times row exists
+// but predates the ss_secs column (NULL). Used for one-time startup backfill.
+func (db *DB) WorkoutIDsWithoutSSZone() ([]string, error) {
+	rows, err := db.Query(`
+		SELECT workout_id FROM workout_zone_times
+		WHERE ss_secs IS NULL`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close() //nolint:errcheck
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// SetSSZoneSecs updates only the ss_secs column for a workout. Used by the
+// backfill path so it doesn't have to re-shape the 7-zone partition.
+func (db *DB) SetSSZoneSecs(workoutID string, ss int) error {
+	_, err := db.Exec(`UPDATE workout_zone_times SET ss_secs = ? WHERE workout_id = ?`, ss, workoutID)
+	return err
 }
 
 // WorkoutIDsWithoutPowerCurve returns IDs of workouts that have power data

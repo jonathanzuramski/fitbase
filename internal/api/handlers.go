@@ -551,7 +551,7 @@ func (h *Handler) GetWorkoutAnalysis(w http.ResponseWriter, r *http.Request) {
 	powerZoneDefs := fitness.PowerZones(athlete.FTPWatts)
 	hrZoneDefs := fitness.ResolveHRZones(athlete)
 
-	powerSecs, hrSecs, err := h.db.GetZoneTimes(id)
+	powerSecs, hrSecs, ssSecs, err := h.db.GetZoneTimes(id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -581,6 +581,24 @@ func (h *Handler) GetWorkoutAnalysis(w http.ResponseWriter, r *http.Request) {
 				WattsLow:  z.WattsLow,
 				WattsHigh: z.WattsHigh,
 			})
+		}
+		// Sweet Spot is reported as a parallel band — its pct uses the same
+		// power-time denominator as the 7-zone breakdown so the model can read
+		// "X% of the ride was in SS" without re-doing the math.
+		if ssSecs != nil {
+			var ssDef models.PowerZone = powerZoneDefs[fitness.SweetSpotIdx]
+			pct := 0.0
+			if total > 0 {
+				pct = math.Round(float64(*ssSecs)/float64(total)*1000) / 10
+			}
+			analysis.SweetSpot = &models.ZoneBreakdown{
+				Label:     ssDef.Label,
+				Name:      ssDef.Name,
+				Seconds:   *ssSecs,
+				PctTime:   pct,
+				WattsLow:  ssDef.WattsLow,
+				WattsHigh: ssDef.WattsHigh,
+			}
 		}
 	}
 

@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS workouts (
     tss                   REAL,
     intensity_factor      REAL,
     is_indoor             INTEGER NOT NULL DEFAULT 0,
-    route_id              TEXT DEFAULT NULL,
+    route_id              TEXT DEFAULT NULL REFERENCES routes(id) ON DELETE SET NULL,
     created_at            DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
 
@@ -37,10 +37,10 @@ CREATE TABLE IF NOT EXISTS workout_streams (
 CREATE INDEX IF NOT EXISTS idx_workouts_recorded_at ON workouts(recorded_at DESC);
 CREATE INDEX IF NOT EXISTS idx_workouts_is_indoor_recorded_at ON workouts(is_indoor, recorded_at DESC);
 CREATE INDEX IF NOT EXISTS idx_workouts_route_id ON workouts(route_id);
-CREATE INDEX IF NOT EXISTS idx_workouts_sport_recorded_at ON workouts(sport, recorded_at);
+CREATE INDEX IF NOT EXISTS idx_workouts_sport_recorded_at ON workouts(sport, recorded_at DESC);
 
 CREATE TABLE IF NOT EXISTS athlete (
-    id             INTEGER PRIMARY KEY DEFAULT 1,
+    id             INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
     ftp_watts      INTEGER NOT NULL DEFAULT 250,
     weight_kg      REAL NOT NULL DEFAULT 70.0,
     threshold_hr   INTEGER NOT NULL DEFAULT 0,
@@ -110,10 +110,14 @@ CREATE INDEX IF NOT EXISTS idx_ftp_history_effective_from ON ftp_history(effecti
 -- Pre-computed time spent in each power zone (7 zones) and HR zone (5 zones).
 -- Stored as JSON int arrays, e.g. [120,3600,900,300,0,0,0].
 -- Computed at import time using FTP and threshold HR in effect at that moment.
+-- ss_secs is the time in the Sweet Spot reference band (88–94% FTP). It overlaps
+-- Z3/Z4 by design, so it's stored separately rather than as part of the 7-zone
+-- partition. NULL means not yet computed (legacy rows are backfilled on boot).
 CREATE TABLE IF NOT EXISTS workout_zone_times (
     workout_id TEXT PRIMARY KEY REFERENCES workouts(id) ON DELETE CASCADE,
     power_secs TEXT NOT NULL DEFAULT '[]',
-    hr_secs    TEXT NOT NULL DEFAULT '[]'
+    hr_secs    TEXT NOT NULL DEFAULT '[]',
+    ss_secs    INTEGER
 );
 
 -- Per-sport mileage goals. One row per sport; upserted on save.
