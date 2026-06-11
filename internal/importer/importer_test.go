@@ -243,3 +243,94 @@ func TestImportBytes_DifferentFiles_DifferentIDs(t *testing.T) {
 		t.Error("different FIT files should produce different IDs")
 	}
 }
+
+// ── Sweet Spot backfill ───────────────────────────────────────────────────────
+
+func TestBackfillSweetSpotZone(t *testing.T) {
+	d := newTestDB(t)
+	base := time.Date(2024, 3, 15, 8, 0, 0, 0, time.UTC)
+	w := &models.Workout{
+		ID:           "backfillss000001",
+		Filename:     "backfill.fit",
+		RecordedAt:   base,
+		Sport:        "cycling",
+		DurationSecs: 3,
+		CreatedAt:    time.Now().UTC(),
+	}
+	mk := func(off, watts int) models.Stream {
+		p := watts
+		return models.Stream{Timestamp: base.Add(time.Duration(off) * time.Second), PowerWatts: &p}
+	}
+	// Athlete FTP defaults to 250 → SS band 220–235. 225 & 230 in-band, 240 out.
+	streams := []models.Stream{mk(0, 225), mk(1, 230), mk(2, 240)}
+	if err := d.InsertWorkout(w, streams); err != nil {
+		t.Fatalf("InsertWorkout: %v", err)
+	}
+	// Legacy zone-times row predating ss_secs (stored NULL).
+	if err := d.InsertZoneTimes(w.ID, [7]int{}, [5]int{}, -1); err != nil {
+		t.Fatalf("InsertZoneTimes: %v", err)
+	}
+
+	imp := importer.NewImporter(d, t.TempDir())
+	imp.BackfillSweetSpotZone()
+
+	_, _, ss, err := d.GetZoneTimes(w.ID)
+	if err != nil {
+		t.Fatalf("GetZoneTimes: %v", err)
+	}
+	if ss == nil {
+		t.Fatal("ss_secs still NULL after backfill")
+	}
+	if *ss != 2 {
+		t.Errorf("ss = %d, want 2 (225w, 230w in band; 240w out)", *ss)
+	}
+
+	// Backfill must converge: nothing left needing it on a second pass.
+	ids, err := d.WorkoutIDsWithoutSSZone()
+	if err != nil {
+		t.Fatalf("WorkoutIDsWithoutSSZone: %v", err)
+	}
+	if len(ids) != 0 {
+		t.Errorf("expected no rows needing backfill, got %v", ids)
+	}
+}
+
+func TestBackfillSweetSpotZone_NoFTPStoresZero(t *testing.T) {
+	d := newTestDB(t)
+	// Zero the athlete FTP so SweetSpotBand returns (0,0) at backfill time.
+	a, err := d.GetAthlete()
+	if err != nil {
+		t.Fatalf("GetAthlete: %v", err)
+	}
+	a.FTPWatts = 0
+	if err := d.UpdateAthlete(a); err != nil {
+		t.Fatalf("UpdateAthlete: %v", err)
+	}
+
+	w := &models.Workout{
+		ID:           "backfillss000002",
+		Filename:     "backfill2.fit",
+		RecordedAt:   time.Date(2024, 3, 15, 8, 0, 0, 0, time.UTC),
+		Sport:        "cycling",
+		DurationSecs: 1,
+		CreatedAt:    time.Now().UTC(),
+	}
+	if err := d.InsertWorkout(w, nil); err != nil {
+		t.Fatalf("InsertWorkout: %v", err)
+	}
+	if err := d.InsertZoneTimes(w.ID, [7]int{}, [5]int{}, -1); err != nil {
+		t.Fatalf("InsertZoneTimes: %v", err)
+	}
+
+	imp := importer.NewImporter(d, t.TempDir())
+	imp.BackfillSweetSpotZone()
+
+	// With no FTP, SS is stored as 0 (not left NULL) so it isn't retried forever.
+	_, _, ss, err := d.GetZoneTimes(w.ID)
+	if err != nil {
+		t.Fatalf("GetZoneTimes: %v", err)
+	}
+	if ss == nil || *ss != 0 {
+		t.Errorf("ss = %v, want 0 when FTP is unknown", ss)
+	}
+}

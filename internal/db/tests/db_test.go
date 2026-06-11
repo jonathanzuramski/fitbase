@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -1298,4 +1300,153 @@ func TestOpen_MigratesImportedFilesPK(t *testing.T) {
 	if _, ok := names["intervals.fit"]; !ok {
 		t.Errorf("intervals.fit missing post-migration: %v", names)
 	}
+}
+
+// ── Zone times (Sweet Spot) ───────────────────────────────────────────────────
+
+func TestZoneTimes_RoundTripWithSS(t *testing.T) {
+	d := newTestDB(t)
+	w := sampleWorkout("zonetimes000001a")
+	if err := d.InsertWorkout(w, nil); err != nil {
+		t.Fatalf("InsertWorkout: %v", err)
+	}
+	power := [7]int{60, 120, 300, 200, 30, 0, 0}
+	hr := [5]int{100, 200, 150, 50, 0}
+	if err := d.InsertZoneTimes(w.ID, power, hr, 420); err != nil {
+		t.Fatalf("InsertZoneTimes: %v", err)
+	}
+
+	gotPower, gotHR, gotSS, err := d.GetZoneTimes(w.ID)
+	if err != nil {
+		t.Fatalf("GetZoneTimes: %v", err)
+	}
+	if gotPower == nil || *gotPower != power {
+		t.Errorf("power = %v, want %v", gotPower, power)
+	}
+	if gotHR == nil || *gotHR != hr {
+		t.Errorf("hr = %v, want %v", gotHR, hr)
+	}
+	if gotSS == nil || *gotSS != 420 {
+		t.Errorf("ss = %v, want 420", gotSS)
+	}
+}
+
+func TestZoneTimes_NullSSSurfacesInBackfillQueue(t *testing.T) {
+	d := newTestDB(t)
+	w := sampleWorkout("zonetimes000002b")
+	if err := d.InsertWorkout(w, nil); err != nil {
+		t.Fatalf("InsertWorkout: %v", err)
+	}
+	// ss = -1 → store SQL NULL (FTP unknown at import time).
+	if err := d.InsertZoneTimes(w.ID, [7]int{}, [5]int{}, -1); err != nil {
+		t.Fatalf("InsertZoneTimes: %v", err)
+	}
+
+	_, _, gotSS, err := d.GetZoneTimes(w.ID)
+	if err != nil {
+		t.Fatalf("GetZoneTimes: %v", err)
+	}
+	if gotSS != nil {
+		t.Errorf("ss = %v, want nil (NULL round-trips as nil pointer)", *gotSS)
+	}
+
+	ids, err := d.WorkoutIDsWithoutSSZone()
+	if err != nil {
+		t.Fatalf("WorkoutIDsWithoutSSZone: %v", err)
+	}
+	if !slices.Contains(ids, w.ID) {
+		t.Errorf("WorkoutIDsWithoutSSZone = %v, want to contain %s", ids, w.ID)
+	}
+}
+
+func TestZoneTimes_NoRowReturnsNil(t *testing.T) {
+	d := newTestDB(t)
+	p, h, ss, err := d.GetZoneTimes("doesnotexist0001")
+	if err != nil {
+		t.Fatalf("GetZoneTimes: %v", err)
+	}
+	if p != nil || h != nil || ss != nil {
+		t.Errorf("missing row should give all-nil, got %v %v %v", p, h, ss)
+	}
+}
+
+func TestSetSSZoneSecs_FillsNullAndClearsQueue(t *testing.T) {
+	d := newTestDB(t)
+	w := sampleWorkout("zonetimes000003c")
+	if err := d.InsertWorkout(w, nil); err != nil {
+		t.Fatalf("InsertWorkout: %v", err)
+	}
+	if err := d.InsertZoneTimes(w.ID, [7]int{}, [5]int{}, -1); err != nil {
+		t.Fatalf("InsertZoneTimes: %v", err)
+	}
+
+	if err := d.SetSSZoneSecs(w.ID, 333); err != nil {
+		t.Fatalf("SetSSZoneSecs: %v", err)
+	}
+
+	_, _, ss, err := d.GetZoneTimes(w.ID)
+	if err != nil {
+		t.Fatalf("GetZoneTimes: %v", err)
+	}
+	if ss == nil || *ss != 333 {
+		t.Errorf("ss = %v, want 333", ss)
+	}
+	ids, err := d.WorkoutIDsWithoutSSZone()
+	if err != nil {
+		t.Fatalf("WorkoutIDsWithoutSSZone: %v", err)
+	}
+	if slices.Contains(ids, w.ID) {
+		t.Errorf("workout %s should be gone from the backfill queue after SetSSZoneSecs", w.ID)
+	}
+}
+
+// ── Schema migrations ─────────────────────────────────────────────────────────
+
+func TestMigration_SportIndexRebuiltDESC(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mig.db")
+	d, err := db.Open(path, testKey)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	// Simulate a legacy DB by forcing the index back to its old ASC shape.
+	if _, err := d.Exec(`DROP INDEX idx_workouts_sport_recorded_at;
+		CREATE INDEX idx_workouts_sport_recorded_at ON workouts(sport, recorded_at)`); err != nil {
+		t.Fatalf("force ASC index: %v", err)
+	}
+	if err := d.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	// Reopen — the guarded migration should rebuild the index DESC.
+	d2, err := db.Open(path, testKey)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	t.Cleanup(func() { _ = d2.Close() })
+
+	var def string
+	if err := d2.QueryRow(`SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_workouts_sport_recorded_at'`).Scan(&def); err != nil {
+		t.Fatalf("read index def: %v", err)
+	}
+	if !strings.Contains(def, "recorded_at DESC") {
+		t.Errorf("index not rebuilt DESC after reopen: %q", def)
+	}
+}
+
+func TestMigration_Idempotent(t *testing.T) {
+	// Opening an already-migrated DB must not error: the ss_secs ALTER and the
+	// DESC-index rebuild are both guarded against re-running.
+	path := filepath.Join(t.TempDir(), "idem.db")
+	d, err := db.Open(path, testKey)
+	if err != nil {
+		t.Fatalf("first open: %v", err)
+	}
+	if err := d.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	d2, err := db.Open(path, testKey)
+	if err != nil {
+		t.Fatalf("second open: %v", err)
+	}
+	t.Cleanup(func() { _ = d2.Close() })
 }
