@@ -608,3 +608,71 @@ func TestGetWorkoutRouteTracks_FilterByIDs(t *testing.T) {
 		t.Errorf("WorkoutID: got %q want %q", tracks[0].WorkoutID, w1.ID)
 	}
 }
+
+// ── GET /api/workouts/{id}/analysis (Sweet Spot) ──────────────────────────────
+
+func TestGetWorkoutAnalysis_SweetSpot(t *testing.T) {
+	h, d := newTestHandler(t)
+	w := insertSampleWorkout(t, d, "analysisss000001")
+	// Athlete FTP defaults to 250 → SS band 220–235w.
+	// Partition totals 3000s; 900s of it is Sweet Spot.
+	power := [7]int{0, 600, 1500, 900, 0, 0, 0}
+	if err := d.InsertZoneTimes(w.ID, power, [5]int{}, 900); err != nil {
+		t.Fatalf("InsertZoneTimes: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/workouts/"+w.ID+"/analysis", nil)
+	req = withURLParam(req, "id", w.ID)
+	rr := httptest.NewRecorder()
+	h.GetWorkoutAnalysis(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body=%s)", rr.Code, rr.Body.String())
+	}
+	var got models.WorkoutAnalysis
+	if errStr := decodeEnvelope(t, rr.Body.Bytes(), &got); errStr != "" {
+		t.Fatalf("response error: %s", errStr)
+	}
+
+	if got.SweetSpot == nil {
+		t.Fatal("SweetSpot is nil, want a breakdown")
+	}
+	if got.SweetSpot.Seconds != 900 {
+		t.Errorf("SweetSpot.Seconds = %d, want 900", got.SweetSpot.Seconds)
+	}
+	// pct shares the 7-zone denominator (3000s): 900/3000 = 30%.
+	if got.SweetSpot.PctTime != 30.0 {
+		t.Errorf("SweetSpot.PctTime = %.1f, want 30.0", got.SweetSpot.PctTime)
+	}
+	if got.SweetSpot.Label != "SS" {
+		t.Errorf("SweetSpot.Label = %q, want SS", got.SweetSpot.Label)
+	}
+	if got.SweetSpot.WattsLow != 220 || got.SweetSpot.WattsHigh != 235 {
+		t.Errorf("SweetSpot band = (%d,%d), want (220,235)", got.SweetSpot.WattsLow, got.SweetSpot.WattsHigh)
+	}
+}
+
+func TestGetWorkoutAnalysis_NoSweetSpotWhenNull(t *testing.T) {
+	h, d := newTestHandler(t)
+	w := insertSampleWorkout(t, d, "analysisss000002")
+	// ss = -1 → NULL: the analysis must omit SweetSpot entirely (omitempty).
+	if err := d.InsertZoneTimes(w.ID, [7]int{0, 600, 0, 0, 0, 0, 0}, [5]int{}, -1); err != nil {
+		t.Fatalf("InsertZoneTimes: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/workouts/"+w.ID+"/analysis", nil)
+	req = withURLParam(req, "id", w.ID)
+	rr := httptest.NewRecorder()
+	h.GetWorkoutAnalysis(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body=%s)", rr.Code, rr.Body.String())
+	}
+	var got models.WorkoutAnalysis
+	if errStr := decodeEnvelope(t, rr.Body.Bytes(), &got); errStr != "" {
+		t.Fatalf("response error: %s", errStr)
+	}
+	if got.SweetSpot != nil {
+		t.Errorf("SweetSpot = %+v, want nil when ss_secs is NULL", got.SweetSpot)
+	}
+}

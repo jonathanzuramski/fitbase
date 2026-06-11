@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS workouts (
     tss                   REAL,
     intensity_factor      REAL,
     is_indoor             INTEGER NOT NULL DEFAULT 0,
-    route_id              TEXT DEFAULT NULL,
+    route_id              TEXT DEFAULT NULL REFERENCES routes(id) ON DELETE SET NULL,
     created_at            DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
 
@@ -37,10 +37,10 @@ CREATE TABLE IF NOT EXISTS workout_streams (
 CREATE INDEX IF NOT EXISTS idx_workouts_recorded_at ON workouts(recorded_at DESC);
 CREATE INDEX IF NOT EXISTS idx_workouts_is_indoor_recorded_at ON workouts(is_indoor, recorded_at DESC);
 CREATE INDEX IF NOT EXISTS idx_workouts_route_id ON workouts(route_id);
-CREATE INDEX IF NOT EXISTS idx_workouts_sport_recorded_at ON workouts(sport, recorded_at);
+CREATE INDEX IF NOT EXISTS idx_workouts_sport_recorded_at ON workouts(sport, recorded_at DESC);
 
 CREATE TABLE IF NOT EXISTS athlete (
-    id             INTEGER PRIMARY KEY DEFAULT 1,
+    id             INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
     ftp_watts      INTEGER NOT NULL DEFAULT 250,
     weight_kg      REAL NOT NULL DEFAULT 70.0,
     threshold_hr   INTEGER NOT NULL DEFAULT 0,

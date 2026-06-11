@@ -7,6 +7,10 @@ import (
 	"github.com/fitbase/fitbase/internal/models"
 )
 
+const (
+	SweetSpotIdx = 7
+)
+
 // PowerZones returns the 7 standard power zones plus Sweet Spot for the given FTP.
 func PowerZones(ftp int) []models.PowerZone {
 	zones := []models.PowerZone{
@@ -17,28 +21,31 @@ func PowerZones(ftp int) []models.PowerZone {
 		{Label: "Z5", Name: "VO2 Max", PctLow: 106, PctHigh: 120},
 		{Label: "Z6", Name: "Anaerobic", PctLow: 121, PctHigh: 150},
 		{Label: "Z7", Name: "Neuromuscular", PctLow: 151, PctHigh: 0}, // 0 = open-ended
-		{Label: "SS", Name: "Sweet Spot", PctLow: 88, PctHigh: 94},
 	}
-	prevHigh := 0
+	zoneEndPower := 0
 	for i := range zones {
-		lo := prevHigh + 1
+		// sets zoneStart to previous zoneEnd so
+		// there is no gaps in the power zones.
+		zoneStartPower := zoneEndPower + 1
 		if i == 0 {
-			lo = 1
-		}
-		// SS is a standalone reference zone — compute directly from percentage
-		if zones[i].Label == "SS" {
-			lo = int(float64(zones[i].PctLow) * float64(ftp) / 100.0)
+			zoneStartPower = 1
 		}
 		hi := 0
 		if zones[i].PctHigh > 0 {
-			hi = int(float64(zones[i].PctHigh) * float64(ftp) / 100.0)
+			// calculates the high end
+			hi = (zones[i].PctHigh * ftp) / 100
 		}
-		zones[i].WattsLow = lo
+		zones[i].WattsLow = zoneStartPower
 		zones[i].WattsHigh = hi
-		if zones[i].Label != "SS" {
-			prevHigh = hi
-		}
+		zoneEndPower = hi
 	}
+
+	ssZone := models.PowerZone{Label: "SS", Name: "Sweet Spot", PctLow: 88, PctHigh: 94}
+	ssZone.WattsLow = (ssZone.PctLow * ftp) / 100
+	ssZone.WattsHigh = (ssZone.PctHigh * ftp) / 100
+
+	// apppend the SS zone
+	zones = append(zones, ssZone)
 	return zones
 }
 
@@ -49,13 +56,9 @@ func SweetSpotBand(ftp int) (low, high int) {
 	if ftp <= 0 {
 		return 0, 0
 	}
-	zones := PowerZones(ftp)
-	for _, z := range zones {
-		if z.Label == "SS" {
-			return z.WattsLow, z.WattsHigh
-		}
-	}
-	return 0, 0
+	// sweetspot is always the 7th index.
+	sweetspot := PowerZones(ftp)[SweetSpotIdx]
+	return sweetspot.WattsLow, sweetspot.WattsHigh
 }
 
 // HRZones returns the 5-zone Coggan heart-rate model for the given threshold HR.
