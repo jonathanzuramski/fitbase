@@ -6,9 +6,11 @@
 <div class="page-header">
   <h1>calendar</h1>
   <div class="cal-nav">
-    <a href="/calendar?year={{$cal.PrevYear}}&month={{$cal.PrevMonth}}" class="cal-nav-btn" title="Previous month">&larr;</a>
+    <a href="/calendar?year={{$cal.PrevYear}}&month={{$cal.PrevMonth}}" class="cal-nav-btn"
+      title="Previous month">&larr;</a>
     <span class="cal-nav-label">{{$cal.MonthLabel}}</span>
-    <a href="/calendar?year={{$cal.NextYear}}&month={{$cal.NextMonth}}" class="cal-nav-btn" title="Next month">&rarr;</a>
+    <a href="/calendar?year={{$cal.NextYear}}&month={{$cal.NextMonth}}" class="cal-nav-btn"
+      title="Next month">&rarr;</a>
     <a href="/calendar" class="cal-nav-today" title="Jump to current month">today</a>
   </div>
 </div>
@@ -25,39 +27,43 @@
   <div class="cal-header cal-header-week">Week</div>
 
   {{range $week := $cal.Weeks}}
-    {{range $day := $week.Days}}
-    <div class="cal-day{{if not $day.InMonth}} outside{{end}}{{if $day.IsToday}} today{{end}}" data-date="{{$day.DateISO}}">
-      <div class="cal-date">
-        <span>{{$day.Date.Day}}</span>
-        {{if $day.InMonth}}
-        <button type="button" class="cal-add-btn" data-date="{{$day.DateISO}}" title="Plan a workout">+</button>
-        {{end}}
-      </div>
-      {{range $w := $day.Workouts}}
-      <a href="/workouts/{{$w.ID}}" class="cal-workout" title="{{$w.Sport}}">
-        <span class="cal-dot cal-dot-{{$w.Sport | lower}}"></span>
-        <span class="cal-workout-info">{{formatDuration $w.DurationSecs}}{{if gt $w.DistanceM 0.0}} · {{formatDistance $w.DistanceM $imperial}}{{end}}</span>
-      </a>
+  {{range $day := $week.Days}}
+  <div class="cal-day{{if not $day.InMonth}} outside{{end}}{{if $day.IsToday}} today{{end}}"
+    data-date="{{$day.DateISO}}">
+    <div class="cal-date">
+      <span>{{$day.Date.Day}}</span>
+      {{if $day.InMonth}}
+      <button type="button" class="cal-add-btn" data-date="{{$day.DateISO}}" title="Plan a workout">+</button>
       {{end}}
-      {{range $p := $day.Planned}}
-      <div class="cal-planned{{if eq $p.Source "coach"}} cal-planned-coach{{end}}" title="{{if $p.Title}}{{$p.Title}}{{else}}planned{{end}}{{if eq $p.Source "coach"}} · proposed by coach{{end}}">
-        <span class="cal-dot cal-dot-{{$p.Sport | lower}} cal-dot-planned"></span>
-        <span class="cal-planned-info">
-          <span class="cal-planned-target">{{formatDuration $p.DurationSecs}}{{if $p.TSS}} · {{formatOptFloat $p.TSS "T"}}{{end}}</span>
-          {{if $p.Title}}<span class="cal-planned-title">{{$p.Title}}</span>{{end}}
-        </span>
-        <button type="button" class="cal-planned-del" data-id="{{$p.ID}}" title="Remove planned workout">×</button>
-      </div>
-      {{end}}
+    </div>
+    {{range $w := $day.Workouts}}
+    <a href="/workouts/{{$w.ID}}" class="cal-workout" title="{{$w.Sport}}">
+      <span class="cal-dot cal-dot-{{$w.Sport | lower}}"></span>
+      <span class="cal-workout-info">{{formatDuration $w.DurationSecs}}{{if gt $w.DistanceM 0.0}} · {{formatDistance
+        $w.DistanceM $imperial}}{{end}}</span>
+    </a>
+    {{end}}
+    {{range $p := $day.Planned}}
+    <div class="cal-planned{{if eq $p.Source " coach"}} cal-planned-coach{{end}}"
+      title="{{if $p.Title}}{{$p.Title}}{{else}}planned{{end}}{{if eq $p.Source " coach"}} · proposed by coach{{end}}">
+      <span class="cal-dot cal-dot-{{$p.Sport | lower}} cal-dot-planned"></span>
+      <span class="cal-planned-info">
+        <span class="cal-planned-target">{{formatDuration $p.DurationSecs}}{{if $p.TSS}} · {{formatOptFloat $p.TSS
+          "T"}}{{end}}</span>
+        {{if $p.Title}}<span class="cal-planned-title">{{$p.Title}}</span>{{end}}
+      </span>
+      <button type="button" class="cal-planned-del" data-id="{{$p.ID}}" title="Remove planned workout">×</button>
     </div>
     {{end}}
-    <div class="cal-week-summary">
-      {{if gt $week.TotalDurSecs 0}}
-      <div class="cal-week-stat">{{formatDuration $week.TotalDurSecs}}</div>
-      {{if gt $week.TotalDistM 0.0}}<div class="cal-week-stat">{{formatDistance $week.TotalDistM $imperial}}</div>{{end}}
-      {{if gt $week.TotalTSS 0.0}}<div class="cal-week-stat">{{printf "%.0f" $week.TotalTSS}} TSS</div>{{end}}
-      {{end}}
-    </div>
+  </div>
+  {{end}}
+  <div class="cal-week-summary">
+    {{if gt $week.TotalDurSecs 0}}
+    <div class="cal-week-stat">{{formatDuration $week.TotalDurSecs}}</div>
+    {{if gt $week.TotalDistM 0.0}}<div class="cal-week-stat">{{formatDistance $week.TotalDistM $imperial}}</div>{{end}}
+    {{if gt $week.TotalTSS 0.0}}<div class="cal-week-stat">{{printf "%.0f" $week.TotalTSS}} TSS</div>{{end}}
+    {{end}}
+  </div>
   {{end}}
 </div>
 
@@ -104,7 +110,8 @@
       <div class="plan-ivls-field">
         <div class="plan-ivls-label">
           <span>Intervals (JSON)</span>
-          <small class="modal-hint">seconds for durations, % FTP for power · <code>repeat</code>+<code>steps</code> for sets · <code>target_pct_ftp_start/end</code> for a ramp (start &gt; end for a cooldown)</small>
+          <small class="modal-hint">seconds for durations, % FTP for power · <code>repeat</code>+<code>steps</code> for
+            sets · <code>target_pct_ftp_start/end</code> for a ramp (start &gt; end for a cooldown)</small>
         </div>
         <textarea name="intervals_json" id="plan-intervals-json" rows="9" spellcheck="false" class="mono"></textarea>
       </div>
@@ -133,7 +140,8 @@
       <div class="plan-overview-dot cal-dot-{{$p.Sport | lower}}"></div>
       <div class="plan-overview-info">
         <div class="plan-overview-item-title">{{if $p.Title}}{{$p.Title}}{{else}}planned{{end}}</div>
-        <div class="plan-overview-details">{{formatDuration $p.DurationSecs}}{{if $p.TSS}} · {{formatOptFloat $p.TSS "T"}}{{end}}</div>
+        <div class="plan-overview-details">{{formatDuration $p.DurationSecs}}{{if $p.TSS}} · {{formatOptFloat $p.TSS
+          "T"}}{{end}}</div>
       </div>
     </div>
     {{else}}
@@ -141,484 +149,9 @@
     {{end}}
   </div>
 </dialog>
+{{end}}
 
-<script>
-// Athlete FTP (watts) for converting watts targets to %FTP in the preview; 0 if unset.
-// Read from a data attribute (like charts.js reads data-imperial) to keep Go
-// template values out of the JS body.
-const PLAN_FTP = parseInt(document.getElementById("plan-profile")?.dataset.ftp || "0", 10) || 0;
-
-// A worked example shown when the user enables structured intervals, so the JSON
-// shape (flat target, ramp, and a repeat group) is self-explanatory.
-const PLAN_EXAMPLE_JSON = JSON.stringify([
-  { kind: "warmup", duration_secs: 600, target_pct_ftp_start: 45, target_pct_ftp_end: 65 },
-  { repeat: 4, steps: [
-    { kind: "work", duration_secs: 300, target_pct_ftp: 105 },
-    { kind: "recovery", duration_secs: 180, target_pct_ftp: 55 }
-  ] },
-  { kind: "cooldown", duration_secs: 300, target_pct_ftp_start: 55, target_pct_ftp_end: 40 }
-], null, 2);
-
-// Power-zone colors (Z1–Z7), mirroring static/js/charts.js so the preview matches
-// the rest of the app. Kept inline because charts.js isn't loaded on this page.
-const PLAN_ZONE_COLORS = ["#94a3b8","#60a5fa","#34d399","#facc15","#f97316","#ef4444","#a855f7"];
-
-// Chart styling, matching the uPlot theme used by the workout/dashboard charts.
-const PLAN_CHART = { grid: "#1e2330", axis: "#475569", font: "11px system-ui" };
-
-// Upper %FTP bound of each zone Z1–Z6 (Z7 is open-ended). These are exactly the
-// discrete thresholds the workout power graph uses (getPowerZoneColor in
-// charts.js), so the preview's colors match it instead of blending between zones.
-const PLAN_ZONE_BOUNDS = [56, 76, 91, 106, 121, 151];
-
-// Representative %FTP for a zone label, used only to place zone-only targets on
-// the profile (the backend stores no concrete watts for a zone — see model docs).
-const PLAN_ZONE_PCT = { z1: 45, z2: 65, z3: 83, z4: 98, z5: 113, z6: 135, z7: 160, ss: 90 };
-
-// planZoneColor returns the discrete zone color for a %FTP value, matching the
-// hard-bucketed coloring of the workout power graph.
-function planZoneColor(pct) {
-  for (let i = 0; i < PLAN_ZONE_BOUNDS.length; i++) {
-    if (pct < PLAN_ZONE_BOUNDS[i]) return PLAN_ZONE_COLORS[i];
-  }
-  return PLAN_ZONE_COLORS[6];
-}
-
-// planZoneBands splits a ramp's start→end %FTP span into sub-bands that each fall
-// in a single zone, so a ramp steps through the same discrete colors the power
-// graph shows (hard changes at zone boundaries) rather than a blended gradient.
-// Works in either direction: a descending cooldown ramp returns bands ordered
-// start→end too.
-function planZoneBands(start, end) {
-  if (start === end) return [[start, end]];
-  const lo = Math.min(start, end), hi = Math.max(start, end);
-  const cuts = PLAN_ZONE_BOUNDS.filter((b) => b > lo && b < hi);
-  const pts = start < end ? [start, ...cuts, end] : [start, ...cuts.reverse(), end];
-  const bands = [];
-  for (let i = 0; i < pts.length - 1; i++) bands.push([pts[i], pts[i + 1]]);
-  return bands;
-}
-
-function planHexA(hex, a) {
-  const p = (i) => parseInt(hex.slice(i, i + 2), 16);
-  return `rgba(${p(1)},${p(3)},${p(5)},${a})`;
-}
-
-// planSegments resolves a node's power target to {lo, hi} %FTP (lo==hi for a flat
-// target; free=true when there's no usable target).
-function planTargetPct(node) {
-  if (node.target_pct_ftp_start != null && node.target_pct_ftp_end != null) {
-    return { lo: +node.target_pct_ftp_start, hi: +node.target_pct_ftp_end };
-  }
-  if (node.target_pct_ftp != null) {
-    return { lo: +node.target_pct_ftp, hi: +node.target_pct_ftp };
-  }
-  if (node.target_watts != null && PLAN_FTP > 0) {
-    const p = (+node.target_watts / PLAN_FTP) * 100;
-    return { lo: p, hi: p };
-  }
-  if (node.target_zone) {
-    const p = PLAN_ZONE_PCT[String(node.target_zone).toLowerCase()];
-    if (p != null) return { lo: p, hi: p };
-  }
-  return { lo: 0, hi: 0, free: true };
-}
-
-// planFlatten expands repeat groups into a flat list of timed segments.
-function planFlatten(nodes, out, t) {
-  for (const node of nodes) {
-    if (Array.isArray(node.steps) && node.steps.length) {
-      const reps = node.repeat && node.repeat > 1 ? node.repeat : 1;
-      for (let r = 0; r < reps; r++) t = planFlatten(node.steps, out, t);
-      continue;
-    }
-    const dur = +node.duration_secs || 0;
-    if (dur <= 0) continue;
-    const tgt = planTargetPct(node);
-    out.push({ start: t, dur, lo: tgt.lo, hi: tgt.hi, free: !!tgt.free });
-    t += dur;
-  }
-  return t;
-}
-
-function planFormatDuration(sec) {
-  const h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60);
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
-}
-
-// planNiceStep rounds a rough axis step up to a clean 1/2/5 × 10ⁿ value so watt
-// gridlines land on tidy numbers (50, 100, 250, …).
-function planNiceStep(rough) {
-  if (rough <= 0) return 1;
-  const pow = Math.pow(10, Math.floor(Math.log10(rough)));
-  const n = rough / pow;
-  return (n < 1.5 ? 1 : n < 3 ? 2 : n < 7 ? 5 : 10) * pow;
-}
-
-// planDrawProfile renders the flattened segments as a zone-colored power profile,
-// styled to match the workout charts (gridlines, %FTP + time axes, dashed FTP line,
-// gradient area fills with a crisp colored top edge).
-function planDrawProfile(canvas, segments, total) {
-  const dpr = window.devicePixelRatio || 1;
-  const cssW = canvas.clientWidth || 480, cssH = 150;
-  canvas.width = cssW * dpr;
-  canvas.height = cssH * dpr;
-  const ctx = canvas.getContext("2d");
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, cssW, cssH);
-  ctx.font = PLAN_CHART.font;
-  if (!segments.length || total <= 0) return;
-
-  // Label the Y axis in watts when FTP is known, else fall back to %FTP.
-  const hasW = PLAN_FTP > 0;
-  // Plot area with gutters for axis labels (wider left gutter for watt numbers).
-  const padL = hasW ? 40 : 32, padR = 8, padT = 10, padB = 18;
-  const plotW = cssW - padL - padR, plotH = cssH - padT - padB;
-  const baseY = padT + plotH;
-
-  let maxPct = 120;
-  for (const s of segments) maxPct = Math.max(maxPct, s.lo, s.hi);
-  maxPct = Math.ceil((maxPct * 1.08) / 25) * 25; // round up to a clean 25% step
-
-  const xFor = (sec) => padL + (sec / total) * plotW;
-  const yFor = (pct) => padT + plotH - (pct / maxPct) * plotH;
-
-  // Horizontal gridlines + labels (watts relative to FTP, or %FTP as fallback).
-  ctx.textAlign = "right";
-  ctx.textBaseline = "middle";
-  const gridLine = (gy, label) => {
-    gy = Math.round(gy) + 0.5;
-    ctx.strokeStyle = PLAN_CHART.grid;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(padL, gy);
-    ctx.lineTo(cssW - padR, gy);
-    ctx.stroke();
-    ctx.fillStyle = PLAN_CHART.axis;
-    ctx.fillText(label, padL - 5, gy);
-  };
-  if (hasW) {
-    const maxW = (maxPct / 100) * PLAN_FTP;
-    const stepW = planNiceStep(maxW / 4);
-    for (let w = 0; w <= maxW + 0.5; w += stepW) gridLine(yFor((w / PLAN_FTP) * 100), String(Math.round(w)));
-  } else {
-    const step = maxPct > 175 ? 50 : 25;
-    for (let gp = 0; gp <= maxPct + 0.5; gp += step) gridLine(yFor(gp), gp + "%");
-  }
-
-  // Segments: solid zone-colored fills (matching the power graph palette), split
-  // into per-zone bands for ramps so colors change hard at zone boundaries.
-  ctx.lineJoin = "round";
-  ctx.lineCap = "round";
-  for (const s of segments) {
-    const x0 = xFor(s.start), x1 = Math.max(x0 + 1, xFor(s.start + s.dur));
-    if (s.free) {
-      ctx.fillStyle = planHexA("#94a3b8", 0.18);
-      ctx.fillRect(x0, yFor(45), x1 - x0, baseY - yFor(45));
-      continue;
-    }
-    const span = s.hi - s.lo;
-    const xAt = (pct) => (span === 0 ? x0 : x0 + ((pct - s.lo) / span) * (x1 - x0));
-    for (const [pa, pb] of planZoneBands(s.lo, s.hi)) {
-      const bx0 = xAt(pa), bx1 = pb === s.hi ? x1 : xAt(pb);
-      const color = planZoneColor((pa + pb) / 2); // midpoint sits unambiguously in one zone
-      ctx.fillStyle = color;
-      ctx.beginPath();
-      ctx.moveTo(bx0, baseY);
-      ctx.lineTo(bx0, yFor(pa));
-      ctx.lineTo(bx1, yFor(pb)); // sloped top for ramps; flat when lo==hi
-      ctx.lineTo(bx1, baseY);
-      ctx.closePath();
-      ctx.fill();
-      // Crisp top edge in the same zone color, echoing the power line.
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(bx0, yFor(pa));
-      ctx.lineTo(bx1, yFor(pb));
-      ctx.stroke();
-    }
-  }
-
-  // Dashed FTP (100%) reference line, drawn over the blocks and labeled so the
-  // watt scale is clearly anchored to threshold.
-  const fy = Math.round(yFor(100)) + 0.5;
-  ctx.save();
-  ctx.setLineDash([4, 3]);
-  ctx.strokeStyle = planHexA("#e2e8f0", 0.55);
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(padL, fy);
-  ctx.lineTo(cssW - padR, fy);
-  ctx.stroke();
-  ctx.restore();
-  ctx.fillStyle = planHexA("#e2e8f0", 0.6);
-  ctx.textAlign = "right";
-  ctx.textBaseline = "bottom";
-  ctx.fillText(hasW ? `FTP ${PLAN_FTP}w` : "FTP", cssW - padR - 2, fy - 1);
-
-  // Per-block target labels (actual watts, or %FTP when FTP is unknown) so the
-  // exact target is readable without eyeballing it against the axis. Drawn last so
-  // nothing overlaps them; skipped on blocks too narrow to fit the text.
-  const wattAt = (pct) => Math.round((pct / 100) * PLAN_FTP);
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  for (const s of segments) {
-    if (s.free) continue;
-    const x0 = xFor(s.start), x1 = Math.max(x0 + 1, xFor(s.start + s.dur));
-    const lo = hasW ? wattAt(s.lo) : Math.round(s.lo);
-    const hi = hasW ? wattAt(s.hi) : Math.round(s.hi);
-    const unit = hasW ? "w" : "%";
-    const label = lo === hi ? `${lo}${unit}` : `${lo}–${hi}${unit}`;
-    if (x1 - x0 < ctx.measureText(label).width + 6) continue; // too narrow
-    const ly = Math.min(yFor(Math.max(s.lo, s.hi)) + 11, baseY - 7);
-    ctx.save();
-    ctx.fillStyle = "#fff";
-    ctx.shadowColor = "rgba(0,0,0,0.65)";
-    ctx.shadowBlur = 3;
-    ctx.fillText(label, (x0 + x1) / 2, ly);
-    ctx.restore();
-  }
-
-  // Time axis ticks along the bottom.
-  ctx.strokeStyle = PLAN_CHART.grid;
-  ctx.fillStyle = PLAN_CHART.axis;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "top";
-  const nTicks = Math.max(2, Math.min(6, Math.round(plotW / 90)));
-  for (let i = 0; i <= nTicks; i++) {
-    const t = (total / nTicks) * i;
-    const tx = xFor(t);
-    ctx.beginPath();
-    ctx.moveTo(tx + 0.5, baseY);
-    ctx.lineTo(tx + 0.5, baseY + 3);
-    ctx.stroke();
-    ctx.fillText(Math.round(t / 60) + "m", Math.min(cssW - padR, Math.max(padL, tx)), baseY + 5);
-  }
-}
-
-const planAddModal = () => {
-  // Form elements for the quick-add planned workout dialog.
-  const planDialog    = document.getElementById('plan-dialog');
-  const planForm      = document.getElementById('plan-form');
-  const planDateInput = document.getElementById('plan-date');
-  const planErrorEl   = document.getElementById('plan-error');
-  const planSubmitBtn = document.getElementById('plan-submit');
-  const planDuration  = document.getElementById('plan-duration');
-  const planUseIvls   = document.getElementById('plan-use-intervals');
-  const planIvlsBox   = document.getElementById('plan-intervals-section');
-  const planIvlsJSON  = document.getElementById('plan-intervals-json');
-  const planCanvas    = document.getElementById('plan-profile');
-  const planMeta      = document.getElementById('plan-profile-meta');
-
-  // Holds the last successful parse so submit can reuse it without re-parsing.
-  let planIvlState = { ok: false, intervals: [], total: 0 };
-
-  // autosizePlanJSON grows the textarea to fit its content so the example (and any
-  // edits) show in full without an inner scrollbar.
-  function autosizePlanJSON() {
-    planIvlsJSON.style.height = 'auto';
-    planIvlsJSON.style.height = planIvlsJSON.scrollHeight + 'px';
-  }
-
-  // parseAndRenderIntervals reads the JSON textarea, draws the profile preview,
-  // and (on success) auto-fills the read-only duration from the summed segments.
-  function parseAndRenderIntervals() {
-    autosizePlanJSON();
-    const raw = planIvlsJSON.value.trim();
-    if (!raw) {
-      planIvlState = { ok: false, intervals: [], total: 0 };
-      planDrawProfile(planCanvas, [], 0);
-      planMeta.textContent = '';
-      return;
-    }
-    let parsed;
-    try {
-      parsed = JSON.parse(raw);
-    } catch (err) {
-      planIvlState = { ok: false, intervals: [], total: 0, error: 'Invalid JSON: ' + err.message };
-      planDrawProfile(planCanvas, [], 0);
-      planMeta.textContent = planIvlState.error;
-      planMeta.classList.add('plan-profile-err');
-      return;
-    }
-    if (!Array.isArray(parsed)) {
-      planIvlState = { ok: false, intervals: [], total: 0, error: 'Intervals must be a JSON array.' };
-      planDrawProfile(planCanvas, [], 0);
-      planMeta.textContent = planIvlState.error;
-      planMeta.classList.add('plan-profile-err');
-      return;
-    }
-    const segments = [];
-    const total = planFlatten(parsed, segments, 0);
-    planMeta.classList.remove('plan-profile-err');
-    planDrawProfile(planCanvas, segments, total);
-    planIvlState = { ok: true, intervals: parsed, total };
-    planMeta.textContent = total > 0
-      ? `Total ${planFormatDuration(total)} · ${segments.length} segment${segments.length === 1 ? '' : 's'}`
-      : 'No timed segments yet.';
-    if (total > 0) planDuration.value = Math.round(total / 60);
-  }
-
-  // Toggle the structured-intervals UI. When on, duration is derived (read-only);
-  // when off, the manual minute field is used as before.
-  function setIntervalsMode(on) {
-    planIvlsBox.hidden = !on;
-    planDuration.readOnly = on;
-    planDialog.classList.toggle('modal-wide', on); // widen first so the canvas measures correctly
-    if (on) {
-      if (!planIvlsJSON.value.trim()) planIvlsJSON.value = PLAN_EXAMPLE_JSON;
-      parseAndRenderIntervals();
-    } else {
-      planIvlState = { ok: false, intervals: [], total: 0 };
-    }
-  }
-
-  planUseIvls.addEventListener('change', () => setIntervalsMode(planUseIvls.checked));
-  planIvlsJSON.addEventListener('input', parseAndRenderIntervals);
-
-  // Tab inserts two spaces instead of moving focus, so JSON can be indented in place.
-  planIvlsJSON.addEventListener('keydown', (e) => {
-    if (e.key !== 'Tab' || e.shiftKey) return;
-    e.preventDefault();
-    const el = planIvlsJSON, s = el.selectionStart, en = el.selectionEnd;
-    el.value = el.value.slice(0, s) + '  ' + el.value.slice(en);
-    el.selectionStart = el.selectionEnd = s + 2;
-    parseAndRenderIntervals();
-  });
-
-  // On blur, pretty-print valid JSON (2-space indent) so the layout stays tidy
-  // without manual formatting. Invalid JSON is left untouched for the user to fix.
-  planIvlsJSON.addEventListener('blur', () => {
-    const raw = planIvlsJSON.value.trim();
-    if (!raw) return;
-    try {
-      planIvlsJSON.value = JSON.stringify(JSON.parse(raw), null, 2);
-    } catch (_) {
-      return; // leave as-is; the error is already shown under the chart
-    }
-    parseAndRenderIntervals();
-  });
-
-  // Keep the canvas sharp if the viewport changes while the editor is open.
-  window.addEventListener('resize', () => {
-    if (planUseIvls.checked && planDialog.open) parseAndRenderIntervals();
-  });
-
-  // add on-click listener to all + buttons
-  document.querySelectorAll('.cal-add-btn').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      planForm.reset();
-      planDateInput.value = btn.dataset.date;
-      planErrorEl.hidden = true;
-      // Reset the structured-intervals UI to its collapsed default on each open.
-      planUseIvls.checked = false;
-      planIvlsJSON.value = '';
-      setIntervalsMode(false);
-      // feature check for modal, if not supported, fallback to non-modal behavior (open the dialog but allow interaction with rest of page)
-      if (typeof planDialog.showModal === 'function') planDialog.showModal();
-      else planDialog.setAttribute('open', '');
-    });
-  });
-
-  function closePlanDialog() {
-    // same feature check, but for closign the dialog 
-    if (typeof planDialog.close === 'function') planDialog.close();
-    else planDialog.removeAttribute('open');
-  }
-
-  // x button at the top of modal 
-  document.getElementById('plan-cancel').addEventListener('click', closePlanDialog);
-  // cancel button at the bottom of modal
-  document.getElementById('plan-cancel-btn').addEventListener('click', closePlanDialog);
-
-  
-  planForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    planErrorEl.hidden = true;
-    planSubmitBtn.disabled = true;
-
-    const fd = new FormData(planForm);
-    const mins = parseInt(fd.get('duration_mins'), 10);
-    const ifRaw = (fd.get('intensity_factor') || '').toString().trim();
-    const body = {
-      date:          fd.get('date'),
-      sport:         fd.get('sport') || 'cycling',
-      title:         (fd.get('title') || '').toString().trim(),
-      description:   (fd.get('description') || '').toString().trim(),
-      duration_secs: mins * 60,
-    };
-    if (ifRaw) body.intensity_factor = parseFloat(ifRaw);
-
-    // Structured intervals: re-parse on submit so a bad edit can't slip through,
-    // and let the server derive the authoritative duration from the segments.
-    if (planUseIvls.checked) {
-      parseAndRenderIntervals();
-      if (!planIvlState.ok) {
-        planErrorEl.textContent = planIvlState.error || 'Fix the intervals JSON before saving.';
-        planErrorEl.hidden = false;
-        planSubmitBtn.disabled = false;
-        return;
-      }
-      if (planIvlState.total <= 0) {
-        planErrorEl.textContent = 'Intervals must contain at least one step with duration_secs > 0.';
-        planErrorEl.hidden = false;
-        planSubmitBtn.disabled = false;
-        return;
-      }
-      body.intervals = planIvlState.intervals;
-      body.duration_secs = planIvlState.total;
-    }
-
-    try {
-      const res = await fetch('/api/planned-workouts', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.error || 'failed to add');
-      }
-      closePlanDialog();
-      window.location.reload(); // server-rendered grid; reload keeps state correct
-    } catch (err) {
-      planErrorEl.textContent = err.message;
-      planErrorEl.hidden = false;
-    } finally {
-      planSubmitBtn.disabled = false;
-    }
-  });
-
-  // Delete a planned workout in place.
-  document.querySelectorAll('.cal-planned-del').forEach((btn) => {
-    btn.addEventListener('click', async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (!confirm('Remove this planned workout?')) return;
-      const id = btn.dataset.id;
-      try {
-        const res = await fetch('/api/planned-workouts/' + encodeURIComponent(id), { method: 'DELETE' });
-        if (!res.ok && res.status !== 204) throw new Error('delete failed');
-        btn.closest('.cal-planned').remove();
-      } catch (_) {
-        alert('Could not remove the planned workout.');
-      }
-    });
-  });
-};
-
-const workoutModal = () => { 
-  
-  
-
-
-}; 
-
-
-// run modals
-workoutModal()
-planAddModal()
-</script>
+{{define "scripts"}}
+<script src="/static/js/plan-profile.js"></script>
+<script src="/static/js/plan-modal.js"></script>
 {{end}}

@@ -46,7 +46,99 @@ func createPlanned(t *testing.T, h *api.PlannedHandler, body any) *httptest.Resp
 	return w
 }
 
+// postRawJSON posts a literal JSON string body (rather than a marshalled Go
+// value) so a test can assert that the exact wire shape a client sends parses
+// correctly. Content-Type is set so the handler's decodeJSON path runs as it
+// would in production.
+func postRawJSON(t *testing.T, body string) *http.Request {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	return req
+}
+
 // ── Create / toModel ─────────────────────────────────────────────────────────
+
+// E2E: posts the raw JSON a client would send for an interval workout straight
+// through the Create handler, exercising the full decode → toModel → DB → JSON
+// round-trip. This verifies the wire field names (snake_case) parse into the
+// nested PlannedInterval tree — flat targets, a ramp, and a repeat group with
+// child steps — and that the summed interval duration drives DurationSecs.
+func TestPlannedCreate_IntervalsFromRawJSON(t *testing.T) {
+	h := newPlannedHandler(t)
+
+	body := `{
+		"date": "` + today() + `",
+		"sport": "cycling",
+		"title": "VO2 + sweet spot",
+		"duration_secs": 1,
+		"intensity_factor": 0.88,
+		"intervals": [
+			{"kind": "warmup", "duration_secs": 600, "target_pct_ftp_start": 45, "target_pct_ftp_end": 75},
+			{
+				"repeat": 4,
+				"steps": [
+					{"kind": "work", "duration_secs": 180, "target_pct_ftp": 115, "note": "hard"},
+					{"kind": "recovery", "duration_secs": 120, "target_zone": "Z1"}
+				]
+			},
+			{"kind": "cooldown", "duration_secs": 300}
+		]
+	}`
+
+	w := httptest.NewRecorder()
+	h.Create(w, postRawJSON(t, body))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d (body: %s)", w.Code, http.StatusCreated, w.Body)
+	}
+
+	var got models.PlannedWorkout
+	if errMsg := decodeEnvelope(t, w.Body.Bytes(), &got); errMsg != "" {
+		t.Fatalf("unexpected error in envelope: %s", errMsg)
+	}
+
+	// Duration is summed from the intervals (600 + 4×(180+120) + 300 = 2100),
+	// overriding the deliberately-wrong duration_secs: 1 in the body.
+	if got.DurationSecs != 2100 {
+		t.Errorf("duration = %d, want 2100 (summed from intervals)", got.DurationSecs)
+	}
+
+	// The three top-level nodes parsed in order.
+	if len(got.Intervals) != 3 {
+		t.Fatalf("intervals len = %d, want 3", len(got.Intervals))
+	}
+
+	// Node 0: a warmup ramp — start/end parsed into the pointer fields.
+	warmup := got.Intervals[0]
+	if warmup.Kind != "warmup" {
+		t.Errorf("intervals[0].kind = %q, want warmup", warmup.Kind)
+	}
+	if warmup.TargetPctFTPStart == nil || *warmup.TargetPctFTPStart != 45 ||
+		warmup.TargetPctFTPEnd == nil || *warmup.TargetPctFTPEnd != 75 {
+		t.Errorf("intervals[0] ramp = %v→%v, want 45→75",
+			warmup.TargetPctFTPStart, warmup.TargetPctFTPEnd)
+	}
+
+	// Node 1: a repeat group with two child steps and no leaf fields of its own.
+	group := got.Intervals[1]
+	if !group.IsGroup() {
+		t.Fatalf("intervals[1] should be a repeat group, got %+v", group)
+	}
+	if group.Repeat != 4 {
+		t.Errorf("intervals[1].repeat = %d, want 4", group.Repeat)
+	}
+	if len(group.Steps) != 2 {
+		t.Fatalf("intervals[1].steps len = %d, want 2", len(group.Steps))
+	}
+	if work := group.Steps[0]; work.TargetPctFTP == nil || *work.TargetPctFTP != 115 || work.Note != "hard" {
+		t.Errorf("intervals[1].steps[0] = %+v, want flat 115%% FTP note 'hard'", work)
+	}
+	if rec := group.Steps[1]; rec.TargetZone != "Z1" {
+		t.Errorf("intervals[1].steps[1].target_zone = %q, want Z1", rec.TargetZone)
+	}
+}
+
 
 // Covers the happy path plus two toModel defaults: empty sport → "cycling" and
 // source stamped "manual" by the handler (not the client).
