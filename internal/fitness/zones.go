@@ -7,6 +7,10 @@ import (
 	"github.com/fitbase/fitbase/internal/models"
 )
 
+const (
+	SweetSpotIdx = 7
+)
+
 // PowerZones returns the 7 standard power zones plus Sweet Spot for the given FTP.
 func PowerZones(ftp int) []models.PowerZone {
 	zones := []models.PowerZone{
@@ -49,13 +53,9 @@ func SweetSpotBand(ftp int) (low, high int) {
 	if ftp <= 0 {
 		return 0, 0
 	}
-	zones := PowerZones(ftp)
-	for _, z := range zones {
-		if z.Label == "SS" {
-			return z.WattsLow, z.WattsHigh
-		}
-	}
-	return 0, 0
+	// sweetspot is always the 7th index.
+	sweetspot := PowerZones(ftp)[SweetSpotIdx]
+	return sweetspot.WattsLow, sweetspot.WattsHigh
 }
 
 // HRZones returns the 5-zone Coggan heart-rate model for the given threshold HR.

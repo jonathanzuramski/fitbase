@@ -586,13 +586,7 @@ func (h *Handler) GetWorkoutAnalysis(w http.ResponseWriter, r *http.Request) {
 		// power-time denominator as the 7-zone breakdown so the model can read
 		// "X% of the ride was in SS" without re-doing the math.
 		if ssSecs != nil {
-			var ssDef models.PowerZone
-			for _, z := range powerZoneDefs {
-				if z.Label == "SS" {
-					ssDef = z
-					break
-				}
-			}
+			var ssDef models.PowerZone = powerZoneDefs[fitness.SweetSpotIdx]
 			pct := 0.0
 			if total > 0 {
 				pct = math.Round(float64(*ssSecs)/float64(total)*1000) / 10
