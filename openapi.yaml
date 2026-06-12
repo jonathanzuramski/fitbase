@@ -772,6 +772,7 @@ components:
         workout_id:             { type: string }
         power_zones:            { type: array, items: { $ref: "#/components/schemas/ZoneBreakdown" } }
         hr_zones:               { type: array, items: { $ref: "#/components/schemas/ZoneBreakdown" } }
+        sweet_spot:             { allOf: [ { $ref: "#/components/schemas/ZoneBreakdown" } ], nullable: true, description: "Sweet Spot reference band (88–94% FTP). Overlaps Z3/Z4 — reported in parallel, not subtracted from the 7-zone totals." }
         variability_index:      { type: number, nullable: true, description: "NP / avg power — measures execution quality (1.0 = perfectly steady)" }
         efficiency_factor:      { type: number, nullable: true, description: "NP / avg HR — aerobic efficiency proxy" }
         avg_np_90day_watts:     { type: number, nullable: true }

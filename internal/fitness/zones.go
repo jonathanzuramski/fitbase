@@ -7,6 +7,10 @@ import (
 	"github.com/fitbase/fitbase/internal/models"
 )
 
+const (
+	SweetSpotIdx = 7
+)
+
 // PowerZones returns the 7 standard power zones plus Sweet Spot for the given FTP.
 func PowerZones(ftp int) []models.PowerZone {
 	zones := []models.PowerZone{
@@ -17,29 +21,44 @@ func PowerZones(ftp int) []models.PowerZone {
 		{Label: "Z5", Name: "VO2 Max", PctLow: 106, PctHigh: 120},
 		{Label: "Z6", Name: "Anaerobic", PctLow: 121, PctHigh: 150},
 		{Label: "Z7", Name: "Neuromuscular", PctLow: 151, PctHigh: 0}, // 0 = open-ended
-		{Label: "SS", Name: "Sweet Spot", PctLow: 84, PctHigh: 97},
 	}
-	prevHigh := 0
+	zoneEndPower := 0
 	for i := range zones {
-		lo := prevHigh + 1
+		// sets zoneStart to previous zoneEnd so
+		// there is no gaps in the power zones.
+		zoneStartPower := zoneEndPower + 1
 		if i == 0 {
-			lo = 1
-		}
-		// SS is a standalone reference zone — compute directly from percentage
-		if zones[i].Label == "SS" {
-			lo = int(float64(zones[i].PctLow) * float64(ftp) / 100.0)
+			zoneStartPower = 1
 		}
 		hi := 0
 		if zones[i].PctHigh > 0 {
-			hi = int(float64(zones[i].PctHigh) * float64(ftp) / 100.0)
+			// calculates the high end
+			hi = (zones[i].PctHigh * ftp) / 100
 		}
-		zones[i].WattsLow = lo
+		zones[i].WattsLow = zoneStartPower
 		zones[i].WattsHigh = hi
-		if zones[i].Label != "SS" {
-			prevHigh = hi
-		}
+		zoneEndPower = hi
 	}
+
+	ssZone := models.PowerZone{Label: "SS", Name: "Sweet Spot", PctLow: 88, PctHigh: 94}
+	ssZone.WattsLow = (ssZone.PctLow * ftp) / 100
+	ssZone.WattsHigh = (ssZone.PctHigh * ftp) / 100
+
+	// apppend the SS zone
+	zones = append(zones, ssZone)
 	return zones
+}
+
+// SweetSpotBand returns the watt range for the Sweet Spot reference band at
+// this FTP. Returns (0,0) when ftp <= 0. Use this to count SS time alongside
+// the 7-zone partition without duplicating the percentage definition.
+func SweetSpotBand(ftp int) (low, high int) {
+	if ftp <= 0 {
+		return 0, 0
+	}
+	// sweetspot is always the 7th index.
+	sweetspot := PowerZones(ftp)[SweetSpotIdx]
+	return sweetspot.WattsLow, sweetspot.WattsHigh
 }
 
 // HRZones returns the 5-zone Coggan heart-rate model for the given threshold HR.
@@ -80,11 +99,15 @@ func ResolveHRZones(a *models.Athlete) []models.HRZone {
 	return HRZones(a.ThresholdHR)
 }
 
-// ComputeZoneTimes returns seconds spent in each power zone [7] and HR zone [5].
-// Zones with zero length are skipped (no FTP or no LTHR configured).
-func ComputeZoneTimes(streams []models.Stream, powerZones []models.PowerZone, hrZones []models.HRZone) ([7]int, [5]int) {
+// ComputeZoneTimes returns seconds spent in each power zone [7], HR zone [5],
+// and the Sweet Spot reference band (88–94% FTP). SS overlaps Z3/Z4 by design,
+// so it is counted independently and is NOT subtracted from the 7-zone totals.
+// Zones with zero length are skipped (no FTP or no LTHR configured); ssWatts*=0
+// signals SS counting is off.
+func ComputeZoneTimes(streams []models.Stream, powerZones []models.PowerZone, hrZones []models.HRZone, ssWattsLow, ssWattsHigh int) ([7]int, [5]int, int) {
 	var power [7]int
 	var hr [5]int
+	var ss int
 	for i, s := range streams {
 		dt := 1
 		if i > 0 {
@@ -93,9 +116,15 @@ func ComputeZoneTimes(streams []models.Stream, powerZones []models.PowerZone, hr
 				dt = 1
 			}
 		}
-		if s.PowerWatts != nil && len(powerZones) > 0 {
-			if zi := powerZoneIdx(*s.PowerWatts, powerZones); zi >= 0 && zi < 7 {
-				power[zi] += dt
+		if s.PowerWatts != nil {
+			w := *s.PowerWatts
+			if len(powerZones) > 0 {
+				if zi := powerZoneIdx(w, powerZones); zi >= 0 && zi < 7 {
+					power[zi] += dt
+				}
+			}
+			if ssWattsLow > 0 && ssWattsHigh > 0 && w >= ssWattsLow && w <= ssWattsHigh {
+				ss += dt
 			}
 		}
 		if s.HeartRateBPM != nil && len(hrZones) > 0 {
@@ -104,7 +133,7 @@ func ComputeZoneTimes(streams []models.Stream, powerZones []models.PowerZone, hr
 			}
 		}
 	}
-	return power, hr
+	return power, hr, ss
 }
 
 func powerZoneIdx(watts int, zones []models.PowerZone) int {
