@@ -163,15 +163,21 @@ func (imp *Importer) Import(path string) (string, error) {
 		}
 		{
 			var pz []models.PowerZone
+			ssLow, ssHigh := 0, 0
 			if athlete.FTPWatts > 0 {
 				pz = fitness.PowerZones(athlete.FTPWatts)[:7]
+				ssLow, ssHigh = fitness.SweetSpotBand(athlete.FTPWatts)
 			}
 			var hz []models.HRZone
 			if athlete.ThresholdHR > 0 {
 				hz = fitness.ResolveHRZones(athlete)
 			}
-			pw, hr := fitness.ComputeZoneTimes(result.Streams, pz, hz)
-			if err := imp.db.InsertZoneTimes(result.ID, pw, hr); err != nil {
+			pw, hr, ss := fitness.ComputeZoneTimes(result.Streams, pz, hz, ssLow, ssHigh)
+			ssArg := ss
+			if ssLow == 0 || ssHigh == 0 {
+				ssArg = -1 // FTP unknown — leave SS NULL
+			}
+			if err := imp.db.InsertZoneTimes(result.ID, pw, hr, ssArg); err != nil {
 				slog.Warn("zone times insert failed", "id", result.ID, "err", err)
 			}
 		}
@@ -309,15 +315,21 @@ func (imp *Importer) ImportBytes(data []byte, filename string) (string, error) {
 		}
 		{
 			var pz []models.PowerZone
+			ssLow, ssHigh := 0, 0
 			if athlete.FTPWatts > 0 {
 				pz = fitness.PowerZones(athlete.FTPWatts)[:7]
+				ssLow, ssHigh = fitness.SweetSpotBand(athlete.FTPWatts)
 			}
 			var hz []models.HRZone
 			if athlete.ThresholdHR > 0 {
 				hz = fitness.ResolveHRZones(athlete)
 			}
-			pw, hr := fitness.ComputeZoneTimes(result.Streams, pz, hz)
-			if err := imp.db.InsertZoneTimes(result.ID, pw, hr); err != nil {
+			pw, hr, ss := fitness.ComputeZoneTimes(result.Streams, pz, hz, ssLow, ssHigh)
+			ssArg := ss
+			if ssLow == 0 || ssHigh == 0 {
+				ssArg = -1 // FTP unknown — leave SS NULL
+			}
+			if err := imp.db.InsertZoneTimes(result.ID, pw, hr, ssArg); err != nil {
 				slog.Warn("zone times insert failed", "id", result.ID, "err", err)
 			}
 		}
@@ -416,6 +428,52 @@ func (imp *Importer) SyncArchiveToDriveStream(ctx context.Context, onFile func(n
 		uploaded++
 	}
 	return
+}
+
+// BackfillSweetSpotZone computes and stores Sweet Spot time-in-band (88–94%
+// FTP) for workouts whose zone-times row predates the ss_secs column. Uses the
+// FTP that was active when the workout was recorded, mirroring import-time
+// logic. Safe to call repeatedly — converges once every NULL is filled.
+func (imp *Importer) BackfillSweetSpotZone() {
+	ids, err := imp.db.WorkoutIDsWithoutSSZone()
+	if err != nil {
+		slog.Error("backfill: query workouts without ss_secs", "err", err)
+		return
+	}
+	if len(ids) == 0 {
+		return
+	}
+	slog.Info("backfilling sweet spot zone times", "count", len(ids))
+	done := 0
+	for _, id := range ids {
+		w, err := imp.db.GetWorkout(id)
+		if err != nil || w == nil {
+			continue
+		}
+		ftp := imp.db.GetFTPAtDate(w.RecordedAt)
+		ssLow, ssHigh := fitness.SweetSpotBand(ftp)
+		if ssLow == 0 || ssHigh == 0 {
+			// No FTP at workout time — store 0 so we don't keep retrying.
+			if err := imp.db.SetSSZoneSecs(id, 0); err != nil {
+				slog.Warn("backfill: set ss_secs", "id", id, "err", err)
+			}
+			continue
+		}
+		streams, err := imp.db.GetStreams(id)
+		if err != nil {
+			slog.Warn("backfill: get streams", "id", id, "err", err)
+			continue
+		}
+		_, _, ss := fitness.ComputeZoneTimes(streams, nil, nil, ssLow, ssHigh)
+		if err := imp.db.SetSSZoneSecs(id, ss); err != nil {
+			slog.Warn("backfill: set ss_secs", "id", id, "err", err)
+			continue
+		}
+		done++
+	}
+	if done > 0 {
+		slog.Info("sweet spot zone backfill complete", "backfilled", done)
+	}
 }
 
 // BackfillPowerCurves computes and stores power curves for workouts that
@@ -668,6 +726,7 @@ func (watcher *Watcher) Start() {
 	// Backfill power curves and route assignments for existing workouts.
 	go watcher.importer.BackfillPowerCurves()
 	go watcher.importer.BackfillRoutes()
+	go watcher.importer.BackfillSweetSpotZone()
 
 	go func() {
 		// Wait 2s after the last write event before importing — devices often

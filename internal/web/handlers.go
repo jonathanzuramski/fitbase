@@ -440,11 +440,12 @@ func (th *templateHandler) workout(w http.ResponseWriter, r *http.Request) {
 	ftpAtTime := th.db.GetFTPAtDate(workout.RecordedAt)
 
 	// Zone times — fetched from DB (computed at import); fall back to on-the-fly.
-	powerZoneSecs, hrZoneSecs, _ := th.db.GetZoneTimes(workout.ID)
+	powerZoneSecs, hrZoneSecs, _, _ := th.db.GetZoneTimes(workout.ID)
 	if powerZoneSecs == nil || hrZoneSecs == nil {
 		pz := fitness.PowerZones(ftpAtTime)[:7]
 		hz := fitness.ResolveHRZones(athlete)
-		pw, hr := fitness.ComputeZoneTimes(streams, pz, hz)
+		ssLow, ssHigh := fitness.SweetSpotBand(ftpAtTime)
+		pw, hr, _ := fitness.ComputeZoneTimes(streams, pz, hz, ssLow, ssHigh)
 		powerZoneSecs, hrZoneSecs = &pw, &hr
 	}
 
