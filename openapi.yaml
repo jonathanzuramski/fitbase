@@ -268,6 +268,73 @@ paths:
                   data:  { type: array, items: { $ref: "#/components/schemas/WeeklyLoad" } }
                   error: { type: string, nullable: true }
 
+  /api/planned-workouts:
+    get:
+      summary: List planned workouts
+      description: |
+        Returns future-dated planned workouts in the inclusive date range
+        `[start, end]`. Planned workouts are independent of completed workouts —
+        nothing auto-matches them by date. If `start`/`end` are omitted the
+        default window is today minus 7 days through today plus 30 days.
+      parameters:
+        - name: start
+          in: query
+          schema: { type: string, format: date, example: "2026-06-01" }
+          description: Inclusive range start, YYYY-MM-DD. Defaults to 7 days ago.
+        - name: end
+          in: query
+          schema: { type: string, format: date, example: "2026-07-01" }
+          description: Inclusive range end, YYYY-MM-DD. Defaults to 30 days out.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:  { type: array, items: { $ref: "#/components/schemas/PlannedWorkout" } }
+                  error: { type: string, nullable: true }
+    post:
+      summary: Create a planned workout
+      description: |
+        Adds one user-authored planned workout (the calendar quick-add). When
+        `intervals` are supplied they are the source of truth for duration, which
+        overrides `duration_secs`. When `intensity_factor` is given without `tss`,
+        TSS is estimated as IF² × hours × 100.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlannedWorkoutCreate"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:  { $ref: "#/components/schemas/PlannedWorkout" }
+                  error: { type: string, nullable: true }
+        "400":
+          description: Invalid request body (bad date, out-of-range target, non-positive duration, malformed intervals)
+
+  /api/planned-workouts/{id}:
+    delete:
+      summary: Delete a planned workout
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+          description: Planned workout ID
+      responses:
+        "204":
+          description: Planned workout deleted
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/workouts/{id}/analysis:
     get:
       summary: Get workout analysis
@@ -565,6 +632,63 @@ components:
         units:            { type: string, enum: [metric, imperial] }
         setup_complete:   { type: boolean }
         updated_at:       { type: string, format: date-time }
+
+    PlannedInterval:
+      type: object
+      description: |
+        One node in a structured planned workout. A node is either a *leaf step*
+        (a duration with an optional power target) or a *repeat group* (a `steps`
+        sequence run `repeat` times) — never both. Set a flat target with one of
+        `target_pct_ftp` / `target_watts` / `target_zone`, OR a ramp with
+        `target_pct_ftp_start` + `target_pct_ftp_end` (mutually exclusive).
+        Nesting is capped at 3 levels.
+      properties:
+        kind:                 { type: string, enum: [warmup, work, recovery, cooldown, endurance, sweet_spot, threshold, vo2max] }
+        duration_secs:        { type: integer, description: "Required on a leaf step; must be > 0." }
+        target_pct_ftp:       { type: integer, minimum: 0, maximum: 200, nullable: true }
+        target_pct_ftp_start: { type: integer, minimum: 0, maximum: 200, nullable: true, description: "Ramp start; requires target_pct_ftp_end." }
+        target_pct_ftp_end:   { type: integer, minimum: 0, maximum: 200, nullable: true, description: "Ramp end; requires target_pct_ftp_start." }
+        target_watts:         { type: integer, minimum: 0, nullable: true }
+        target_zone:          { type: string, example: "Z2" }
+        note:                 { type: string }
+        repeat:               { type: integer, description: "Times to run this node; 0 or 1 means once." }
+        steps:
+          type: array
+          description: Child steps; when non-empty this node is a repeat group.
+          items: { $ref: "#/components/schemas/PlannedInterval" }
+
+    PlannedWorkoutCreate:
+      type: object
+      required: [date]
+      description: Request body for creating a planned workout.
+      properties:
+        date:             { type: string, format: date, example: "2026-06-15", description: "YYYY-MM-DD." }
+        sport:            { type: string, default: cycling }
+        title:            { type: string }
+        description:      { type: string }
+        duration_secs:    { type: integer, description: "Used when no intervals are supplied; must be > 0. Ignored if intervals total > 0." }
+        tss:              { type: number, nullable: true }
+        intensity_factor: { type: number, minimum: 0, maximum: 1.5, nullable: true, description: "When set without tss, TSS is estimated as IF² × hours × 100." }
+        intervals:
+          type: array
+          items: { $ref: "#/components/schemas/PlannedInterval" }
+
+    PlannedWorkout:
+      type: object
+      properties:
+        id:               { type: string }
+        planned_date:     { type: string, format: date }
+        sport:            { type: string, example: cycling }
+        title:            { type: string }
+        description:      { type: string }
+        duration_secs:    { type: integer }
+        tss:              { type: number, nullable: true }
+        intensity_factor: { type: number, nullable: true }
+        intervals:
+          type: array
+          items: { $ref: "#/components/schemas/PlannedInterval" }
+        source:           { type: string, enum: [manual, coach] }
+        created_at:       { type: string, format: date-time }
 
     FitnessPoint:
       type: object
