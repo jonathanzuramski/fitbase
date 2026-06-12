@@ -196,7 +196,6 @@ func tsbClass(tsb float64) string {
 	default:
 		return "tsb-overreach"
 	}
-
 }
 
 func goalDisplayDist(meters float64, imperial bool) string {

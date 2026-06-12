@@ -35,14 +35,6 @@
   gap: 5px;
 }
 
-.metric-label-sub {
-  font-weight: 400;
-  text-transform: none;
-  letter-spacing: 0;
-  font-size: 10px;
-  opacity: 0.65;
-}
-
 .metric-value {
   font-size: 22px;
   font-weight: 600;

@@ -202,9 +202,10 @@ function planDrawProfile(canvas, segments, total) {
   ctx.textBaseline = "bottom";
   ctx.fillText(hasW ? `FTP ${PLAN_FTP}w` : "FTP", cssW - padR - 2, fy - 1);
 
-  // Per-block target labels (actual watts, or %FTP when FTP is unknown) so the
-  // exact target is readable without eyeballing it against the axis. Drawn last so
-  // nothing overlaps them; skipped on blocks too narrow to fit the text.
+  // Per-block target + duration labels (actual watts, or %FTP when FTP is
+  // unknown) so the exact target is readable without eyeballing it against the
+  // axis. Drawn last so nothing overlaps them; on blocks too narrow for the full
+  // text the duration is dropped first, then the label is skipped entirely.
   const wattAt = (pct) => Math.round((pct / 100) * PLAN_FTP);
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
@@ -214,8 +215,11 @@ function planDrawProfile(canvas, segments, total) {
     const lo = hasW ? wattAt(s.lo) : Math.round(s.lo);
     const hi = hasW ? wattAt(s.hi) : Math.round(s.hi);
     const unit = hasW ? "w" : "%";
-    const label = lo === hi ? `${lo}${unit}` : `${lo}–${hi}${unit}`;
-    if (x1 - x0 < ctx.measureText(label).width + 6) continue; // too narrow
+    const target = lo === hi ? `${lo}${unit}` : `${lo}-${hi}${unit}`;
+    const fits = (text) => x1 - x0 >= ctx.measureText(text).width + 6;
+    const full = `${target} · ${planFormatDuration(s.dur)}`;
+    const label = fits(full) ? full : target;
+    if (!fits(label)) continue; // too narrow even for the target alone
     const ly = Math.min(yFor(Math.max(s.lo, s.hi)) + 11, baseY - 7);
     ctx.save();
     ctx.fillStyle = "#fff";

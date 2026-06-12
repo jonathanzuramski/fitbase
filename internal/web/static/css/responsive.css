@@ -63,24 +63,16 @@
     gap: 12px;
   }
   /* ── Dashboard stats & table ── */
-  .stats-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
   .workout-table th:nth-child(n + 5),
   .workout-table td:nth-child(n + 5) {
     display: none;
   }
 
   /* ── Settings ── */
-  .athlete-card {
-    max-width: 100%;
-  }
   .athlete-form {
     flex-direction: column;
   }
-  .zones-grid,
-  .profile-grid,
-  .storage-grid {
+  .zones-grid {
     grid-template-columns: 1fr;
   }
   .metrics-split,

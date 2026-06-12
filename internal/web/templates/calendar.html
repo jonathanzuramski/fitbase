@@ -48,9 +48,9 @@
       title="{{if $p.Title}}{{$p.Title}}{{else}}planned{{end}}{{if eq $p.Source " coach"}} · proposed by coach{{end}}">
       <span class="cal-dot cal-dot-{{$p.Sport | lower}} cal-dot-planned"></span>
       <span class="cal-planned-info">
+        {{if $p.Title}}<span class="cal-planned-title">{{$p.Title}}</span>{{end}}
         <span class="cal-planned-target">{{formatDuration $p.DurationSecs}}{{if $p.TSS}} · {{formatOptFloat $p.TSS
           "T"}}{{end}}</span>
-        {{if $p.Title}}<span class="cal-planned-title">{{$p.Title}}</span>{{end}}
       </span>
       <button type="button" class="cal-planned-del" data-id="{{$p.ID}}" title="Remove planned workout">×</button>
     </div>
@@ -74,6 +74,10 @@
       <button type="button" class="modal-close" id="plan-cancel" aria-label="Close">×</button>
     </div>
     <label class="modal-row">
+      <span>Title</span>
+      <input type="text" name="title" maxlength="80" placeholder="e.g. 4x5 VO2 max">
+    </label>
+    <label class="modal-row">
       <span>Date</span>
       <input type="date" name="date" id="plan-date" required>
     </label>
@@ -85,10 +89,6 @@
         <option value="swimming">swimming</option>
         <option value="walking">walking</option>
       </select>
-    </label>
-    <label class="modal-row">
-      <span>Title</span>
-      <input type="text" name="title" maxlength="80" placeholder="e.g. 2×20 sweet spot">
     </label>
     <label class="modal-row">
       <span>Duration (min)</span>

@@ -31,15 +31,16 @@ func NewRouter(h *Handler, dropbox *DropboxHandler, intervalsH *IntervalsHandler
 			r.Delete("/", h.DeleteWorkout)
 		})
 
-		r.Get("/athlete", h.GetAthlete)
-		r.Put("/athlete", h.UpdateAthlete)
-		r.Get("/athlete/zones", h.GetAthleteZones)
-		r.Get("/athlete/power-curve", h.GetPowerCurve)
-		r.Get("/athlete/readiness", h.GetReadiness)
+		r.Route("/athlete", func(r chi.Router) {
+			r.Get("/", h.GetAthlete)
+			r.Put("/", h.UpdateAthlete)
+			r.Get("/zones", h.GetAthleteZones)
+			r.Get("/power-curve", h.GetPowerCurve)
+			r.Get("/readiness", h.GetReadiness)
+		})
 
 		r.Get("/fitness", h.GetFitness)
 		r.Get("/training/weekly", h.GetWeeklyTraining)
-
 		r.Get("/ftp-history/recompute", h.RecomputePowerLoad)
 
 		r.Route("/planned-workouts", func(r chi.Router) {

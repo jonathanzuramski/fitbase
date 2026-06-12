@@ -65,41 +65,6 @@
   opacity: 0.7;
 }
 
-/* ── Stats grid ───────────────────────────────────────── */
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.stat-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 14px 16px;
-}
-
-.stat-card.highlight {
-  border-color: var(--accent);
-}
-
-.stat-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: var(--text-muted);
-  margin-bottom: 4px;
-}
-
-.stat-value {
-  font-size: 22px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.5px;
-  color: var(--text);
-}
-
 /* ── Sport badges ─────────────────────────────────────── */
 .sport-badge {
   display: inline-block;
@@ -115,18 +80,22 @@
   background: rgba(59, 130, 246, 0.15);
   color: #60a5fa;
 }
+
 .sport-running {
   background: rgba(34, 197, 94, 0.15);
   color: #4ade80;
 }
+
 .sport-swimming {
   background: rgba(6, 182, 212, 0.15);
   color: #22d3ee;
 }
+
 .sport-hiking {
   background: rgba(234, 179, 8, 0.15);
   color: #facc15;
 }
+
 .sport-other {
   background: rgba(100, 116, 139, 0.15);
   color: #94a3b8;
@@ -167,6 +136,7 @@
   border-color: rgba(34, 197, 94, 0.3);
   color: #86efac;
 }
+
 .ftp-banner .alert-link {
   color: #86efac;
   background: none;
@@ -176,6 +146,7 @@
   text-decoration: underline;
   padding: 0;
 }
+
 .ftp-banner .alert-link:hover {
   color: #fff;
 }
@@ -371,6 +342,7 @@
 .empty-state p {
   margin-bottom: 8px;
 }
+
 .muted {
   color: var(--text-muted);
 }
@@ -409,30 +381,13 @@
   opacity: 0.7;
   transition: opacity 0.15s;
 }
+
 .chart-scale-toggle:hover {
   opacity: 1;
   color: var(--text);
 }
 
 /* ── Shared form elements ────────────────────────────── */
-.form-label {
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-  display: flex;
-  gap: 8px;
-  align-items: baseline;
-}
-
-.form-label .muted {
-  font-weight: 400;
-  text-transform: none;
-  letter-spacing: 0;
-  font-size: 11px;
-}
-
 .form-control-group {
   display: flex;
   align-items: center;
@@ -540,21 +495,37 @@
   background: var(--bg-card);
   color: var(--text);
   padding: 0;
-  width: min(720px,92w);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  width: 980px;
   /* The * { margin: 0 } reset wipes the UA's margin: auto that <dialog>
      relies on for centering when opened with showModal(). Put it back. */
   margin: auto;
 }
-.modal::backdrop { background: rgba(0, 0, 0, 0.5); }
-.modal-body { padding: 18px; display: flex; flex-direction: column; gap: 10px; }
+
+.modal::backdrop {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.modal-body {
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .modal-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 4px;
 }
-.modal-title { margin: 0; font-size: 15px; font-weight: 600; }
+
+.modal-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
 .modal-close {
   background: none;
   border: none;
@@ -564,7 +535,11 @@
   cursor: pointer;
   padding: 0 4px;
 }
-.modal-close:hover { color: var(--text); }
+
+.modal-close:hover {
+  color: var(--text);
+}
+
 .modal-row {
   display: grid;
   grid-template-columns: 110px 1fr;
@@ -572,8 +547,15 @@
   align-items: center;
   font-size: 13px;
 }
-.modal-row-wide { align-items: start; }
-.modal-row > span { color: var(--text-muted); }
+
+.modal-row-wide {
+  align-items: start;
+}
+
+.modal-row>span {
+  color: var(--text-muted);
+}
+
 .modal-row input,
 .modal-row select,
 .modal-row textarea {
@@ -586,7 +568,12 @@
   border-radius: 6px;
   width: 100%;
 }
-.modal-row textarea { resize: vertical; min-height: 44px; }
+
+.modal-row textarea {
+  resize: vertical;
+  min-height: 44px;
+}
+
 .modal-row select {
   appearance: none;
   -webkit-appearance: none;
@@ -595,13 +582,20 @@
   background-position: right 9px center;
   padding-right: 27px;
 }
+
 .modal-row input:focus,
 .modal-row select:focus,
 .modal-row textarea:focus {
   outline: none;
   border-color: var(--accent);
 }
-.modal-error { color: #ef4444; font-size: 12px; margin: 0; }
+
+.modal-error {
+  color: #ef4444;
+  font-size: 12px;
+  margin: 0;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;
@@ -619,11 +613,24 @@
   cursor: pointer;
   user-select: none;
 }
-.modal-row-checkbox input { width: auto; accent-color: var(--accent); }
 
-.modal-intervals { display: flex; flex-direction: column; gap: 12px; }
+.modal-row-checkbox input {
+  width: auto;
+  accent-color: var(--accent);
+}
 
-.modal-hint { font-weight: 400; color: var(--text-muted); font-size: 11px; }
+.modal-intervals {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modal-hint {
+  font-weight: 400;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
 .modal-hint code {
   background: var(--bg);
   border: 1px solid var(--border);
@@ -633,7 +640,12 @@
   font-size: 10.5px;
 }
 
-.plan-ivls-field { display: flex; flex-direction: column; gap: 6px; }
+.plan-ivls-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .plan-ivls-label {
   display: flex;
   align-items: baseline;
@@ -642,6 +654,7 @@
   font-size: 13px;
   color: var(--text-muted);
 }
+
 textarea.mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
@@ -660,7 +673,11 @@ textarea.mono {
      shows in full. */
   overflow-y: hidden;
 }
-textarea.mono:focus { outline: none; border-color: var(--accent); }
+
+textarea.mono:focus {
+  outline: none;
+  border-color: var(--accent);
+}
 
 /* Chart panel mirrors the recessed look of the workout charts. */
 .plan-profile-wrap {
@@ -672,12 +689,20 @@ textarea.mono:focus { outline: none; border-color: var(--accent); }
   border-radius: 8px;
   padding: 10px 10px 8px;
 }
-.plan-profile { width: 100%; height: 150px; display: block; }
+
+.plan-profile {
+  width: 100%;
+  height: 150px;
+  display: block;
+}
+
 .plan-profile-meta {
   font-size: 11px;
   color: var(--text-muted);
   min-height: 14px;
   letter-spacing: 0.02em;
 }
-.plan-profile-err { color: #ef4444; }
 
+.plan-profile-err {
+  color: #ef4444;
+}
