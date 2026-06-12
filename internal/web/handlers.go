@@ -881,10 +881,19 @@ func (th *templateHandler) calendar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cal := buildCalendarData(year, month, workouts, tz)
+	first := time.Date(year, month, 1, 0, 0, 0, 0, time.UTC)
+	last := first.AddDate(0, 1, -1)
+	planned, err := th.db.ListPlannedWorkoutsBetween(first, last)
+	if err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+
+	cal := buildCalendarData(year, month, workouts, planned, tz)
 
 	renderTemplate(w, th.templates().calendar, "base", map[string]any{
 		"Imperial": th.isImperial(),
 		"Calendar": cal,
+		"FTP":      athlete.FTPWatts, // used by the plan modal's power-profile preview
 	})
 }

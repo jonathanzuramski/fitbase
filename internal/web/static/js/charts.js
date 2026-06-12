@@ -24,6 +24,17 @@ const POWER_ZONE_COLORS = [
   "#a855f7", // Z7 neuromuscular
 ];
 
+// Upper bound (as a fraction of FTP) of each power zone Z1–Z6; Z7 is open-ended.
+// Single source of truth for power-zone bucketing: getPowerZoneIndex below and
+// the calendar's planned-workout profile (plan-profile.js) both read this, so a
+// planned interval lands in the same zone color the recorded power graph uses.
+const POWER_ZONE_BOUNDS = [0.56, 0.76, 0.91, 1.06, 1.21, 1.51];
+
+// Shared chart theme: axis stroke, gridline, tick stroke, and base font. Used by
+// the uPlot axes in baseOpts and by the canvas-drawn planned-workout profile so
+// both match without each redeclaring the palette.
+const CHART_THEME = { axis: "#475569", grid: "#1e2330", tick: "#334155", font: "11px system-ui" };
+
 const HR_ZONE_COLORS = [
   "#60a5fa", // Z1 active recovery
   "#34d399", // Z2 endurance
@@ -47,12 +58,9 @@ const HR_ZONE_NAMES = ["Z1 Active Recovery", "Z2 Endurance", "Z3 Tempo", "Z4 Lac
 function getPowerZoneIndex(watts, ftp) {
   if (!ftp || ftp <= 0 || watts == null) return -1;
   const p = watts / ftp;
-  if (p < 0.56) return 0;
-  if (p < 0.76) return 1;
-  if (p < 0.91) return 2;
-  if (p < 1.06) return 3;
-  if (p < 1.21) return 4;
-  if (p < 1.51) return 5;
+  for (let i = 0; i < POWER_ZONE_BOUNDS.length; i++) {
+    if (p < POWER_ZONE_BOUNDS[i]) return i;
+  }
   return 6;
 }
 
@@ -258,23 +266,23 @@ function baseOpts(width, height) {
     ...CHART_OPTS,
     axes: [
       {
-        stroke: "#475569",
-        ticks: { stroke: "#334155", width: 1 },
-        grid: { stroke: "#1e2330", width: 1 },
+        stroke: CHART_THEME.axis,
+        ticks: { stroke: CHART_THEME.tick, width: 1 },
+        grid: { stroke: CHART_THEME.grid, width: 1 },
         font: axisFont,
         labelFont: axisFont,
       },
       {
-        stroke: "#475569",
-        ticks: { stroke: "#334155", width: 1 },
-        grid: { stroke: "#1e2330", width: 1 },
+        stroke: CHART_THEME.axis,
+        ticks: { stroke: CHART_THEME.tick, width: 1 },
+        grid: { stroke: CHART_THEME.grid, width: 1 },
         font: axisFont,
         labelFont: axisFont,
         ...(yAxisSize ? { size: yAxisSize } : {}),
       },
     ],
     cursor: {
-      stroke: "#475569",
+      stroke: CHART_THEME.axis,
       points: { size: mobile ? 4 : 6 },
     },
     legend: {

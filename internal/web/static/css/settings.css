@@ -1,10 +1,6 @@
 /* fitbase — Settings page styles */
 
 /* ── HR zone override form ────────────────────────────── */
-.hr-zones-form {
-  margin-top: 12px;
-}
-
 .hr-zones-grid {
   display: grid;
   grid-template-columns: repeat(3, auto);
@@ -22,58 +18,6 @@
 
 .hr-zone-input {
   width: 70px;
-}
-
-.hr-zones-actions {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-/* ── Credentials form ─────────────────────────────────── */
-.credentials-form {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-width: 420px;
-  margin-top: 12px;
-}
-
-.credentials-form > button {
-  align-self: flex-start;
-}
-
-.credentials-details {
-  margin-top: 12px;
-  border-top: 1px solid var(--border);
-  padding-top: 12px;
-}
-
-.credentials-summary {
-  font-size: 12px;
-  color: var(--text-muted);
-  cursor: pointer;
-  user-select: none;
-}
-
-.credentials-hint {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-bottom: 4px;
-}
-
-.credentials-hint code {
-  color: var(--text);
-  font-family: monospace;
-}
-
-/* ── Integration row ──────────────────────────────────── */
-.integration-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
 }
 
 .integration-status {
@@ -160,12 +104,6 @@
 
 .integration-item .integration-status {
   flex: 1;
-}
-
-.integration-setup-hint {
-  font-size: 13px;
-  margin: 12px 0;
-  line-height: 1.5;
 }
 
 /* ── Merged metrics card (profile + FTP history) ──────── */
@@ -404,14 +342,6 @@
   font-size: 12px;
 }
 
-/* ── FTP history card ────────────────────────────────── */
-.ftp-history-card {
-  /* Grow children so the recompute action block can be pushed to the bottom
-     and align with the athlete-card save button on the same row. */
-  display: flex;
-  flex-direction: column;
-}
-
 .ftp-history-help {
   font-size: 12px;
   margin: 0 0 12px 0;
@@ -429,25 +359,7 @@
   margin-bottom: 12px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
-}
-
-.ftp-history-table-wrap::-webkit-scrollbar {
-  width: 6px;
-}
-
-.ftp-history-table-wrap::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.ftp-history-table-wrap::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 3px;
-}
-
-.ftp-history-table-wrap::-webkit-scrollbar-thumb:hover {
-  background: var(--text-muted);
+  /* Scrollbar styling is global — see "Global scrollbar theme" in style.css. */
 }
 
 .ftp-history-table {

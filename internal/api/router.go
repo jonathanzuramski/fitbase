@@ -7,7 +7,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-func NewRouter(h *Handler, dropbox *DropboxHandler, intervalsH *IntervalsHandler, gdrive *GDriveHandler, staticFS http.FileSystem, templateHandler http.Handler) http.Handler {
+func NewRouter(h *Handler, dropbox *DropboxHandler, intervalsH *IntervalsHandler, gdrive *GDriveHandler, planned *PlannedHandler, staticFS http.FileSystem, templateHandler http.Handler) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.Logger)
@@ -31,16 +31,23 @@ func NewRouter(h *Handler, dropbox *DropboxHandler, intervalsH *IntervalsHandler
 			r.Delete("/", h.DeleteWorkout)
 		})
 
-		r.Get("/athlete", h.GetAthlete)
-		r.Put("/athlete", h.UpdateAthlete)
-		r.Get("/athlete/zones", h.GetAthleteZones)
-		r.Get("/athlete/power-curve", h.GetPowerCurve)
-		r.Get("/athlete/readiness", h.GetReadiness)
+		r.Route("/athlete", func(r chi.Router) {
+			r.Get("/", h.GetAthlete)
+			r.Put("/", h.UpdateAthlete)
+			r.Get("/zones", h.GetAthleteZones)
+			r.Get("/power-curve", h.GetPowerCurve)
+			r.Get("/readiness", h.GetReadiness)
+		})
 
 		r.Get("/fitness", h.GetFitness)
 		r.Get("/training/weekly", h.GetWeeklyTraining)
-
 		r.Get("/ftp-history/recompute", h.RecomputePowerLoad)
+
+		r.Route("/planned-workouts", func(r chi.Router) {
+			r.Get("/", planned.List)
+			r.Post("/", planned.Create)
+			r.Delete("/{id}", planned.Delete)
+		})
 
 		r.Route("/integrations/dropbox", func(r chi.Router) {
 			r.Get("/sync", dropbox.Sync)

@@ -39,6 +39,17 @@ func IntensityFactor(np, ftp float64) float64 {
 	return math.Round(np/ftp*1000) / 1000
 }
 
+// EstimateTSS returns the standard TSS estimate for a target effort:
+// TSS = IF² × hours × 100. Returns 0 when inputs are missing/invalid so
+// callers can detect "couldn't estimate" without a separate ok value.
+func EstimateTSS(durationSecs int, intensityFactor float64) float64 {
+	if durationSecs <= 0 || intensityFactor <= 0 {
+		return 0
+	}
+	hours := float64(durationSecs) / 3600
+	return intensityFactor * intensityFactor * hours * 100
+}
+
 // PowerTSS returns training stress score from power data, rounded to 1 decimal place.
 // TSS = (duration_secs × NP × IF) / (FTP × 3600) × 100
 func PowerTSS(durationSecs int, np, ftp float64) float64 {
