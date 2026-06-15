@@ -31,10 +31,12 @@ func main() {
 	// loads config from
 	cfg := config.Load()
 
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+	// setup default logger, JSON formatted.
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	})))
 
+	// loads or creates key for DB.
 	key, err := crypto.LoadOrCreateKey(cfg.KeyPath)
 	if err != nil {
 		slog.Error("failed to load master key", "path", cfg.KeyPath, "err", err)
@@ -78,6 +80,7 @@ func main() {
 	}()
 
 	// Populate training_day for any workouts that pre-date the migration.
+	// Workouts store recorded_at UTC timesatamps
 	go func() {
 		n, err := database.BackfillTrainingDay()
 		if err != nil {
