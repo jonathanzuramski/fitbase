@@ -4,7 +4,7 @@ go 1.24.0
 
 require (
 	github.com/fsnotify/fsnotify v1.7.0
-	github.com/go-chi/chi/v5 v5.2.2
+	github.com/go-chi/chi/v5 v5.2.4
 	github.com/google/uuid v1.6.0
 	github.com/muktihari/fit v0.27.2
 	golang.org/x/oauth2 v0.34.0
