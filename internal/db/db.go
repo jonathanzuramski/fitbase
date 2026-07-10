@@ -381,8 +381,7 @@ func (db *DB) ResetDerivedData() error {
 		return err
 	}
 	defer tx.Rollback() //nolint:errcheck
-	// workouts before routes so the route_id FK (ON DELETE SET NULL) doesn't
-	// churn; both are wiped anyway.
+	// workouts before routes so the route_id FK so we aren't causing SQLite to do a per-row cascade.
 	for _, table := range []string{
 		"workout_streams",
 		"workout_power_curve",

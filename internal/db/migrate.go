@@ -83,6 +83,7 @@ func migrate(sqldb *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("read user_version: %w", err)
 	}
+	// zeroth indexing
 	for i := cur; i < len(migrations); i++ {
 		tx, err := sqldb.Begin()
 		if err != nil {
