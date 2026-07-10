@@ -49,59 +49,19 @@ func main() {
 
 	imp := importer.NewImporter(database, cfg.ArchiveDir)
 
-	// Populate route_coords for any workouts that pre-date the migration.
-	go func() {
-		n, err := database.BackfillRouteCoords()
-		if err != nil {
-			slog.Warn("route coords backfill failed", "err", err)
-		} else if n > 0 {
-			slog.Info("backfilled route coords", "workouts", n)
-		}
-	}()
-
-	// Rebuild route_coords for any workouts stored in an outdated format
-	// version (e.g. the legacy 75-point downsample). Converges after one pass.
-	go func() {
-		n, err := database.RebuildRouteCoords()
-		if err != nil {
-			slog.Warn("route coords rebuild failed", "err", err)
-		} else if n > 0 {
-			slog.Info("rebuilt route coords with higher resolution", "workouts", n)
-		}
-	}()
-
-	// Populate training_day for any workouts that pre-date the migration.
-	go func() {
-		n, err := database.BackfillTrainingDay()
-		if err != nil {
-			slog.Warn("training day backfill failed", "err", err)
-		} else if n > 0 {
-			slog.Info("backfilled training days", "workouts", n)
-		}
-	}()
-
-	// If the DB is empty but the archive has files, reimport everything.
-	// This handles a fresh install (or a deleted DB) where the archive still
-	// has all the originals. Run it in the background so the HTTP server comes
-	// up immediately — the UI polls /api/import/status and shows a progress
-	// modal until the reimport finishes.
-	if n, _ := database.CountWorkouts(); n == 0 {
-		go func() {
-			imported, errCount := imp.ReimportArchive()
-			if imported > 0 {
-				slog.Info("reimported workouts from archive", "imported", imported, "errors", errCount)
-			}
-		}()
-	}
-
 	watcher, err := importer.NewWatcher(cfg.WatchDir, imp)
 	if err != nil {
 		slog.Error("failed to start watcher", "err", err)
 		os.Exit(1)
 	}
-	watcher.Start()
 	defer watcher.Stop()
-	slog.Info("watching for FIT files", "dir", cfg.WatchDir)
+
+	// Watcher starts only after the restore: its imports must not race a
+	// rebuild's wipe. Files dropped meanwhile wait for Start's initial scan.
+	startArchiveRestore(database, imp, func() {
+		watcher.Start()
+		slog.Info("watching for FIT files", "dir", cfg.WatchDir)
+	})
 
 	handler := api.NewHandler(database, imp)
 	gdriveHandler := api.NewGDriveHandler(database, imp)
@@ -165,6 +125,41 @@ func main() {
 	if err := srv.Shutdown(ctx); err != nil {
 		slog.Error("shutdown error", "err", err)
 	}
+}
+
+// startArchiveRestore populates the database from the FIT archive in the
+// background (the UI polls /api/import/status): a full rebuild if a migration
+// requested one, else a reimport into an empty DB. The decision inputs are
+// read synchronously; done fires when the work finishes or fails, and the
+// caller uses it to sequence the watcher behind the rebuild's wipe.
+func startArchiveRestore(database *db.DB, imp *importer.Importer, done func()) {
+	rebuildPending, _ := database.GetMeta(db.MetaRebuildPending)
+	existingWorkouts, _ := database.CountWorkouts()
+
+	go func() {
+		defer done()
+		switch {
+		case rebuildPending == "1":
+			// A schema migration changed a derived format that can't be
+			// backfilled in place: wipe derived data and rebuild from the archive.
+			imported, gap, err := imp.RebuildFromArchive()
+			if err != nil {
+				slog.Error("archive rebuild failed; leaving rebuild flag set to retry next boot", "err", err)
+				return
+			}
+			if err := database.DeleteMeta(db.MetaRebuildPending); err != nil {
+				slog.Warn("failed to clear rebuild_pending flag", "err", err)
+			}
+			slog.Info("rebuilt workouts from archive", "imported", imported, "resync_gap", gap)
+
+		case existingWorkouts == 0:
+			// DB at current version but emptied (e.g. workouts deleted) while the
+			// archive is intact: reimport everything.
+			if imported, errCount := imp.ReimportArchive(); imported > 0 {
+				slog.Info("reimported workouts from archive", "imported", imported, "errors", errCount)
+			}
+		}
+	}()
 }
 
 // initGDrive re-attaches a stored Google Drive token on startup so backup

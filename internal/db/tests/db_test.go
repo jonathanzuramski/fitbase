@@ -1408,16 +1408,19 @@ func TestMigration_SportIndexRebuiltDESC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	// Simulate a legacy DB by forcing the index back to its old ASC shape.
+	// Simulate a pre-versioning legacy DB: force the index back to its old ASC
+	// shape AND reset user_version to 0 so the baseline migration runs again on
+	// reopen (a DB already stamped at the current version intentionally skips it).
 	if _, err := d.Exec(`DROP INDEX idx_workouts_sport_recorded_at;
-		CREATE INDEX idx_workouts_sport_recorded_at ON workouts(sport, recorded_at)`); err != nil {
+		CREATE INDEX idx_workouts_sport_recorded_at ON workouts(sport, recorded_at);
+		PRAGMA user_version = 0`); err != nil {
 		t.Fatalf("force ASC index: %v", err)
 	}
 	if err := d.Close(); err != nil {
 		t.Fatalf("close: %v", err)
 	}
 
-	// Reopen — the guarded migration should rebuild the index DESC.
+	// Reopen — the baseline migration should rebuild the index DESC.
 	d2, err := db.Open(path, testKey)
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
@@ -1449,4 +1452,399 @@ func TestMigration_Idempotent(t *testing.T) {
 		t.Fatalf("second open: %v", err)
 	}
 	t.Cleanup(func() { _ = d2.Close() })
+}
+
+func userVersion(t *testing.T, d *db.DB) int {
+	t.Helper()
+	var v int
+	if err := d.QueryRow("PRAGMA user_version").Scan(&v); err != nil {
+		t.Fatalf("read user_version: %v", err)
+	}
+	return v
+}
+
+func hasColumn(t *testing.T, d *db.DB, table, col string) bool {
+	t.Helper()
+	rows, err := d.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		t.Fatalf("table_info(%s): %v", table, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notnull, pk int
+		var dflt any
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			t.Fatalf("scan table_info: %v", err)
+		}
+		if name == col {
+			return true
+		}
+	}
+	return false
+}
+
+func TestOpen_FreshReplaysLadder(t *testing.T) {
+	d := newTestDB(t)
+
+	if v := userVersion(t, d); v == 0 {
+		t.Errorf("fresh DB should be stamped to the current schema version, got user_version=0")
+	}
+	// A fresh DB replays the same ladder as an upgraded one; the columns v2
+	// reconciles on legacy DBs must be present via v1's schema.sql.
+	for _, col := range []string{"route_coords", "route_coords_v", "training_day"} {
+		if !hasColumn(t, d, "workouts", col) {
+			t.Errorf("fresh DB missing workouts.%s", col)
+		}
+	}
+	// v3 converges legacy derived data in place; a fresh database has none, so
+	// the whole migration no-ops and no archive rebuild is ever requested.
+	if v, _ := d.GetMeta(db.MetaRebuildPending); v != "" {
+		t.Errorf("rebuild_pending after fresh ladder = %q, want empty", v)
+	}
+}
+
+// v3 rederives legacy derived data in place from what the database already
+// holds: NULL training_day from recorded_at, and legacy-format route_coords
+// from the stored GPS streams. No archive, no rebuild flag.
+func TestMigration_V3ConvergesInPlace(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "converge.db")
+	d, err := db.Open(path, testKey)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+
+	// Outdoor workout with a real GPS track.
+	lat := []float64{47.60, 47.61, 47.62}
+	lng := []float64{-122.30, -122.31, -122.32}
+	streams := make([]models.Stream, len(lat))
+	base := time.Date(2024, 3, 15, 8, 0, 0, 0, time.UTC)
+	for i := range streams {
+		streams[i] = models.Stream{Timestamp: base.Add(time.Duration(i) * time.Minute), Lat: &lat[i], Lng: &lng[i]}
+	}
+	if err := d.InsertWorkout(sampleWorkout("convergework0001"), streams); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	// Simulate a pre-v3 database: legacy coords format and no training_day.
+	if _, err := d.Exec(`UPDATE workouts SET training_day = NULL, route_coords = '[]', route_coords_v = 1;
+		PRAGMA user_version = 2`); err != nil {
+		t.Fatalf("force legacy formats: %v", err)
+	}
+	if err := d.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	d, err = db.Open(path, testKey)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	t.Cleanup(func() { _ = d.Close() })
+
+	var trainingDay, coords string
+	var coordsV int
+	if err := d.QueryRow(`SELECT training_day, route_coords, route_coords_v
+		FROM workouts WHERE id = 'convergework0001'`).Scan(&trainingDay, &coords, &coordsV); err != nil {
+		t.Fatalf("read converged row: %v", err)
+	}
+	if trainingDay != "2024-03-15" {
+		t.Errorf("training_day = %q, want 2024-03-15", trainingDay)
+	}
+	if coordsV != 2 {
+		t.Errorf("route_coords_v = %d, want 2", coordsV)
+	}
+	if !strings.Contains(coords, "-122.3") {
+		t.Errorf("route_coords not rebuilt from streams: %q", coords)
+	}
+	// In-place convergence must not request an archive rebuild.
+	if v, _ := d.GetMeta(db.MetaRebuildPending); v != "" {
+		t.Errorf("rebuild_pending = %q, want empty (v3 converges in place)", v)
+	}
+}
+
+func TestSnapshotPreRebuild(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "snap.db")
+	d, err := db.Open(path, testKey)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { _ = d.Close() })
+	if err := d.InsertWorkout(sampleWorkout("snapworkout00001"), nil); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	snapPath, err := d.SnapshotPreRebuild()
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	if want := path + ".pre-rebuild"; snapPath != want {
+		t.Errorf("snapshot path = %q, want %q", snapPath, want)
+	}
+	// The snapshot is a complete, openable database holding the data.
+	snap, err := db.Open(snapPath, testKey)
+	if err != nil {
+		t.Fatalf("open snapshot: %v", err)
+	}
+	if n, _ := snap.CountWorkouts(); n != 1 {
+		t.Errorf("snapshot workout count = %d, want 1", n)
+	}
+	if err := snap.Close(); err != nil {
+		t.Fatalf("close snapshot: %v", err)
+	}
+
+	// A second snapshot replaces the previous generation.
+	if _, err := d.SnapshotPreRebuild(); err != nil {
+		t.Fatalf("second snapshot: %v", err)
+	}
+}
+
+// The point of the single-source design: a brand-new database and a legacy
+// database that replayed the ladder must converge to the exact same schema.
+// Compares the stored DDL of every user table and index.
+func TestMigration_FreshAndLegacyConverge(t *testing.T) {
+	schemaDump := func(d *db.DB) map[string]string {
+		t.Helper()
+		rows, err := d.Query(`
+			SELECT type || '/' || name, sql FROM sqlite_master
+			WHERE name NOT LIKE 'sqlite_%' AND sql IS NOT NULL
+		`)
+		if err != nil {
+			t.Fatalf("dump sqlite_master: %v", err)
+		}
+		defer rows.Close()
+		out := map[string]string{}
+		for rows.Next() {
+			var name, ddl string
+			if err := rows.Scan(&name, &ddl); err != nil {
+				t.Fatalf("scan sqlite_master: %v", err)
+			}
+			out[name] = strings.Join(strings.Fields(ddl), " ") // normalize whitespace
+		}
+		return out
+	}
+
+	fresh := newTestDB(t)
+
+	// Legacy DB: original-release workouts table (built by hand in
+	// TestOpen_AdoptsLegacyMissingColumn's helper shape), then the ladder.
+	legacyPath := filepath.Join(t.TempDir(), "legacy.db")
+	raw, err := sql.Open("sqlite", legacyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(legacyWorkoutsDDL); err != nil {
+		t.Fatal(err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := db.Open(legacyPath, testKey)
+	if err != nil {
+		t.Fatalf("open legacy db: %v", err)
+	}
+	t.Cleanup(func() { _ = legacy.Close() })
+
+	freshDump, legacyDump := schemaDump(fresh), schemaDump(legacy)
+	for name, want := range freshDump {
+		got, ok := legacyDump[name]
+		if !ok {
+			t.Errorf("legacy DB missing %s after migration", name)
+			continue
+		}
+		// The workouts table can't be byte-identical: v2 reconciles a legacy
+		// table with ALTERs, which SQLite appends to the stored DDL in a
+		// different order/format than v1's CREATE. Require column parity instead.
+		if name == "table/workouts" {
+			continue
+		}
+		if got != want {
+			t.Errorf("%s DDL diverged:\n  fresh:  %s\n  legacy: %s", name, want, got)
+		}
+	}
+	for name := range legacyDump {
+		if _, ok := freshDump[name]; !ok {
+			t.Errorf("legacy DB has %s that a fresh DB lacks", name)
+		}
+	}
+	// Column parity for workouts (names must match exactly; order may differ).
+	for _, col := range workoutsColumns(t, fresh) {
+		if !hasColumn(t, legacy, "workouts", col) {
+			t.Errorf("legacy workouts missing column %s", col)
+		}
+	}
+	for _, col := range workoutsColumns(t, legacy) {
+		if !hasColumn(t, fresh, "workouts", col) {
+			t.Errorf("fresh workouts has no column %s that legacy has", col)
+		}
+	}
+}
+
+// workoutsColumns returns the column names of the workouts table.
+func workoutsColumns(t *testing.T, d *db.DB) []string {
+	t.Helper()
+	rows, err := d.Query("PRAGMA table_info(workouts)")
+	if err != nil {
+		t.Fatalf("table_info: %v", err)
+	}
+	defer rows.Close()
+	var cols []string
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, typ string
+		var dflt any
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			t.Fatalf("scan table_info: %v", err)
+		}
+		cols = append(cols, name)
+	}
+	return cols
+}
+
+// legacyWorkoutsDDL is the original-release workouts table: all the columns the
+// schema's indexes reference, but none of the ones added later via migration.
+// Used to simulate a pre-user_version database.
+const legacyWorkoutsDDL = `
+	CREATE TABLE workouts (
+		id                    TEXT PRIMARY KEY,
+		filename              TEXT NOT NULL,
+		recorded_at           DATETIME NOT NULL,
+		sport                 TEXT NOT NULL DEFAULT 'cycling',
+		duration_secs         INTEGER NOT NULL,
+		elapsed_secs          INTEGER NOT NULL DEFAULT 0,
+		distance_meters       REAL NOT NULL DEFAULT 0,
+		elevation_gain_meters REAL NOT NULL DEFAULT 0,
+		avg_power_watts       REAL,
+		max_power_watts       REAL,
+		normalized_power      REAL,
+		avg_heart_rate        INTEGER,
+		max_heart_rate        INTEGER,
+		avg_cadence           INTEGER,
+		avg_speed_mps         REAL NOT NULL DEFAULT 0,
+		tss                   REAL,
+		intensity_factor      REAL,
+		is_indoor             INTEGER NOT NULL DEFAULT 0,
+		route_id              TEXT DEFAULT NULL,
+		created_at            DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+	)`
+
+func TestOpen_AdoptsLegacyMissingColumn(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy.db")
+
+	// Build a pre-versioning DB by hand: a workouts table lacking the columns
+	// added after initial release, and user_version left at its 0 default.
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(legacyWorkoutsDDL + `;
+		INSERT INTO workouts (id, filename, recorded_at, duration_secs)
+			VALUES ('w1', 'w1.fit', '2024-03-15T08:00:00Z', 3600);
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Open via the production path — the baseline migration must reconcile the
+	// missing columns and stamp the version.
+	d, err := db.Open(path, testKey)
+	if err != nil {
+		t.Fatalf("open legacy db: %v", err)
+	}
+	t.Cleanup(func() { _ = d.Close() })
+
+	for _, col := range []string{"route_coords", "route_coords_v", "training_day"} {
+		if !hasColumn(t, d, "workouts", col) {
+			t.Errorf("baseline migration did not add workouts.%s", col)
+		}
+	}
+	if v := userVersion(t, d); v == 0 {
+		t.Error("legacy DB not stamped after migration (user_version still 0)")
+	}
+	// The pre-existing row must survive the reconciliation.
+	if n, _ := d.CountWorkouts(); n != 1 {
+		t.Errorf("workout count after migration: %d, want 1", n)
+	}
+	// The legacy row had no training_day column at all; v3 must have rederived
+	// it in place from recorded_at (UTC default timezone).
+	var trainingDay string
+	if err := d.QueryRow(`SELECT training_day FROM workouts WHERE id = 'w1'`).Scan(&trainingDay); err != nil {
+		t.Fatalf("read training_day: %v", err)
+	}
+	if trainingDay != "2024-03-15" {
+		t.Errorf("training_day = %q, want 2024-03-15 (rederived by v3)", trainingDay)
+	}
+	// In-place convergence: no archive rebuild requested.
+	if v, _ := d.GetMeta(db.MetaRebuildPending); v != "" {
+		t.Errorf("rebuild_pending = %q, want empty", v)
+	}
+}
+
+func TestMeta_RoundTrip(t *testing.T) {
+	d := newTestDB(t)
+
+	if v, err := d.GetMeta("nope"); err != nil || v != "" {
+		t.Errorf("absent key: got (%q, %v), want (\"\", nil)", v, err)
+	}
+	if err := d.SetMeta("k", "v1"); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	if v, _ := d.GetMeta("k"); v != "v1" {
+		t.Errorf("after set: %q, want v1", v)
+	}
+	if err := d.SetMeta("k", "v2"); err != nil { // upsert
+		t.Fatalf("upsert: %v", err)
+	}
+	if v, _ := d.GetMeta("k"); v != "v2" {
+		t.Errorf("after upsert: %q, want v2", v)
+	}
+	if err := d.DeleteMeta("k"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if v, _ := d.GetMeta("k"); v != "" {
+		t.Errorf("after delete: %q, want empty", v)
+	}
+}
+
+func TestResetDerivedData_PreservesProfile(t *testing.T) {
+	d := newTestDB(t)
+
+	if err := d.InsertWorkout(sampleWorkout("w1"), nil); err != nil {
+		t.Fatalf("insert workout: %v", err)
+	}
+	if err := d.MarkImported("h1", "w1.fit"); err != nil {
+		t.Fatalf("mark imported: %v", err)
+	}
+	a, err := d.GetAthlete()
+	if err != nil {
+		t.Fatalf("get athlete: %v", err)
+	}
+	a.FTPWatts = 312
+	if err := d.UpdateAthlete(a); err != nil { // also logs an FTP history entry
+		t.Fatalf("update athlete: %v", err)
+	}
+
+	if err := d.ResetDerivedData(); err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+
+	if n, _ := d.CountWorkouts(); n != 0 {
+		t.Errorf("workouts after reset: %d, want 0", n)
+	}
+	if imported, _ := d.IsImported("h1"); imported {
+		t.Error("imported_files not cleared by reset")
+	}
+	// Preserved: athlete profile and FTP history survive the wipe.
+	got, err := d.GetAthlete()
+	if err != nil {
+		t.Fatalf("get athlete after reset: %v", err)
+	}
+	if got.FTPWatts != 312 {
+		t.Errorf("athlete FTP after reset: %d, want 312", got.FTPWatts)
+	}
+	if has, _ := d.HasFTPHistory(); !has {
+		t.Error("FTP history wiped by reset; should be preserved")
+	}
 }

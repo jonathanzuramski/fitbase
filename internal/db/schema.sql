@@ -1,3 +1,9 @@
+-- ⚠ FROZEN — this file is migration v1's payload (see internal/db/migrate.go).
+-- It replays on every database, so like any migration it must never change:
+-- new tables, columns, or indexes go in a NEW migration appended to the ladder,
+-- never here. Every statement is IF NOT EXISTS so it no-ops against objects
+-- that already exist on databases predating user_version tracking.
+
 CREATE TABLE IF NOT EXISTS workouts (
     id                    TEXT PRIMARY KEY,
     filename              TEXT NOT NULL,
@@ -18,8 +24,16 @@ CREATE TABLE IF NOT EXISTS workouts (
     intensity_factor      REAL,
     is_indoor             INTEGER NOT NULL DEFAULT 0,
     route_id              TEXT DEFAULT NULL REFERENCES routes(id) ON DELETE SET NULL,
-    created_at            DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+    created_at            DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    route_coords          TEXT DEFAULT NULL,
+    route_coords_v        INTEGER DEFAULT NULL,
+    training_day          TEXT DEFAULT NULL
 );
+-- route_coords: pre-computed downsampled GPS track (GeoJSON [lng,lat]); route_coords_v
+-- is its format version, so the heatmap/thumbnails never JOIN workout_streams.
+-- training_day: calendar day (YYYY-MM-DD) the athlete recorded the workout in their
+-- local timezone, stamped at insert so per-day queries need no timezone math.
+-- (Comments are kept outside CREATE TABLE so they don't end up in the stored DDL.)
 
 CREATE TABLE IF NOT EXISTS workout_streams (
     workout_id       TEXT NOT NULL REFERENCES workouts(id) ON DELETE CASCADE,
@@ -38,6 +52,9 @@ CREATE INDEX IF NOT EXISTS idx_workouts_recorded_at ON workouts(recorded_at DESC
 CREATE INDEX IF NOT EXISTS idx_workouts_is_indoor_recorded_at ON workouts(is_indoor, recorded_at DESC);
 CREATE INDEX IF NOT EXISTS idx_workouts_route_id ON workouts(route_id);
 CREATE INDEX IF NOT EXISTS idx_workouts_sport_recorded_at ON workouts(sport, recorded_at DESC);
+-- The index on training_day is created by migration v2, since on a legacy
+-- database the column doesn't exist until v2's ALTER adds it — indexing it
+-- here (v1) would fail.
 
 CREATE TABLE IF NOT EXISTS athlete (
     id             INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
@@ -156,3 +173,11 @@ CREATE TABLE IF NOT EXISTS planned_workouts (
     created_at       DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
 CREATE INDEX IF NOT EXISTS idx_planned_workouts_date ON planned_workouts(planned_date);
+
+-- Key/value store for migration bookkeeping that doesn't fit PRAGMA user_version:
+-- one-shot flags handed from a migration to the boot path, such as a pending
+-- archive rebuild (rebuild_pending). See internal/db/migrate.go.
+CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
