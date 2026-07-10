@@ -105,6 +105,7 @@ func migrate(sqldb *sql.DB) error {
 	return nil
 }
 
+// gets the PRAGMA user_version for SQLite DB.
 func userVersion(sqldb *sql.DB) (int, error) {
 	var v int
 	err := sqldb.QueryRow("PRAGMA user_version").Scan(&v)
