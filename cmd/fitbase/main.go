@@ -35,6 +35,7 @@ func main() {
 	}
 	slog.Info("master key loaded", "path", cfg.KeyPath)
 
+	// creates db if one doesnt exit, handles migrations for databases during updates.
 	database, err := db.Open(cfg.DBPath, key)
 	if err != nil {
 		slog.Error("failed to open database", "err", err)

@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -117,7 +118,9 @@ func (imp *Importer) Import(path string) (string, error) {
 		return "", err
 	}
 	if already {
-		return "", nil // silently skip
+		slog.Info("skipping already-imported file", "path", path)
+		imp.removeWatchFile(path)
+		return "", nil
 	}
 
 	data, err = decompressIfNeeded(data, filepath.Base(path))
@@ -139,8 +142,9 @@ func (imp *Importer) Import(path string) (string, error) {
 	)
 
 	if errors.Is(err, fitparser.ErrSkipped) {
-		slog.Debug("skipping non-cardio activity", "path", path)
+		slog.Info("skipping non-cardio activity", "path", path)
 		_ = imp.db.MarkImported(hash, filepath.Base(path))
+		imp.removeWatchFile(path)
 		return "", nil
 	}
 	if err != nil {
@@ -158,6 +162,7 @@ func (imp *Importer) Import(path string) (string, error) {
 			slog.Info("skipping duplicate activity from different source",
 				"new_id", result.ID, "existing_id", dupID, "path", path)
 			_ = imp.db.MarkImported(hash, filepath.Base(path))
+			imp.removeWatchFile(path)
 			return "", nil
 		}
 
@@ -201,19 +206,23 @@ func (imp *Importer) Import(path string) (string, error) {
 			}
 		}
 		// Workout is stored and archived; the watch-dir copy is no longer needed.
-		if err := os.Remove(path); err != nil {
-			slog.Warn("failed to delete watch file after import", "path", path, "err", err)
-		}
+		imp.removeWatchFile(path)
 		imp.mu.RLock()
 		hasDrive := imp.drive != nil
 		imp.mu.RUnlock()
 		if hasDrive {
 			go imp.uploadToDrive(data, &result.Workout)
 		}
+	} else {
+		slog.Info("skipping file for already-existing workout", "id", result.ID, "path", path)
+		imp.removeWatchFile(path)
 	}
 
 	if err := imp.db.MarkImported(hash, filepath.Base(path)); err != nil {
 		slog.Warn("failed to mark file as imported", "hash", hash, "err", err)
+	}
+	if exists {
+		return result.ID, nil
 	}
 
 	slog.Info("imported workout",
@@ -224,6 +233,39 @@ func (imp *Importer) Import(path string) (string, error) {
 	)
 
 	return result.ID, nil
+}
+
+// removeWatchFile deletes a handled watch-dir file. The watch dir is an inbox:
+// every file that reaches a terminal outcome — imported or skipped — is
+// removed, so nothing is silently rescanned forever. Files whose import
+// genuinely failed (parse or archive error) are deliberately left for retry.
+func (imp *Importer) removeWatchFile(path string) {
+	if err := os.Remove(path); err != nil {
+		slog.Warn("failed to delete watch file", "path", path, "err", err)
+	}
+}
+
+// DeleteWorkout removes a workout everywhere: the database row (and cascaded
+// streams/curves/zones), its import-ledger entries, and its archived FIT file.
+// Deletion must reach the archive too — otherwise the ledger no longer blocks
+// the file, but the next archive rebuild would resurrect the workout.
+// Returns sql.ErrNoRows if the workout doesn't exist.
+func (imp *Importer) DeleteWorkout(id string) error {
+	w, err := imp.db.GetWorkout(id)
+	if err != nil {
+		return err
+	}
+	if w == nil {
+		return sql.ErrNoRows
+	}
+	if err := imp.db.DeleteWorkout(id); err != nil {
+		return err
+	}
+	if err := os.Remove(imp.ArchivePath(w)); err != nil && !os.IsNotExist(err) {
+		slog.Warn("failed to remove archived FIT for deleted workout; an archive rebuild would restore it",
+			"id", id, "path", imp.ArchivePath(w), "err", err)
+	}
+	return nil
 }
 
 // ArchivePath returns the path where a workout's FIT file is stored.

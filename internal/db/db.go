@@ -334,17 +334,31 @@ func (db *DB) FindDuplicateWorkout(recordedAt time.Time, sport string, durationS
 	return id, err
 }
 
-// DeleteWorkout removes a workout and all its streams (cascades via FK).
+// DeleteWorkout removes a workout, its streams (cascades via FK), and every
+// imported_files entry recorded for its file — including hash aliases — so the
+// same file can be deliberately re-imported. Deleting is an explicit user
+// action; making the ledger forget the file is what makes it reversible.
 func (db *DB) DeleteWorkout(id string) error {
-	res, err := db.Exec("DELETE FROM workouts WHERE id = ?", id)
+	tx, err := db.Begin()
 	if err != nil {
 		return err
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
+	defer tx.Rollback() //nolint:errcheck
+	// Ledger first: the filename lookup needs the workout row to still exist.
+	if _, err := tx.Exec(`
+		DELETE FROM imported_files WHERE hash IN (
+			SELECT hash FROM imported_files
+			WHERE filename = (SELECT filename FROM workouts WHERE id = ?))`, id); err != nil {
+		return fmt.Errorf("clear import ledger: %w", err)
+	}
+	res, err := tx.Exec("DELETE FROM workouts WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
 		return sql.ErrNoRows
 	}
-	return nil
+	return tx.Commit()
 }
 
 // DeleteAllWorkouts removes every workout (streams and power curves cascade) and
