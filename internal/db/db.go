@@ -962,7 +962,7 @@ func (db *DB) AllWorkoutsForTSSBackfill() ([]WorkoutTSSRow, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 	var out []WorkoutTSSRow
 	for rows.Next() {
 		var r WorkoutTSSRow
