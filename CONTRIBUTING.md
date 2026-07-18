@@ -33,7 +33,7 @@ cmd/fitbase/main.go          Entry point, HTTP handlers for UI pages
 internal/
   api/                       JSON REST API handlers and router
   config/                    Env-var config loading
-  db/                        SQLite layer (db.go + schema.sql)
+  db/                        SQLite layer (db.go, migrate.go, schema.sql)
   fit/                       FIT file parser
   models/                    Shared domain types
   sync/                      File watcher, importer, cloud sync stubs
@@ -48,7 +48,13 @@ openapi.yaml                 REST API spec — keep this in sync with handlers
 ## Adding a feature
 
 1. **API changes first**: update `openapi.yaml` before writing handler code.
-2. **DB changes**: add a new migration file rather than editing existing ones. Schema is in `internal/db/schema.sql`; migrations run as `ALTER TABLE` statements in `db.Open()`.
+2. **DB changes**: the migration ladder in `internal/db/migrate.go` is the single source of truth for the schema. Every database — brand-new or upgraded — replays it from wherever its `PRAGMA user_version` left off. To change the schema:
+   1. **Append** a new function to the `migrations` slice. Never edit, reorder, or delete an existing entry — databases in the field are identified by how many entries have run. This includes `internal/db/schema.sql`, which is migration v1's frozen payload: new tables, columns, and indexes go in your new migration, never in schema.sql.
+   2. Each migration runs in a transaction with its version bump, so it either fully applies or re-runs on next boot. Migrations run on fresh databases too, so guard anything that assumes pre-existing state.
+   3. If your change affects **derived data** (values computed from the FIT files), pick a strategy by where the inputs live:
+      - **Inputs already in the database** (streams, recorded_at, profile) and fast to recompute: rederive **in place inside the migration** so the fix commits atomically with the version bump — see `migrateConvergeDerivedData` (v3) for the template. Note migrations block boot (they run in `db.Open`, before the HTTP server), so this path must be fast.
+      - **Inputs not in the database** (new data extracted from the FIT bytes), or too slow to block boot: end your migration with `setMetaTx(tx, MetaRebuildPending, "1")`. On the next boot the app snapshots the database, wipes derived data, and reimports the archive in the background behind the progress page (`RebuildFromArchive`), preserving the athlete profile, FTP history, tokens, and planned workouts.
+   4. Add a test. `TestMigration_FreshAndLegacyConverge` must stay green — it proves a fresh database and a migrated legacy one end up with identical schemas.
 3. **FIT parsing**: documented in `internal/fitparser/parser.go`.
 4. **Templates**: all pages extend `web/templates/base.html`. Use the existing CSS variables in `style.css` rather than inline colors.
 5. **Tests**: add a test for any new parsing logic, DB query, or API handler. The existing test files show the patterns.

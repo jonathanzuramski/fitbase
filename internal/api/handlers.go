@@ -109,10 +109,11 @@ func (h *Handler) GetWorkoutSummary(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, workout.ToSummary())
 }
 
-// DELETE /api/workouts/{id}
+// DELETE /api/workouts/{id} — removes the workout, its import-ledger entries,
+// and its archived FIT file, so the same file can be re-imported.
 func (h *Handler) DeleteWorkout(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	if err := h.db.DeleteWorkout(id); errors.Is(err, sql.ErrNoRows) {
+	if err := h.importer.DeleteWorkout(id); errors.Is(err, sql.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "workout not found")
 		return
 	} else if err != nil {
@@ -586,7 +587,7 @@ func (h *Handler) GetWorkoutAnalysis(w http.ResponseWriter, r *http.Request) {
 		// power-time denominator as the 7-zone breakdown so the model can read
 		// "X% of the ride was in SS" without re-doing the math.
 		if ssSecs != nil {
-			var ssDef models.PowerZone = powerZoneDefs[fitness.SweetSpotIdx]
+			ssDef := powerZoneDefs[fitness.SweetSpotIdx]
 			pct := 0.0
 			if total > 0 {
 				pct = math.Round(float64(*ssSecs)/float64(total)*1000) / 10
