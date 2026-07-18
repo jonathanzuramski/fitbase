@@ -1687,7 +1687,7 @@ func workoutsColumns(t *testing.T, d *db.DB) []string {
 	if err != nil {
 		t.Fatalf("table_info: %v", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 	var cols []string
 	for rows.Next() {
 		var cid, notnull, pk int
