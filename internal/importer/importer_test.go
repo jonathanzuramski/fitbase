@@ -2,6 +2,8 @@ package importer_test
 
 import (
 	"bytes"
+	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -32,8 +34,13 @@ func newTestDB(t *testing.T) *db.DB {
 
 // buildMinimalFIT produces a minimal valid FIT activity binary.
 func buildMinimalFIT(t *testing.T) []byte {
+	return buildFITAt(t, time.Date(2024, 3, 15, 8, 0, 0, 0, time.UTC))
+}
+
+// buildFITAt produces a minimal valid FIT activity binary starting at start —
+// distinct start times yield distinct workouts (different IDs, no dedup).
+func buildFITAt(t *testing.T, start time.Time) []byte {
 	t.Helper()
-	start := time.Date(2024, 3, 15, 8, 0, 0, 0, time.UTC)
 
 	fileId := mesgdef.NewFileId(nil)
 	fileId.Type = typedef.FileActivity
@@ -332,5 +339,219 @@ func TestBackfillSweetSpotZone_NoFTPStoresZero(t *testing.T) {
 	}
 	if ss == nil || *ss != 0 {
 		t.Errorf("ss = %v, want 0 when FTP is unknown", ss)
+	}
+}
+
+// ── Watch dir as inbox ────────────────────────────────────────────────────────
+
+// Every handled watch file must be removed — imported or skipped — so nothing
+// sits in the watch dir getting silently rescanned forever.
+func TestImport_RemovesWatchFileOnImportAndOnDuplicate(t *testing.T) {
+	d := newTestDB(t)
+	imp := importer.NewImporter(d, t.TempDir())
+	watchDir := t.TempDir()
+	fit := buildMinimalFIT(t)
+
+	// First drop: imported, watch file removed.
+	path := filepath.Join(watchDir, "ride.fit")
+	if err := os.WriteFile(path, fit, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	id, err := imp.Import(path)
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	if id == "" {
+		t.Fatal("expected a workout id on first import")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Error("watch file not removed after successful import")
+	}
+
+	// Second drop of the same bytes: skipped as duplicate, but still removed.
+	if err := os.WriteFile(path, fit, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if id, err := imp.Import(path); err != nil || id != "" {
+		t.Fatalf("duplicate import = (%q, %v), want skip", id, err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Error("watch file not removed after duplicate skip")
+	}
+	if n, _ := d.CountWorkouts(); n != 1 {
+		t.Errorf("workout count = %d, want 1", n)
+	}
+}
+
+// ── Delete then re-import ─────────────────────────────────────────────────────
+
+// Deleting a workout must make it re-importable: the ledger entries and the
+// archived FIT file go with it, so the same bytes import as brand new (and a
+// future archive rebuild can't resurrect the deleted workout).
+func TestDeleteWorkout_AllowsReimport(t *testing.T) {
+	archiveDir := t.TempDir()
+	d := newTestDB(t)
+	imp := importer.NewImporter(d, archiveDir)
+	fit := buildMinimalFIT(t)
+
+	id, err := imp.ImportBytes(fit, "ride.fit")
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	w, _ := d.GetWorkout(id)
+	archivePath := imp.ArchivePath(w)
+	if _, err := os.Stat(archivePath); err != nil {
+		t.Fatalf("setup: archive file missing: %v", err)
+	}
+
+	if err := imp.DeleteWorkout(id); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if n, _ := d.CountWorkouts(); n != 0 {
+		t.Errorf("workout count after delete = %d, want 0", n)
+	}
+	if _, err := os.Stat(archivePath); !os.IsNotExist(err) {
+		t.Error("archived FIT file not removed on delete (a rebuild would resurrect it)")
+	}
+
+	// Same bytes again: must import as brand new, not be skipped by the ledger.
+	id2, err := imp.ImportBytes(fit, "ride.fit")
+	if err != nil {
+		t.Fatalf("re-import: %v", err)
+	}
+	if id2 == "" {
+		t.Fatal("re-import was skipped; deleted workout is not re-importable")
+	}
+	if n, _ := d.CountWorkouts(); n != 1 {
+		t.Errorf("workout count after re-import = %d, want 1", n)
+	}
+}
+
+func TestDeleteWorkout_MissingReturnsNoRows(t *testing.T) {
+	d := newTestDB(t)
+	imp := importer.NewImporter(d, t.TempDir())
+	if err := imp.DeleteWorkout("nope000000000000"); !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("delete missing = %v, want sql.ErrNoRows", err)
+	}
+}
+
+// ── Hardened archive ──────────────────────────────────────────────────────────
+
+func TestImportBytes_ArchiveFailureAbortsImport(t *testing.T) {
+	d := newTestDB(t)
+	// Point the archive dir at a regular file, so creating the year/month
+	// subdirectories underneath it fails — simulating an unwritable archive.
+	tmp := t.TempDir()
+	blocker := filepath.Join(tmp, "not-a-dir")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	imp := importer.NewImporter(d, blocker)
+
+	_, err := imp.ImportBytes(buildMinimalFIT(t), "ride.fit")
+	if err == nil {
+		t.Fatal("expected import to fail when the archive write fails")
+	}
+	// The workout must not be persisted if it couldn't be archived: the archive
+	// is the source of truth for rebuilds.
+	if n, _ := d.CountWorkouts(); n != 0 {
+		t.Errorf("workout persisted despite archive failure: count=%d", n)
+	}
+}
+
+// ── RebuildFromArchive ────────────────────────────────────────────────────────
+
+func TestRebuildFromArchive_RestoresFromArchive(t *testing.T) {
+	archiveDir := t.TempDir()
+	d := newTestDB(t)
+	imp := importer.NewImporter(d, archiveDir)
+
+	id, err := imp.ImportBytes(buildMinimalFIT(t), "ride.fit")
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	if n, _ := d.CountWorkouts(); n != 1 {
+		t.Fatalf("setup: want 1 workout, got %d", n)
+	}
+
+	imported, gap, err := imp.RebuildFromArchive()
+	if err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+	if gap != 0 {
+		t.Errorf("coverage gap = %d, want 0 (archive intact)", gap)
+	}
+	if imported != 1 {
+		t.Errorf("imported = %d, want 1", imported)
+	}
+	if w, _ := d.GetWorkout(id); w == nil {
+		t.Errorf("workout %s not restored after rebuild", id)
+	}
+}
+
+func TestRebuildFromArchive_ReportsCoverageGap(t *testing.T) {
+	archiveDir := t.TempDir()
+	d := newTestDB(t)
+	imp := importer.NewImporter(d, archiveDir)
+
+	// Two distinct workouts so a partial gap (1 of 2) doesn't trip the
+	// total-gap guard — that refusal path has its own test below.
+	id1, err := imp.ImportBytes(buildFITAt(t, time.Date(2024, 3, 15, 8, 0, 0, 0, time.UTC)), "ride1.fit")
+	if err != nil {
+		t.Fatalf("import 1: %v", err)
+	}
+	id2, err := imp.ImportBytes(buildFITAt(t, time.Date(2024, 3, 16, 9, 0, 0, 0, time.UTC)), "ride2.fit")
+	if err != nil {
+		t.Fatalf("import 2: %v", err)
+	}
+	// Delete one archived file so that workout can't be rebuilt.
+	w1, _ := d.GetWorkout(id1)
+	if err := os.Remove(imp.ArchivePath(w1)); err != nil {
+		t.Fatalf("remove archive file: %v", err)
+	}
+
+	imported, gap, err := imp.RebuildFromArchive()
+	if err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+	if gap != 1 {
+		t.Errorf("coverage gap = %d, want 1", gap)
+	}
+	if imported != 1 {
+		t.Errorf("imported = %d, want 1 (only ride2 remains in the archive)", imported)
+	}
+	if w, _ := d.GetWorkout(id2); w == nil {
+		t.Errorf("covered workout %s not restored", id2)
+	}
+	if w, _ := d.GetWorkout(id1); w != nil {
+		t.Errorf("uncovered workout %s still present, want dropped pending resync", id1)
+	}
+	// The gap is surfaced for the UI to prompt a resync.
+	if st := imp.ReimportStatus(); st.ResyncGap != 1 {
+		t.Errorf("ReimportStatus.ResyncGap = %d, want 1", st.ResyncGap)
+	}
+}
+
+func TestRebuildFromArchive_RefusesTotalGap(t *testing.T) {
+	archiveDir := t.TempDir()
+	d := newTestDB(t)
+	imp := importer.NewImporter(d, archiveDir)
+
+	id, err := imp.ImportBytes(buildMinimalFIT(t), "ride.fit")
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	// Every workout missing from the archive looks like an unmounted archive
+	// dir, not genuinely lost files — the rebuild must refuse to wipe.
+	w, _ := d.GetWorkout(id)
+	if err := os.Remove(imp.ArchivePath(w)); err != nil {
+		t.Fatalf("remove archive file: %v", err)
+	}
+
+	if _, _, err := imp.RebuildFromArchive(); err == nil {
+		t.Fatal("expected rebuild to refuse when the archive covers no workouts")
+	}
+	if n, _ := d.CountWorkouts(); n != 1 {
+		t.Errorf("workout count = %d, want 1 (database untouched by refused rebuild)", n)
 	}
 }

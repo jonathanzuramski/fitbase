@@ -23,7 +23,8 @@ var schema string
 
 type DB struct {
 	*sql.DB
-	key []byte // AES-256 key for encrypting OAuth tokens at rest
+	key  []byte // AES-256 key for encrypting OAuth tokens at rest
+	path string // filesystem path of the database file (for snapshots)
 }
 
 // ── Setup ─────────────────────────────────────────────────────────────────────
@@ -44,100 +45,30 @@ func Open(path string, key []byte) (*DB, error) {
 	}
 	sqldb.SetMaxOpenConns(1) // SQLite is single-writer
 
-	if _, err := sqldb.Exec(schema); err != nil {
-		return nil, fmt.Errorf("run schema: %w", err)
+	// The migration ladder is the single source of truth for the schema. Every
+	// database replays it from wherever its PRAGMA user_version left off and updates
+	// the schema accordingly. See internal/db/migrate.go.
+	if err := migrate(sqldb); err != nil {
+		return nil, fmt.Errorf("migrate schema: %w", err)
 	}
 
-	// Migration: add route_coords column for pre-computed GPS thumbnails.
-	if _, err := sqldb.Exec(`ALTER TABLE workouts ADD COLUMN route_coords TEXT DEFAULT NULL`); err != nil {
-		if !strings.Contains(err.Error(), "duplicate column name") {
-			return nil, fmt.Errorf("migrate route_coords: %w", err)
-		}
-	}
+	return &DB{DB: sqldb, key: key, path: path}, nil
+}
 
-	// Migration: add training_day (YYYY-MM-DD in athlete's local timezone).
-	// Lets fitness/streak/mileage queries group by the day the athlete recorded
-	// the workout, not UTC, without per-query timezone math.
-	if _, err := sqldb.Exec(`ALTER TABLE workouts ADD COLUMN training_day TEXT DEFAULT NULL`); err != nil {
-		if !strings.Contains(err.Error(), "duplicate column name") {
-			return nil, fmt.Errorf("migrate training_day: %w", err)
-		}
+// SnapshotPreRebuild writes a consistent copy of the database to
+// <path>.pre-rebuild (replacing any previous one) before an archive rebuild
+// wipes derived data — a rebuild gone wrong is recoverable by stopping fitbase
+// and restoring the snapshot over the database file.
+func (db *DB) SnapshotPreRebuild() (string, error) {
+	dest := db.path + ".pre-rebuild"
+	// VACUUM INTO refuses to overwrite.
+	if err := os.Remove(dest); err != nil && !os.IsNotExist(err) {
+		return "", fmt.Errorf("remove old snapshot: %w", err)
 	}
-	if _, err := sqldb.Exec(`CREATE INDEX IF NOT EXISTS idx_workouts_training_day ON workouts(training_day)`); err != nil {
-		return nil, fmt.Errorf("create training_day index: %w", err)
+	if _, err := db.Exec(`VACUUM INTO ?`, dest); err != nil {
+		return "", fmt.Errorf("vacuum into %s: %w", dest, err)
 	}
-
-	// Migration: add route_coords_v — the format version of the route_coords
-	// JSON. Lets the startup rebuild detect legacy (NULL/older) rows, rebuild
-	// them once, and then converge, instead of re-running every boot.
-	if _, err := sqldb.Exec(`ALTER TABLE workouts ADD COLUMN route_coords_v INTEGER DEFAULT NULL`); err != nil {
-		if !strings.Contains(err.Error(), "duplicate column name") {
-			return nil, fmt.Errorf("migrate route_coords_v: %w", err)
-		}
-	}
-
-	// Migration: Sweet Spot time-in-band stored alongside the 7 power zones.
-	// NULL on existing rows signals "not yet computed" — backfilled on boot.
-	if _, err := sqldb.Exec(`ALTER TABLE workout_zone_times ADD COLUMN ss_secs INTEGER`); err != nil {
-		if !strings.Contains(err.Error(), "duplicate column name") {
-			return nil, fmt.Errorf("migrate ss_secs: %w", err)
-		}
-	}
-
-	// Migration: imported_files PK (hash) → (hash, filename). The old shape
-	// silently dropped subsequent INSERTs for the same hash, so a file imported
-	// once under name A and later seen under name B was never recorded as B —
-	// causing filename-based dedup (intervals.icu syncer) to re-download forever.
-	{
-		var def string
-		err := sqldb.QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name='imported_files'`).Scan(&def)
-		if err != nil && err != sql.ErrNoRows {
-			return nil, fmt.Errorf("inspect imported_files: %w", err)
-		}
-		if err == nil && !strings.Contains(def, "PRIMARY KEY (hash, filename)") {
-			var rowCount int
-			_ = sqldb.QueryRow(`SELECT COUNT(*) FROM imported_files`).Scan(&rowCount)
-			slog.Info("migrating imported_files to composite PK (hash, filename)", "rows", rowCount)
-			if _, err := sqldb.Exec(`
-				CREATE TABLE imported_files_new (
-					hash        TEXT NOT NULL,
-					filename    TEXT NOT NULL,
-					imported_at DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
-					PRIMARY KEY (hash, filename)
-				);
-				INSERT INTO imported_files_new (hash, filename, imported_at)
-					SELECT hash, filename, imported_at FROM imported_files;
-				DROP TABLE imported_files;
-				ALTER TABLE imported_files_new RENAME TO imported_files;
-				CREATE INDEX IF NOT EXISTS idx_imported_files_filename ON imported_files(filename);
-			`); err != nil {
-				return nil, fmt.Errorf("migrate imported_files PK: %w", err)
-			}
-			slog.Info("imported_files migration complete")
-		}
-	}
-
-	// Migration: idx_workouts_sport_recorded_at was created ASC; rebuild it DESC
-	// so per-sport "newest first" listings scan the index forward. Guarded on the
-	// stored definition so it only rebuilds once, not on every boot.
-	{
-		var def string
-		err := sqldb.QueryRow(`SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_workouts_sport_recorded_at'`).Scan(&def)
-		if err != nil && err != sql.ErrNoRows {
-			return nil, fmt.Errorf("inspect idx_workouts_sport_recorded_at: %w", err)
-		}
-		if err == nil && !strings.Contains(def, "recorded_at DESC") {
-			if _, err := sqldb.Exec(`
-				DROP INDEX idx_workouts_sport_recorded_at;
-				CREATE INDEX idx_workouts_sport_recorded_at ON workouts(sport, recorded_at DESC);
-			`); err != nil {
-				return nil, fmt.Errorf("migrate idx_workouts_sport_recorded_at: %w", err)
-			}
-			slog.Info("rebuilt idx_workouts_sport_recorded_at as DESC")
-		}
-	}
-
-	return &DB{sqldb, key}, nil
+	return dest, nil
 }
 
 // ── Workouts ──────────────────────────────────────────────────────────────────
@@ -403,17 +334,31 @@ func (db *DB) FindDuplicateWorkout(recordedAt time.Time, sport string, durationS
 	return id, err
 }
 
-// DeleteWorkout removes a workout and all its streams (cascades via FK).
+// DeleteWorkout removes a workout, its streams (cascades via FK), and every
+// imported_files entry recorded for its file — including hash aliases — so the
+// same file can be deliberately re-imported. Deleting is an explicit user
+// action; making the ledger forget the file is what makes it reversible.
 func (db *DB) DeleteWorkout(id string) error {
-	res, err := db.Exec("DELETE FROM workouts WHERE id = ?", id)
+	tx, err := db.Begin()
 	if err != nil {
 		return err
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
+	defer tx.Rollback() //nolint:errcheck
+	// Ledger first: the filename lookup needs the workout row to still exist.
+	if _, err := tx.Exec(`
+		DELETE FROM imported_files WHERE hash IN (
+			SELECT hash FROM imported_files
+			WHERE filename = (SELECT filename FROM workouts WHERE id = ?))`, id); err != nil {
+		return fmt.Errorf("clear import ledger: %w", err)
+	}
+	res, err := tx.Exec("DELETE FROM workouts WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
 		return sql.ErrNoRows
 	}
-	return nil
+	return tx.Commit()
 }
 
 // DeleteAllWorkouts removes every workout (streams and power curves cascade) and
@@ -436,6 +381,58 @@ func (db *DB) DeleteAllWorkouts() error {
 		}
 	}
 	return tx.Commit()
+}
+
+// ResetDerivedData clears everything that is derived from the archived FIT files
+// — workouts, streams, power curves, zone times, routes, and the imported-file
+// ledger — so it can be rebuilt from scratch by re-importing the archive. The
+// athlete profile, FTP history, integration tokens/credentials, mileage goals,
+// AI settings, and planned workouts are all preserved, because the reimport
+// reproduces correct derived metrics from them.
+func (db *DB) ResetDerivedData() error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	// workouts before routes so the route_id FK so we aren't causing SQLite to do a per-row cascade.
+	for _, table := range []string{
+		"workout_streams",
+		"workout_power_curve",
+		"workout_zone_times",
+		"workouts",
+		"routes",
+		"imported_files",
+	} {
+		if _, err := tx.Exec("DELETE FROM " + table); err != nil {
+			return fmt.Errorf("reset %s: %w", table, err)
+		}
+	}
+	return tx.Commit()
+}
+
+// AllWorkoutArchiveRefs returns the id, recorded time, and sport of every
+// workout — the fields needed to compute its expected archive path. Used by the
+// pre-rebuild coverage check to find workouts missing from the archive.
+func (db *DB) AllWorkoutArchiveRefs() ([]models.Workout, error) {
+	rows, err := db.Query(`SELECT id, recorded_at, sport FROM workouts`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close() //nolint:errcheck
+	var out []models.Workout
+	for rows.Next() {
+		var w models.Workout
+		var rec string
+		if err := rows.Scan(&w.ID, &rec, &w.Sport); err != nil {
+			return nil, err
+		}
+		if w.RecordedAt, err = time.Parse(time.RFC3339, rec); err != nil {
+			return nil, fmt.Errorf("parse recorded_at %q: %w", rec, err)
+		}
+		out = append(out, w)
+	}
+	return out, rows.Err()
 }
 
 // ── Import tracking ───────────────────────────────────────────────────────────
@@ -1477,10 +1474,10 @@ func (db *DB) GetMileageProgress(sport string, tz *time.Location) (MileageProgre
 
 // ── Route tracks ─────────────────────────────────────────────────────────────
 
-// routeCoordsVersion is the format version of the route_coords JSON produced by
-// simplifyCoords. Bump it whenever the simplification changes: the startup
-// rebuild re-processes every row whose stored version is older exactly once,
-// then converges. NULL/absent = legacy uniform downsample (pre-RDP).
+// routeCoordsVersion is the format version of the route_coords JSON, stamped
+// on each row at insert. If the simplification changes, bump this AND append a
+// migration that re-converges rows below the new version (see the migrations
+// doc in migrate.go). NULL/absent = legacy uniform downsample (pre-RDP).
 const routeCoordsVersion = 2
 
 // WorkoutRouteTrack is a simplified GPS track for a single workout.
@@ -1618,170 +1615,6 @@ func (db *DB) GetWorkoutRouteTracks(ids []string) ([]WorkoutRouteTrack, error) {
 		})
 	}
 	return out, rows.Err()
-}
-
-// queryWorkoutIDs runs an id-only query and collects the results. The rows are
-// fully drained and closed before returning so callers can safely issue writes
-// afterwards on the single-connection pool.
-func (db *DB) queryWorkoutIDs(query string, args ...any) ([]string, error) {
-	rows, err := db.Query(query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close() //nolint:errcheck
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	return ids, rows.Err()
-}
-
-// rebuildCoordsFor recomputes route_coords for the given workout ids and stamps
-// each with the current routeCoordsVersion. Per-workout failures are counted
-// and logged rather than aborting the batch, so one unreadable workout cannot
-// stall startup. Returns the number successfully updated.
-func (db *DB) rebuildCoordsFor(ids []string) int {
-	updated, failed := 0, 0
-	for _, id := range ids {
-		pts, err := db.gpsPointsForWorkout(id)
-		if err != nil {
-			failed++
-			continue
-		}
-		coords := simplifyCoords(pts, 500)
-		js, _ := json.Marshal(coords)
-		if _, err := db.Exec(
-			`UPDATE workouts SET route_coords = ?, route_coords_v = ? WHERE id = ?`,
-			string(js), routeCoordsVersion, id); err != nil {
-			failed++
-			continue
-		}
-		updated++
-	}
-	if failed > 0 {
-		slog.Warn("route coords rebuild skipped workouts", "failed", failed, "updated", updated)
-	}
-	return updated
-}
-
-// BackfillRouteCoords computes route_coords for outdoor workouts that have none
-// yet (e.g. imported before the column existed). Rows are stamped to the
-// current format version so the rebuild never reprocesses them. Returns the
-// number of workouts updated.
-func (db *DB) BackfillRouteCoords() (int, error) {
-	ids, err := db.queryWorkoutIDs(`
-		SELECT id FROM workouts
-		WHERE is_indoor = 0 AND route_coords IS NULL
-		ORDER BY recorded_at DESC`)
-	if err != nil {
-		return 0, err
-	}
-	return db.rebuildCoordsFor(ids), nil
-}
-
-// RebuildRouteCoords re-simplifies route_coords for any outdoor workout whose
-// stored format predates routeCoordsVersion. Idempotent and convergent: each
-// matching row is rebuilt exactly once and stamped to the current version, so
-// subsequent startups select zero rows. Safe to call at startup.
-func (db *DB) RebuildRouteCoords() (int, error) {
-	ids, err := db.queryWorkoutIDs(`
-		SELECT id FROM workouts
-		WHERE is_indoor = 0
-		  AND route_coords IS NOT NULL
-		  AND (route_coords_v IS NULL OR route_coords_v < ?)`, routeCoordsVersion)
-	if err != nil {
-		return 0, err
-	}
-	return db.rebuildCoordsFor(ids), nil
-}
-
-// BackfillTrainingDay populates the training_day column for any workouts that
-// pre-date the migration, using the athlete's current timezone as the best
-// available guess. Safe to call concurrently with normal operation. Batched in
-// a single transaction so a multi-thousand-row backfill is fast.
-func (db *DB) BackfillTrainingDay() (int, error) {
-	tz := db.athleteLocation()
-
-	rows, err := db.Query(`
-		SELECT id, recorded_at FROM workouts
-		WHERE training_day IS NULL`)
-	if err != nil {
-		return 0, err
-	}
-	type pending struct {
-		id  string
-		rec time.Time
-	}
-	var todo []pending
-	for rows.Next() {
-		var id, recStr string
-		if err := rows.Scan(&id, &recStr); err != nil {
-			_ = rows.Close()
-			return 0, err
-		}
-		rec, err := time.Parse(time.RFC3339, recStr)
-		if err != nil {
-			continue
-		}
-		todo = append(todo, pending{id, rec})
-	}
-	_ = rows.Close()
-	if err := rows.Err(); err != nil {
-		return 0, err
-	}
-	if len(todo) == 0 {
-		return 0, nil
-	}
-
-	tx, err := db.Begin()
-	if err != nil {
-		return 0, err
-	}
-	defer tx.Rollback() //nolint:errcheck
-	stmt, err := tx.Prepare(`UPDATE workouts SET training_day = ? WHERE id = ?`)
-	if err != nil {
-		return 0, err
-	}
-	defer stmt.Close() //nolint:errcheck
-
-	updated := 0
-	for _, p := range todo {
-		day := p.rec.In(tz).Format("2006-01-02")
-		if _, err := stmt.Exec(day, p.id); err != nil {
-			continue
-		}
-		updated++
-	}
-	if err := tx.Commit(); err != nil {
-		return 0, err
-	}
-	return updated, nil
-}
-
-func (db *DB) gpsPointsForWorkout(id string) ([][2]float64, error) {
-	rows, err := db.Query(`
-		SELECT lng, lat FROM workout_streams
-		WHERE workout_id = ?
-		  AND lat IS NOT NULL AND lng IS NOT NULL
-		  AND NOT (lat = 0 AND lng = 0)
-		ORDER BY timestamp`, id)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close() //nolint:errcheck
-	var pts [][2]float64
-	for rows.Next() {
-		var lng, lat float64
-		if err := rows.Scan(&lng, &lat); err != nil {
-			return nil, err
-		}
-		pts = append(pts, [2]float64{lng, lat})
-	}
-	return pts, rows.Err()
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
