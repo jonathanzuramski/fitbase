@@ -1469,7 +1469,7 @@ func hasColumn(t *testing.T, d *db.DB, table, col string) bool {
 	if err != nil {
 		t.Fatalf("table_info(%s): %v", table, err)
 	}
-	_ = defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 	for rows.Next() {
 		var cid int
 		var name, typ string
@@ -1612,7 +1612,7 @@ func TestMigration_FreshAndLegacyConverge(t *testing.T) {
 		if err != nil {
 			t.Fatalf("dump sqlite_master: %v", err)
 		}
-		_ = defer rows.Close()
+		defer rows.Close() //nolint:errcheck
 		out := map[string]string{}
 		for rows.Next() {
 			var name, ddl string
