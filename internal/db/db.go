@@ -965,7 +965,7 @@ func (db *DB) AllWorkoutsForTSSBackfill() ([]WorkoutTSSRow, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 	var out []WorkoutTSSRow
 	for rows.Next() {
 		var r WorkoutTSSRow
@@ -1628,7 +1628,7 @@ func (db *DB) queryWorkoutIDs(query string, args ...any) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 	var ids []string
 	for rows.Next() {
 		var id string
@@ -1720,7 +1720,7 @@ func (db *DB) BackfillTrainingDay() (int, error) {
 	for rows.Next() {
 		var id, recStr string
 		if err := rows.Scan(&id, &recStr); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return 0, err
 		}
 		rec, err := time.Parse(time.RFC3339, recStr)
@@ -1729,7 +1729,7 @@ func (db *DB) BackfillTrainingDay() (int, error) {
 		}
 		todo = append(todo, pending{id, rec})
 	}
-	rows.Close()
+	_ = rows.Close()
 	if err := rows.Err(); err != nil {
 		return 0, err
 	}
