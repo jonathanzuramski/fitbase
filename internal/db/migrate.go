@@ -243,12 +243,12 @@ func migrateConvergeDerivedData(tx *sql.Tx) error {
 	for rows.Next() {
 		var r dayRow
 		if err := rows.Scan(&r.id, &r.rec); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return err
 		}
 		days = append(days, r)
 	}
-	rows.Close()
+	_ = rows.Close()
 	if err := rows.Err(); err != nil {
 		return err
 	}
@@ -273,12 +273,12 @@ func migrateConvergeDerivedData(tx *sql.Tx) error {
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return err
 		}
 		stale = append(stale, id)
 	}
-	rows.Close()
+	_ = rows.Close()
 	if err := rows.Err(); err != nil {
 		return err
 	}
