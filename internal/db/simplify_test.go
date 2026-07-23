@@ -20,9 +20,9 @@ func noisyPath(n int) [][2]float64 {
 }
 
 // rdpSimplify and simplifyCoords must be pure with respect to their input:
-// the original 75-point downsample never mutated callers' data and several
-// call sites (InsertWorkout, the backfill/rebuild jobs) reuse the point slice.
-// A regression here previously corrupted every stored route.
+// the original 75-point downsample never mutated callers' data and the call
+// site (InsertWorkout) reuses the point slice. A regression here previously
+// corrupted every stored route.
 func TestRDPSimplifyDoesNotMutateInput(t *testing.T) {
 	pts := noisyPath(200)
 	orig := make([][2]float64, len(pts))

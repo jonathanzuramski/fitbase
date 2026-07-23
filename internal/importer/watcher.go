@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -41,6 +42,10 @@ type reimportProgress struct {
 	completed atomic.Int64 // files processed so far (imported + errored)
 	imported  atomic.Int64
 	errors    atomic.Int64
+	// resyncGap is the number of workouts a rebuild could not restore because
+	// they had no archived FIT file. Non-zero prompts the UI to suggest a resync
+	// from the user's connected sources to recover them.
+	resyncGap atomic.Int64
 }
 
 // ReimportStatus is a JSON-friendly snapshot of a startup archive reimport.
@@ -51,6 +56,9 @@ type ReimportStatus struct {
 	Completed int  `json:"completed"`
 	Imported  int  `json:"imported"`
 	Errors    int  `json:"errors"`
+	// ResyncGap > 0 means a rebuild dropped this many workouts that weren't in
+	// the archive; the UI should prompt the user to resync to recover them.
+	ResyncGap int `json:"resync_gap"`
 }
 
 // Importer handles FIT file import, archiving, and optional Drive backup.
@@ -72,6 +80,7 @@ func (imp *Importer) ReimportStatus() ReimportStatus {
 		Completed: int(imp.reimport.completed.Load()),
 		Imported:  int(imp.reimport.imported.Load()),
 		Errors:    int(imp.reimport.errors.Load()),
+		ResyncGap: int(imp.reimport.resyncGap.Load()),
 	}
 }
 
@@ -109,7 +118,9 @@ func (imp *Importer) Import(path string) (string, error) {
 		return "", err
 	}
 	if already {
-		return "", nil // silently skip
+		slog.Info("skipping already-imported file", "path", path)
+		imp.removeWatchFile(path)
+		return "", nil
 	}
 
 	data, err = decompressIfNeeded(data, filepath.Base(path))
@@ -131,8 +142,9 @@ func (imp *Importer) Import(path string) (string, error) {
 	)
 
 	if errors.Is(err, fitparser.ErrSkipped) {
-		slog.Debug("skipping non-cardio activity", "path", path)
+		slog.Info("skipping non-cardio activity", "path", path)
 		_ = imp.db.MarkImported(hash, filepath.Base(path))
+		imp.removeWatchFile(path)
 		return "", nil
 	}
 	if err != nil {
@@ -150,9 +162,16 @@ func (imp *Importer) Import(path string) (string, error) {
 			slog.Info("skipping duplicate activity from different source",
 				"new_id", result.ID, "existing_id", dupID, "path", path)
 			_ = imp.db.MarkImported(hash, filepath.Base(path))
+			imp.removeWatchFile(path)
 			return "", nil
 		}
 
+		// Archive before inserting: a workout must never exist in the DB without
+		// its archived FIT file (the source of truth for rebuilds). On failure
+		// the watch file stays in place to retry.
+		if err := imp.archive(data, &result.Workout); err != nil {
+			return "", fmt.Errorf("archive %s: %w", path, err)
+		}
 		if err := imp.db.InsertWorkout(&result.Workout, result.Streams); err != nil {
 			return "", fmt.Errorf("store workout: %w", err)
 		}
@@ -186,24 +205,24 @@ func (imp *Importer) Import(path string) (string, error) {
 				slog.Warn("route assignment failed", "id", result.ID, "err", err)
 			}
 		}
-		if err := imp.archive(data, &result.Workout); err != nil {
-			// Log but don't fail the import — data is already in the DB.
-			slog.Warn("archive failed", "id", result.ID, "err", err)
-		} else {
-			if err := os.Remove(path); err != nil {
-				slog.Warn("failed to delete watch file after import", "path", path, "err", err)
-			}
-		}
+		// Workout is stored and archived; the watch-dir copy is no longer needed.
+		imp.removeWatchFile(path)
 		imp.mu.RLock()
 		hasDrive := imp.drive != nil
 		imp.mu.RUnlock()
 		if hasDrive {
 			go imp.uploadToDrive(data, &result.Workout)
 		}
+	} else {
+		slog.Info("skipping file for already-existing workout", "id", result.ID, "path", path)
+		imp.removeWatchFile(path)
 	}
 
 	if err := imp.db.MarkImported(hash, filepath.Base(path)); err != nil {
 		slog.Warn("failed to mark file as imported", "hash", hash, "err", err)
+	}
+	if exists {
+		return result.ID, nil
 	}
 
 	slog.Info("imported workout",
@@ -214,6 +233,39 @@ func (imp *Importer) Import(path string) (string, error) {
 	)
 
 	return result.ID, nil
+}
+
+// removeWatchFile deletes a handled watch-dir file. The watch dir is an inbox:
+// every file that reaches a terminal outcome — imported or skipped — is
+// removed, so nothing is silently rescanned forever. Files whose import
+// genuinely failed (parse or archive error) are deliberately left for retry.
+func (imp *Importer) removeWatchFile(path string) {
+	if err := os.Remove(path); err != nil {
+		slog.Warn("failed to delete watch file", "path", path, "err", err)
+	}
+}
+
+// DeleteWorkout removes a workout everywhere: the database row (and cascaded
+// streams/curves/zones), its import-ledger entries, and its archived FIT file.
+// Deletion must reach the archive too — otherwise the ledger no longer blocks
+// the file, but the next archive rebuild would resurrect the workout.
+// Returns sql.ErrNoRows if the workout doesn't exist.
+func (imp *Importer) DeleteWorkout(id string) error {
+	w, err := imp.db.GetWorkout(id)
+	if err != nil {
+		return err
+	}
+	if w == nil {
+		return sql.ErrNoRows
+	}
+	if err := imp.db.DeleteWorkout(id); err != nil {
+		return err
+	}
+	if err := os.Remove(imp.ArchivePath(w)); err != nil && !os.IsNotExist(err) {
+		slog.Warn("failed to remove archived FIT for deleted workout; an archive rebuild would restore it",
+			"id", id, "path", imp.ArchivePath(w), "err", err)
+	}
+	return nil
 }
 
 // ArchivePath returns the path where a workout's FIT file is stored.
@@ -305,6 +357,11 @@ func (imp *Importer) ImportBytes(data []byte, filename string) (string, error) {
 			return "", nil
 		}
 
+		// Archive before inserting so a workout never lands in the DB without its
+		// archived FIT file (the source of truth for rebuilds). See Import.
+		if err := imp.archive(data, &result.Workout); err != nil {
+			return "", fmt.Errorf("archive %s: %w", filename, err)
+		}
 		if err := imp.db.InsertWorkout(&result.Workout, result.Streams); err != nil {
 			return "", fmt.Errorf("store workout: %w", err)
 		}
@@ -337,9 +394,6 @@ func (imp *Importer) ImportBytes(data []byte, filename string) (string, error) {
 			if err := imp.db.SetWorkoutRouteID(result.ID, routeID); err != nil {
 				slog.Warn("route assignment failed", "id", result.ID, "err", err)
 			}
-		}
-		if err := imp.archive(data, &result.Workout); err != nil {
-			slog.Warn("archive failed", "id", result.ID, "err", err)
 		}
 		imp.mu.RLock()
 		hasDrive := imp.drive != nil
@@ -605,6 +659,8 @@ func (imp *Importer) ReimportArchive() (imported, errCount int) {
 	imp.reimport.imported.Store(0)
 	imp.reimport.errors.Store(0)
 	defer imp.reimport.active.Store(false)
+	// Note: resyncGap is intentionally not reset here — RebuildFromArchive sets
+	// it after this returns, and a plain reimport has no gap to report.
 
 	var paths []string
 	walkErr := filepath.WalkDir(imp.archiveDir, func(path string, e fs.DirEntry, werr error) error {
@@ -682,6 +738,61 @@ func (imp *Importer) ReimportArchive() (imported, errCount int) {
 		imp.reimport.completed.Add(1)
 	}
 	return
+}
+
+// RebuildFromArchive wipes all derived workout data and re-imports every FIT
+// file from the archive (the source of truth). Triggered by migrations that
+// set MetaRebuildPending. Workouts without a matching archive file can't be
+// rebuilt; their count is returned as gap and surfaced via ReimportStatus so
+// the UI can prompt a resync to recover them.
+func (imp *Importer) RebuildFromArchive() (imported, gap int, err error) {
+	// Measure the coverage gap before wiping — afterwards the workouts are gone.
+	gap, total, err := imp.archiveCoverageGap()
+	if err != nil {
+		return 0, 0, fmt.Errorf("archive coverage check: %w", err)
+	}
+	// A total gap means the archive isn't there at all (unmounted drive, wrong
+	// path) — refuse to wipe; the flag stays set and retries next boot.
+	if gap > 0 && gap == total {
+		return 0, gap, fmt.Errorf(
+			"all %d workouts are missing from the archive at %s — refusing to rebuild; is the archive directory mounted?",
+			total, imp.archiveDir)
+	}
+	if gap > 0 {
+		slog.Warn("archive rebuild: workouts missing from archive will be dropped until resync",
+			"missing", gap)
+	}
+
+	// No snapshot, no wipe.
+	snap, err := imp.db.SnapshotPreRebuild()
+	if err != nil {
+		return 0, gap, fmt.Errorf("pre-rebuild snapshot: %w", err)
+	}
+	slog.Info("wrote pre-rebuild database snapshot", "path", snap)
+
+	if err := imp.db.ResetDerivedData(); err != nil {
+		return 0, gap, fmt.Errorf("reset derived data: %w", err)
+	}
+
+	imported, _ = imp.ReimportArchive()
+	imp.reimport.resyncGap.Store(int64(gap))
+	return imported, gap, nil
+}
+
+// archiveCoverageGap counts workouts whose expected archive file is missing on
+// disk (these would be lost by a rebuild's wipe-and-reimport), alongside the
+// total number of workouts checked.
+func (imp *Importer) archiveCoverageGap() (missing, total int, err error) {
+	refs, err := imp.db.AllWorkoutArchiveRefs()
+	if err != nil {
+		return 0, 0, err
+	}
+	for i := range refs {
+		if _, err := os.Stat(imp.ArchivePath(&refs[i])); err != nil {
+			missing++
+		}
+	}
+	return missing, len(refs), nil
 }
 
 // Watcher watches a directory and imports FIT files as they appear.

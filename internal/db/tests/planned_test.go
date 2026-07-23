@@ -24,7 +24,7 @@ func TestPlannedWorkoutCRUD(t *testing.T) {
 		TSS:             &tss,
 		IntensityFactor: &intf,
 		Intervals: []models.PlannedInterval{
-			{Kind: "warmup", DurationSecs: 15 * 60, TargetPctFTPLow: intPtr(50), TargetPctFTPHigh: intPtr(75)},
+			{Kind: "warmup", DurationSecs: 15 * 60, TargetPctFTPStart: intPtr(50), TargetPctFTPEnd: intPtr(75)},
 			{Repeat: 2, Steps: []models.PlannedInterval{
 				{Kind: "sweet_spot", DurationSecs: 20 * 60, TargetPctFTP: intPtr(88)},
 				{Kind: "recovery", DurationSecs: 5 * 60},
@@ -54,10 +54,10 @@ func TestPlannedWorkoutCRUD(t *testing.T) {
 	if len(saved.Intervals) != 3 {
 		t.Fatalf("intervals lost in round trip: got %d, want 3", len(saved.Intervals))
 	}
-	// The warmup ramp's low/high must survive.
-	if saved.Intervals[0].TargetPctFTPLow == nil || *saved.Intervals[0].TargetPctFTPLow != 50 ||
-		saved.Intervals[0].TargetPctFTPHigh == nil || *saved.Intervals[0].TargetPctFTPHigh != 75 {
-		t.Errorf("ramp low/high lost in round trip")
+	// The warmup ramp's start/end must survive.
+	if saved.Intervals[0].TargetPctFTPStart == nil || *saved.Intervals[0].TargetPctFTPStart != 50 ||
+		saved.Intervals[0].TargetPctFTPEnd == nil || *saved.Intervals[0].TargetPctFTPEnd != 75 {
+		t.Errorf("ramp start/end lost in round trip")
 	}
 	// The repeat group and its nested target must survive.
 	grp := saved.Intervals[1]
@@ -104,44 +104,6 @@ func TestPlannedWorkoutCRUD(t *testing.T) {
 	// Deleting again should return ErrNoRows so handlers can return 404.
 	if err := d.DeletePlannedWorkout(saved.ID); !errors.Is(err, sql.ErrNoRows) {
 		t.Errorf("re-delete err = %v, want sql.ErrNoRows", err)
-	}
-}
-
-func TestPlannedWorkoutDrafts(t *testing.T) {
-	d := newTestDB(t)
-
-	payload := `{"workouts":[{"date":"2026-05-25","duration_secs":3600}]}`
-	id, err := d.SavePlannedDraft(payload)
-	if err != nil {
-		t.Fatalf("save draft: %v", err)
-	}
-	if id == "" {
-		t.Fatal("draft id should not be empty")
-	}
-
-	got, err := d.GetPlannedDraft(id)
-	if err != nil {
-		t.Fatalf("get draft: %v", err)
-	}
-	if got != payload {
-		t.Errorf("draft payload round-trip mismatch:\n got: %s\nwant: %s", got, payload)
-	}
-
-	// Missing id returns empty string, no error — handlers map this to 404.
-	missing, err := d.GetPlannedDraft("does-not-exist")
-	if err != nil {
-		t.Errorf("missing draft should not error: %v", err)
-	}
-	if missing != "" {
-		t.Errorf("missing draft should return empty string, got %q", missing)
-	}
-
-	if err := d.DeletePlannedDraft(id); err != nil {
-		t.Fatalf("delete draft: %v", err)
-	}
-	after, _ := d.GetPlannedDraft(id)
-	if after != "" {
-		t.Error("draft should be gone after delete")
 	}
 }
 

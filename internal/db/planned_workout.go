@@ -1,34 +1,22 @@
 package db
 
 import (
-	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/fitbase/fitbase/internal/models"
 )
-
-// newID returns a short random hex id used for planned workouts and drafts.
-// 16 hex chars = 64 bits of entropy — collision-safe for a personal app.
-func newID() string {
-	b := make([]byte, 8)
-	if _, err := rand.Read(b); err != nil {
-		// rand.Read failing on a healthy machine is exceptional; fall back to
-		// a time-based id so the caller still gets a usable string.
-		return fmt.Sprintf("%x", time.Now().UnixNano())
-	}
-	return hex.EncodeToString(b)
-}
 
 // CreatePlannedWorkout persists p, generating an id if one isn't supplied and
 // returning the stored row (with id and created_at populated). Intervals are
 // serialized to JSON for storage.
 func (db *DB) CreatePlannedWorkout(p models.PlannedWorkout) (models.PlannedWorkout, error) {
 	if p.ID == "" {
-		p.ID = newID()
+		p.ID = uuid.NewString()
 	}
 	if p.Sport == "" {
 		p.Sport = "cycling"
@@ -173,37 +161,4 @@ func parsePlannedDate(s string) (time.Time, error) {
 		}
 	}
 	return time.Time{}, fmt.Errorf("no layout matched")
-}
-
-// ── Coach-proposed schedule drafts ────────────────────────────────────────────
-
-// SavePlannedDraft stores a proposed schedule keyed by id and returns the id.
-// The payload is opaque JSON — typically a {"workouts":[…]} object the coach
-// tool built. Overwrites if id collides.
-func (db *DB) SavePlannedDraft(payloadJSON string) (string, error) {
-	id := newID()
-	_, err := db.Exec(`
-		INSERT INTO planned_workout_drafts (id, payload_json) VALUES (?, ?)
-		ON CONFLICT(id) DO UPDATE SET payload_json = excluded.payload_json`,
-		id, payloadJSON)
-	if err != nil {
-		return "", err
-	}
-	return id, nil
-}
-
-// GetPlannedDraft returns the payload JSON for a draft, or "" if absent.
-func (db *DB) GetPlannedDraft(id string) (string, error) {
-	var payload string
-	err := db.QueryRow(`SELECT payload_json FROM planned_workout_drafts WHERE id = ?`, id).Scan(&payload)
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
-	return payload, err
-}
-
-// DeletePlannedDraft removes a draft (typically after commit or discard).
-func (db *DB) DeletePlannedDraft(id string) error {
-	_, err := db.Exec(`DELETE FROM planned_workout_drafts WHERE id = ?`, id)
-	return err
 }

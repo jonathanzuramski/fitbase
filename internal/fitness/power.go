@@ -39,26 +39,6 @@ func IntensityFactor(np, ftp float64) float64 {
 	return math.Round(np/ftp*1000) / 1000
 }
 
-// EfficiencyFactor is normalized power ÷ average HR — aerobic efficiency, where
-// a rising value at matched intensity signals fitness gains. Returns false when
-// the inputs aren't all present. Callers round to whatever precision their
-// output contract needs.
-func EfficiencyFactor(np *float64, avgHR *int) (float64, bool) {
-	if np == nil || avgHR == nil || *avgHR <= 0 {
-		return 0, false
-	}
-	return *np / float64(*avgHR), true
-}
-
-// VariabilityIndex is normalized power ÷ average power — 1.00 is perfectly
-// steady, >1.05 surgey. Returns false when inputs aren't all present.
-func VariabilityIndex(np, avgP *float64) (float64, bool) {
-	if np == nil || avgP == nil || *avgP <= 0 {
-		return 0, false
-	}
-	return *np / *avgP, true
-}
-
 // EstimateTSS returns the standard TSS estimate for a target effort:
 // TSS = IF² × hours × 100. Returns 0 when inputs are missing/invalid so
 // callers can detect "couldn't estimate" without a separate ok value.
@@ -68,72 +48,6 @@ func EstimateTSS(durationSecs int, intensityFactor float64) float64 {
 	}
 	hours := float64(durationSecs) / 3600
 	return intensityFactor * intensityFactor * hours * 100
-}
-
-// WPerKG returns watts-per-kilogram rounded to 2 decimals. Returns 0 when
-// weightKG is unset, so callers can treat 0 as "not displayable".
-func WPerKG(watts int, weightKG float64) float64 {
-	if weightKG <= 0 {
-		return 0
-	}
-	return math.Round(float64(watts)/weightKG*100) / 100
-}
-
-// PctFTP returns watts as a percentage of FTP rounded to 1 decimal. Returns
-// 0 when ftp is unset.
-func PctFTP(watts, ftp int) float64 {
-	if ftp <= 0 {
-		return 0
-	}
-	return math.Round(float64(watts)/float64(ftp)*1000) / 10
-}
-
-// AerobicDecoupling returns Pw:HR drift from the first to the second half of
-// a ride as a percentage. Positive = heart rate drifted up relative to power,
-// which flags aerobic limitation. Under 5% on 2h+ rides is the standard
-// "aerobically durable" threshold. Returns (0, false) if the stream lacks
-// paired power/HR samples in both halves.
-//
-// Matches intervals.icu's Pw:Hr decoupling: ratio per half is normalized
-// power ÷ average HR, computed on a 1Hz forward-filled stream with coasting
-// (zero-power) samples excluded from the HR average.
-func AerobicDecoupling(streams []models.Stream) (float64, bool) {
-	powers, hrs := resample1Hz(streams)
-	if powers == nil || hrs == nil {
-		return 0, false
-	}
-	mid := len(powers) / 2
-	if mid < 30 || len(powers)-mid < 30 {
-		return 0, false
-	}
-
-	r1, ok1 := pwHrRatio(powers[:mid], hrs[:mid])
-	r2, ok2 := pwHrRatio(powers[mid:], hrs[mid:])
-	if !ok1 || !ok2 || r1 == 0 {
-		return 0, false
-	}
-	return (r1 - r2) / r1 * 100, true
-}
-
-// pwHrRatio returns NP ÷ avgHR for one half. Average HR uses only samples
-// where power > 0 (excludes coasting/paused seconds, matching intervals.icu).
-func pwHrRatio(powers, hrs []float64) (float64, bool) {
-	np := NormalizedPower(powers)
-	if np == 0 {
-		return 0, false
-	}
-	var hrSum float64
-	var hrN int
-	for i, p := range powers {
-		if p > 0 && hrs[i] > 0 {
-			hrSum += hrs[i]
-			hrN++
-		}
-	}
-	if hrN == 0 {
-		return 0, false
-	}
-	return np / (hrSum / float64(hrN)), true
 }
 
 // PowerTSS returns training stress score from power data, rounded to 1 decimal place.

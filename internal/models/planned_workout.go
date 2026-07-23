@@ -6,6 +6,23 @@ import (
 	"time"
 )
 
+// 1 is a future-dated training target shown on the calendar.
+// It is independent of the completed `workouts` table; nothing auto-links them
+// in v1. Intervals is optional — a planned workout can be just a date + target.
+type PlannedWorkout struct {
+	ID              string            `json:"id"`
+	PlannedDate     time.Time         `json:"planned_date"` // date only, stored as DATE in SQLite
+	Sport           string            `json:"sport"`
+	Title           string            `json:"title"`
+	Description     string            `json:"description"`
+	DurationSecs    int               `json:"duration_secs"`
+	TSS             *float64          `json:"tss,omitempty"`
+	IntensityFactor *float64          `json:"intensity_factor,omitempty"`
+	Intervals       []PlannedInterval `json:"intervals,omitempty"`
+	Source          string            `json:"source"` // "manual" | "coach"
+	CreatedAt       time.Time         `json:"created_at"`
+}
+
 // maxIntervalDepth caps repeat-group nesting. A group of groups (depth 2) covers
 // anything real; deeper is almost certainly a malformed or looping payload, so we
 // reject it rather than recurse without bound.
@@ -24,15 +41,17 @@ type PlannedInterval struct {
 
 	// Power target — all optional. A *flat* target sets one of TargetPctFTP /
 	// TargetWatts / TargetZone. A *ramp* (for ERG / smart-trainer control) sets
-	// TargetPctFTPLow + TargetPctFTPHigh instead, sweeping power linearly across
-	// the step. Leave everything unset for a free/no-target step (e.g. "30 min
-	// endurance, ride to feel"). A flat target and a ramp are mutually exclusive.
-	TargetPctFTP     *int   `json:"target_pct_ftp,omitempty"`
-	TargetPctFTPLow  *int   `json:"target_pct_ftp_low,omitempty"`
-	TargetPctFTPHigh *int   `json:"target_pct_ftp_high,omitempty"`
-	TargetWatts      *int   `json:"target_watts,omitempty"`
-	TargetZone       string `json:"target_zone,omitempty"` // e.g. "Z2", "Z4"
-	Note             string `json:"note,omitempty"`
+	// TargetPctFTPStart + TargetPctFTPEnd instead, sweeping power linearly from
+	// start to end across the step. Start may be above or below end, so the same
+	// fields express a warmup ramp (e.g. 45→65) or a cooldown ramp (e.g. 65→45).
+	// Leave everything unset for a free/no-target step (e.g. "30 min endurance,
+	// ride to feel"). A flat target and a ramp are mutually exclusive.
+	TargetPctFTP      *int   `json:"target_pct_ftp,omitempty"`
+	TargetPctFTPStart *int   `json:"target_pct_ftp_start,omitempty"`
+	TargetPctFTPEnd   *int   `json:"target_pct_ftp_end,omitempty"`
+	TargetWatts       *int   `json:"target_watts,omitempty"`
+	TargetZone        string `json:"target_zone,omitempty"` // e.g. "Z2", "Z4"
+	Note              string `json:"note,omitempty"`
 
 	// ── Repeat-group fields ───────────────────────────────────────────────────
 	// When Steps is non-empty this node is a group: its children run in order,
@@ -72,8 +91,8 @@ func (iv PlannedInterval) TotalSecs() int {
 // hasTarget reports whether any power target is set — used to reject a repeat
 // group that also carries leaf-only fields.
 func (iv PlannedInterval) hasTarget() bool {
-	return iv.TargetPctFTP != nil || iv.TargetPctFTPLow != nil ||
-		iv.TargetPctFTPHigh != nil || iv.TargetWatts != nil || iv.TargetZone != ""
+	return iv.TargetPctFTP != nil || iv.TargetPctFTPStart != nil ||
+		iv.TargetPctFTPEnd != nil || iv.TargetWatts != nil || iv.TargetZone != ""
 }
 
 // Validate checks one interval node, recursing into a group's children. It is
@@ -110,42 +129,23 @@ func (iv PlannedInterval) validate(depth int) error {
 		return errors.New("target_pct_ftp must be 0–200")
 	}
 
-	// Ramp: both ends are required together, each in range, low <= high, and a
-	// ramp cannot be combined with a flat %FTP target.
-	low, high := iv.TargetPctFTPLow, iv.TargetPctFTPHigh
-	if (low == nil) != (high == nil) {
-		return errors.New("a ramp needs both target_pct_ftp_low and target_pct_ftp_high")
+	// Ramp: both ends are required together, each in range, and a ramp cannot be
+	// combined with a flat %FTP target. Start may be above or below end — a
+	// descending ramp is a valid cooldown — so no ordering constraint applies.
+	start, end := iv.TargetPctFTPStart, iv.TargetPctFTPEnd
+	if (start == nil) != (end == nil) {
+		return errors.New("a ramp needs both target_pct_ftp_start and target_pct_ftp_end")
 	}
-	if low != nil {
+	if start != nil {
 		if iv.TargetPctFTP != nil {
-			return errors.New("set either a flat target_pct_ftp or a ramp (low/high), not both")
+			return errors.New("set either a flat target_pct_ftp or a ramp (start/end), not both")
 		}
-		if *low < 0 || *low > 200 || *high < 0 || *high > 200 {
-			return errors.New("ramp targets must be 0–200")
-		}
-		if *low > *high {
-			return errors.New("ramp target_pct_ftp_low must be <= target_pct_ftp_high")
+		if *start < 0 || *start > 200 || *end < 0 || *end > 200 {
+			return errors.New("ramp targets must be 0-200")
 		}
 	}
 	if iv.TargetWatts != nil && *iv.TargetWatts < 0 {
 		return errors.New("target_watts must be >= 0")
 	}
 	return nil
-}
-
-// PlannedWorkout is a future-dated training target shown on the calendar.
-// It is independent of the completed `workouts` table; nothing auto-links them
-// in v1. Intervals is optional — a planned workout can be just a date + target.
-type PlannedWorkout struct {
-	ID              string            `json:"id"`
-	PlannedDate     time.Time         `json:"planned_date"` // date only, stored as DATE in SQLite
-	Sport           string            `json:"sport"`
-	Title           string            `json:"title"`
-	Description     string            `json:"description"`
-	DurationSecs    int               `json:"duration_secs"`
-	TSS             *float64          `json:"tss,omitempty"`
-	IntensityFactor *float64          `json:"intensity_factor,omitempty"`
-	Intervals       []PlannedInterval `json:"intervals,omitempty"`
-	Source          string            `json:"source"` // "manual" | "coach"
-	CreatedAt       time.Time         `json:"created_at"`
 }

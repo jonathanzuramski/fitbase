@@ -2,7 +2,6 @@ package api
 
 import (
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -16,7 +15,7 @@ import (
 	"github.com/fitbase/fitbase/internal/models"
 )
 
-// PlannedHandler serves CRUD + draft endpoints for planned (future) workouts.
+// PlannedHandler serves CRUD endpoints for planned (future) workouts.
 type PlannedHandler struct {
 	db *db.DB
 }
@@ -51,10 +50,8 @@ func (r plannedRequest) toModel(source string) (models.PlannedWorkout, error) {
 		return models.PlannedWorkout{}, errors.New("intensity_factor must be between 0 and 1.5")
 	}
 
-	// When structured intervals are present they are the source of truth for
-	// total duration: validate each node (recursing into repeat groups) and sum
-	// their wall-clock time so the calendar total can't disagree with the steps.
-	// A workout with no intervals falls back to the explicit duration_secs.
+	// duration should be built from the intervals, if they are
+	// present they are the source of truth for our planned workout.
 	durationSecs := r.DurationSecs
 	if len(r.Intervals) > 0 {
 		total := 0
@@ -131,12 +128,13 @@ func (h *PlannedHandler) List(w http.ResponseWriter, r *http.Request) {
 //
 // POST /api/planned-workouts
 func (h *PlannedHandler) Create(w http.ResponseWriter, r *http.Request) {
-	var req plannedRequest
-	if err := decodeJSON(r, &req); err != nil {
+	var pRequest plannedRequest
+	// decodes JSON directly into the planntedRequest struct
+	if err := decodeJSON(r, &pRequest); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	p, err := req.toModel("manual")
+	p, err := pRequest.toModel("manual")
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -162,103 +160,4 @@ func (h *PlannedHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.WriteHeader(http.StatusNoContent)
 	}
-}
-
-// draftPayload is the on-disk shape of a coach-proposed schedule. Stored as
-// JSON in planned_workout_drafts.payload_json.
-type draftPayload struct {
-	Workouts []plannedRequest `json:"workouts"`
-}
-
-// GetDraft returns the proposed schedule for a preview id, normalized into
-// PlannedWorkout shape so the chat UI can render it directly. The draft is
-// NOT consumed by this call — only Commit removes it.
-//
-// GET /api/planned-workouts/drafts/{id}
-func (h *PlannedHandler) GetDraft(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	payload, err := h.db.GetPlannedDraft(id)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "database error")
-		return
-	}
-	if payload == "" {
-		writeError(w, http.StatusNotFound, "draft not found")
-		return
-	}
-	var d draftPayload
-	if err := json.Unmarshal([]byte(payload), &d); err != nil {
-		writeError(w, http.StatusInternalServerError, "draft is corrupt")
-		return
-	}
-	out := make([]models.PlannedWorkout, 0, len(d.Workouts))
-	for _, req := range d.Workouts {
-		p, err := req.toModel("coach")
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "draft contains invalid item: "+err.Error())
-			return
-		}
-		out = append(out, p)
-	}
-	writeJSON(w, http.StatusOK, out)
-}
-
-// CommitDraft persists every workout in a draft (as source=coach) and removes
-// the draft. Returns the created list. If any item fails validation nothing
-// is persisted and the draft is left intact for retry/correction.
-//
-// POST /api/planned-workouts/drafts/{id}/commit
-func (h *PlannedHandler) CommitDraft(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	payload, err := h.db.GetPlannedDraft(id)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "database error")
-		return
-	}
-	if payload == "" {
-		writeError(w, http.StatusNotFound, "draft not found")
-		return
-	}
-	var d draftPayload
-	if err := json.Unmarshal([]byte(payload), &d); err != nil {
-		writeError(w, http.StatusInternalServerError, "draft is corrupt")
-		return
-	}
-
-	// Validate everything first so a bad item doesn't leave a half-committed
-	// schedule on the calendar.
-	pending := make([]models.PlannedWorkout, 0, len(d.Workouts))
-	for _, req := range d.Workouts {
-		p, err := req.toModel("coach")
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "draft contains invalid item: "+err.Error())
-			return
-		}
-		pending = append(pending, p)
-	}
-
-	saved := make([]models.PlannedWorkout, 0, len(pending))
-	for _, p := range pending {
-		s, err := h.db.CreatePlannedWorkout(p)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "database error")
-			return
-		}
-		saved = append(saved, s)
-	}
-	_ = h.db.DeletePlannedDraft(id) // non-fatal if delete fails; the draft is now harmless
-
-	writeJSON(w, http.StatusCreated, saved)
-}
-
-// DiscardDraft removes a draft without committing it.
-//
-// DELETE /api/planned-workouts/drafts/{id}
-func (h *PlannedHandler) DiscardDraft(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	if err := h.db.DeletePlannedDraft(id); err != nil {
-		writeError(w, http.StatusInternalServerError, "database error")
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
 }

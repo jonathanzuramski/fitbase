@@ -12,7 +12,7 @@ func ptr(v int) *int { return &v }
 // canonical structured workout the repeat-group model exists to express.
 func TestPlannedIntervalTotalSecs(t *testing.T) {
 	w := []models.PlannedInterval{
-		{Kind: "warmup", DurationSecs: 600, TargetPctFTPLow: ptr(50), TargetPctFTPHigh: ptr(75)},
+		{Kind: "warmup", DurationSecs: 600, TargetPctFTPStart: ptr(50), TargetPctFTPEnd: ptr(75)},
 		{Repeat: 5, Steps: []models.PlannedInterval{
 			{Kind: "work", DurationSecs: 180, TargetPctFTP: ptr(115)},
 			{Kind: "recovery", DurationSecs: 180, TargetPctFTP: ptr(50)},
@@ -47,7 +47,7 @@ func TestPlannedIntervalValidate(t *testing.T) {
 		wantErr bool
 	}{
 		{"flat target ok", models.PlannedInterval{DurationSecs: 600, TargetPctFTP: ptr(88)}, false},
-		{"ramp ok", models.PlannedInterval{DurationSecs: 600, TargetPctFTPLow: ptr(50), TargetPctFTPHigh: ptr(75)}, false},
+		{"ramp ok", models.PlannedInterval{DurationSecs: 600, TargetPctFTPStart: ptr(50), TargetPctFTPEnd: ptr(75)}, false},
 		{"no target ok (free ride)", models.PlannedInterval{DurationSecs: 600}, false},
 		{"group ok", models.PlannedInterval{Repeat: 3, Steps: []models.PlannedInterval{
 			{DurationSecs: 60, TargetPctFTP: ptr(120)},
@@ -56,9 +56,9 @@ func TestPlannedIntervalValidate(t *testing.T) {
 
 		{"leaf needs duration", models.PlannedInterval{TargetPctFTP: ptr(88)}, true},
 		{"pct out of range", models.PlannedInterval{DurationSecs: 600, TargetPctFTP: ptr(250)}, true},
-		{"half a ramp", models.PlannedInterval{DurationSecs: 600, TargetPctFTPLow: ptr(50)}, true},
-		{"ramp low > high", models.PlannedInterval{DurationSecs: 600, TargetPctFTPLow: ptr(80), TargetPctFTPHigh: ptr(60)}, true},
-		{"flat target and ramp together", models.PlannedInterval{DurationSecs: 600, TargetPctFTP: ptr(90), TargetPctFTPLow: ptr(50), TargetPctFTPHigh: ptr(75)}, true},
+		{"half a ramp", models.PlannedInterval{DurationSecs: 600, TargetPctFTPStart: ptr(50)}, true},
+		{"descending ramp ok (cooldown)", models.PlannedInterval{DurationSecs: 600, TargetPctFTPStart: ptr(80), TargetPctFTPEnd: ptr(60)}, false},
+		{"flat target and ramp together", models.PlannedInterval{DurationSecs: 600, TargetPctFTP: ptr(90), TargetPctFTPStart: ptr(50), TargetPctFTPEnd: ptr(75)}, true},
 		{"group carrying leaf fields", models.PlannedInterval{DurationSecs: 600, Steps: []models.PlannedInterval{{DurationSecs: 60}}}, true},
 		{"negative watts", models.PlannedInterval{DurationSecs: 600, TargetWatts: ptr(-5)}, true},
 	}

@@ -6,9 +6,11 @@
 <div class="page-header">
   <h1>calendar</h1>
   <div class="cal-nav">
-    <a href="/calendar?year={{$cal.PrevYear}}&month={{$cal.PrevMonth}}" class="cal-nav-btn" title="Previous month">&larr;</a>
+    <a href="/calendar?year={{$cal.PrevYear}}&month={{$cal.PrevMonth}}" class="cal-nav-btn"
+      title="Previous month">&larr;</a>
     <span class="cal-nav-label">{{$cal.MonthLabel}}</span>
-    <a href="/calendar?year={{$cal.NextYear}}&month={{$cal.NextMonth}}" class="cal-nav-btn" title="Next month">&rarr;</a>
+    <a href="/calendar?year={{$cal.NextYear}}&month={{$cal.NextMonth}}" class="cal-nav-btn"
+      title="Next month">&rarr;</a>
     <a href="/calendar" class="cal-nav-today" title="Jump to current month">today</a>
   </div>
 </div>
@@ -25,19 +27,13 @@
   <div class="cal-header cal-header-week">Week</div>
 
   {{range $week := $cal.Weeks}}
-    {{range $day := $week.Days}}
-    <div class="cal-day{{if not $day.InMonth}} outside{{end}}{{if $day.IsToday}} today{{end}}" data-date="{{$day.DateISO}}">
-      <div class="cal-date">
-        <span>{{$day.Date.Day}}</span>
-        {{if $day.InMonth}}
-        <button type="button" class="cal-add-btn" data-date="{{$day.DateISO}}" title="Plan a workout">+</button>
-        {{end}}
-      </div>
-      {{range $w := $day.Workouts}}
-      <a href="/workouts/{{$w.ID}}" class="cal-workout" title="{{$w.Sport}}">
-        <span class="cal-dot cal-dot-{{$w.Sport | lower}}"></span>
-        <span class="cal-workout-info">{{formatDuration $w.DurationSecs}}{{if gt $w.DistanceM 0.0}} · {{formatDistance $w.DistanceM $imperial}}{{end}}</span>
-      </a>
+  {{range $day := $week.Days}}
+  <div class="cal-day{{if not $day.InMonth}} outside{{end}}{{if $day.IsToday}} today{{end}}"
+    data-date="{{$day.DateISO}}">
+    <div class="cal-date">
+      <span>{{$day.Date.Day}}</span>
+      {{if $day.InMonth}}
+      <button type="button" class="cal-add-btn" data-date="{{$day.DateISO}}" title="Plan a workout">+</button>
       {{end}}
       {{range $p := $day.Planned}}
       <div class="cal-planned{{if eq $p.Source "coach"}} cal-planned-coach{{end}}" title="{{if $p.Title}}{{$p.Title}}{{else}}planned{{end}}{{if eq $p.Source "coach"}} · proposed by coach{{end}}">
@@ -50,14 +46,34 @@
       </div>
       {{end}}
     </div>
+    {{range $w := $day.Workouts}}
+    <a href="/workouts/{{$w.ID}}" class="cal-workout" title="{{$w.Sport}}">
+      <span class="cal-dot cal-dot-{{$w.Sport | lower}}"></span>
+      <span class="cal-workout-info">{{formatDuration $w.DurationSecs}}{{if gt $w.DistanceM 0.0}} · {{formatDistance
+        $w.DistanceM $imperial}}{{end}}</span>
+    </a>
     {{end}}
-    <div class="cal-week-summary">
-      {{if gt $week.TotalDurSecs 0}}
-      <div class="cal-week-stat">{{formatDuration $week.TotalDurSecs}}</div>
-      {{if gt $week.TotalDistM 0.0}}<div class="cal-week-stat">{{formatDistance $week.TotalDistM $imperial}}</div>{{end}}
-      {{if gt $week.TotalTSS 0.0}}<div class="cal-week-stat">{{printf "%.0f" $week.TotalTSS}} TSS</div>{{end}}
-      {{end}}
+    {{range $p := $day.Planned}}
+    <div class="cal-planned{{if eq $p.Source " coach"}} cal-planned-coach{{end}}"
+      title="{{if $p.Title}}{{$p.Title}}{{else}}planned{{end}}{{if eq $p.Source " coach"}} · proposed by coach{{end}}">
+      <span class="cal-dot cal-dot-{{$p.Sport | lower}} cal-dot-planned"></span>
+      <span class="cal-planned-info">
+        {{if $p.Title}}<span class="cal-planned-title">{{$p.Title}}</span>{{end}}
+        <span class="cal-planned-target">{{formatDuration $p.DurationSecs}}{{if $p.TSS}} · {{formatOptFloat $p.TSS
+          "T"}}{{end}}</span>
+      </span>
+      <button type="button" class="cal-planned-del" data-id="{{$p.ID}}" title="Remove planned workout">×</button>
     </div>
+    {{end}}
+  </div>
+  {{end}}
+  <div class="cal-week-summary">
+    {{if gt $week.TotalDurSecs 0}}
+    <div class="cal-week-stat">{{formatDuration $week.TotalDurSecs}}</div>
+    {{if gt $week.TotalDistM 0.0}}<div class="cal-week-stat">{{formatDistance $week.TotalDistM $imperial}}</div>{{end}}
+    {{if gt $week.TotalTSS 0.0}}<div class="cal-week-stat">{{printf "%.0f" $week.TotalTSS}} TSS</div>{{end}}
+    {{end}}
+  </div>
   {{end}}
 </div>
 
@@ -67,6 +83,10 @@
       <h3 class="modal-title">Plan a workout</h3>
       <button type="button" class="modal-close" id="plan-cancel" aria-label="Close">×</button>
     </div>
+    <label class="modal-row">
+      <span>Title</span>
+      <input type="text" name="title" maxlength="80" placeholder="e.g. 4x5 VO2 max">
+    </label>
     <label class="modal-row">
       <span>Date</span>
       <input type="date" name="date" id="plan-date" required>
@@ -81,17 +101,31 @@
       </select>
     </label>
     <label class="modal-row">
-      <span>Title</span>
-      <input type="text" name="title" maxlength="80" placeholder="e.g. 2×20 sweet spot">
-    </label>
-    <label class="modal-row">
       <span>Duration (min)</span>
-      <input type="number" name="duration_mins" min="1" max="600" required>
+      <input type="number" name="duration_mins" id="plan-duration" min="1" max="600" required>
     </label>
     <label class="modal-row">
       <span>IF (optional)</span>
       <input type="number" name="intensity_factor" min="0.40" max="1.30" step="0.01" placeholder="0.85">
     </label>
+    <label class="modal-row modal-row-checkbox">
+      <input type="checkbox" id="plan-use-intervals">
+      <span>Structured power intervals</span>
+    </label>
+    <div class="modal-intervals" id="plan-intervals-section" hidden>
+      <div class="plan-profile-wrap">
+        <canvas id="plan-profile" class="plan-profile" data-ftp="{{.FTP}}"></canvas>
+        <div class="plan-profile-meta" id="plan-profile-meta"></div>
+      </div>
+      <div class="plan-ivls-field">
+        <div class="plan-ivls-label">
+          <span>Intervals (JSON)</span>
+          <small class="modal-hint">seconds for durations, % FTP for power · <code>repeat</code>+<code>steps</code> for
+            sets · <code>target_pct_ftp_start/end</code> for a ramp (start &gt; end for a cooldown)</small>
+        </div>
+        <textarea name="intervals_json" id="plan-intervals-json" rows="9" spellcheck="false" class="mono"></textarea>
+      </div>
+    </div>
     <label class="modal-row modal-row-wide">
       <span>Notes</span>
       <textarea name="description" rows="2" maxlength="500"></textarea>
@@ -116,7 +150,8 @@
       <div class="plan-overview-dot cal-dot-{{$p.Sport | lower}}"></div>
       <div class="plan-overview-info">
         <div class="plan-overview-item-title">{{if $p.Title}}{{$p.Title}}{{else}}planned{{end}}</div>
-        <div class="plan-overview-details">{{formatDuration $p.DurationSecs}}{{if $p.TSS}} · {{formatOptFloat $p.TSS "T"}}{{end}}</div>
+        <div class="plan-overview-details">{{formatDuration $p.DurationSecs}}{{if $p.TSS}} · {{formatOptFloat $p.TSS
+          "T"}}{{end}}</div>
       </div>
     </div>
     {{else}}
@@ -124,106 +159,9 @@
     {{end}}
   </div>
 </dialog>
+{{end}}
 
-<script>
-const planAddModal = () => {
-  // Form elements for the quick-add planned workout dialog.
-  const planDialog    = document.getElementById('plan-dialog');
-  const planForm      = document.getElementById('plan-form');
-  const planDateInput = document.getElementById('plan-date');
-  const planErrorEl   = document.getElementById('plan-error');
-  const planSubmitBtn = document.getElementById('plan-submit');
-
-  // add on-click listener to all + buttons 
-  document.querySelectorAll('.cal-add-btn').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      planForm.reset();
-      planDateInput.value = btn.dataset.date;
-      planErrorEl.hidden = true;
-      // feature check for modal, if not supported, fallback to non-modal behavior (open the dialog but allow interaction with rest of page)
-      if (typeof planDialog.showModal === 'function') planDialog.showModal();
-      else planDialog.setAttribute('open', '');
-    });
-  });
-
-  function closePlanDialog() {
-    // same feature check, but for closign the dialog 
-    if (typeof planDialog.close === 'function') planDialog.close();
-    else planDialog.removeAttribute('open');
-  }
-
-  // x button at the top of modal 
-  document.getElementById('plan-cancel').addEventListener('click', closePlanDialog);
-  // cancel button at the bottom of modal
-  document.getElementById('plan-cancel-btn').addEventListener('click', closePlanDialog);
-
-  
-  planForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    planErrorEl.hidden = true;
-    planSubmitBtn.disabled = true;
-
-    const fd = new FormData(planForm);
-    const mins = parseInt(fd.get('duration_mins'), 10);
-    const ifRaw = (fd.get('intensity_factor') || '').toString().trim();
-    const body = {
-      date:          fd.get('date'),
-      sport:         fd.get('sport') || 'cycling',
-      title:         (fd.get('title') || '').toString().trim(),
-      description:   (fd.get('description') || '').toString().trim(),
-      duration_secs: mins * 60,
-    };
-    if (ifRaw) body.intensity_factor = parseFloat(ifRaw);
-
-    try {
-      const res = await fetch('/api/planned-workouts', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.error || 'failed to add');
-      }
-      closePlanDialog();
-      window.location.reload(); // server-rendered grid; reload keeps state correct
-    } catch (err) {
-      planErrorEl.textContent = err.message;
-      planErrorEl.hidden = false;
-    } finally {
-      planSubmitBtn.disabled = false;
-    }
-  });
-
-  // Delete a planned workout in place.
-  document.querySelectorAll('.cal-planned-del').forEach((btn) => {
-    btn.addEventListener('click', async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (!confirm('Remove this planned workout?')) return;
-      const id = btn.dataset.id;
-      try {
-        const res = await fetch('/api/planned-workouts/' + encodeURIComponent(id), { method: 'DELETE' });
-        if (!res.ok && res.status !== 204) throw new Error('delete failed');
-        btn.closest('.cal-planned').remove();
-      } catch (_) {
-        alert('Could not remove the planned workout.');
-      }
-    });
-  });
-};
-
-const workoutModal = () => { 
-  
-  
-
-
-}; 
-
-
-// run modals
-workoutModal()
-planAddModal()
-</script>
+{{define "scripts"}}
+<script src="/static/js/plan-profile.js"></script>
+<script src="/static/js/plan-modal.js"></script>
 {{end}}
