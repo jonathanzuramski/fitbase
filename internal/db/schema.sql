@@ -174,6 +174,16 @@ CREATE TABLE IF NOT EXISTS planned_workouts (
 );
 CREATE INDEX IF NOT EXISTS idx_planned_workouts_date ON planned_workouts(planned_date);
 
+-- Coach-proposed schedules awaiting rider review. The coach's propose_schedule
+-- tool writes a draft here; the UI fetches it to render the preview card and
+-- commits it (or discards). Drafts are tiny JSON blobs — periodic cleanup
+-- isn't required for v1.
+CREATE TABLE IF NOT EXISTS planned_workout_drafts (
+    id           TEXT PRIMARY KEY,
+    payload_json TEXT NOT NULL,
+    created_at   DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+
 -- Key/value store for migration bookkeeping that doesn't fit PRAGMA user_version:
 -- one-shot flags handed from a migration to the boot path, such as a pending
 -- archive rebuild (rebuild_pending). See internal/db/migrate.go.

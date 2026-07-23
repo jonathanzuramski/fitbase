@@ -117,6 +117,37 @@ func (db *DB) DeletePlannedWorkout(id string) error {
 	return nil
 }
 
+// SavePlannedDraft stores a proposed schedule and returns a generated id.
+// The payload is opaque JSON — typically a {"workouts":[…]} object the coach
+// tool built.
+func (db *DB) SavePlannedDraft(payloadJSON string) (string, error) {
+	id := uuid.NewString()
+	_, err := db.Exec(`
+		INSERT INTO planned_workout_drafts (id, payload_json) VALUES (?, ?)
+		ON CONFLICT(id) DO UPDATE SET payload_json = excluded.payload_json`,
+		id, payloadJSON)
+	if err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+// GetPlannedDraft returns the payload JSON for a draft, or "" if absent.
+func (db *DB) GetPlannedDraft(id string) (string, error) {
+	var payload string
+	err := db.QueryRow(`SELECT payload_json FROM planned_workout_drafts WHERE id = ?`, id).Scan(&payload)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return payload, err
+}
+
+// DeletePlannedDraft removes a draft (typically after commit or discard).
+func (db *DB) DeletePlannedDraft(id string) error {
+	_, err := db.Exec(`DELETE FROM planned_workout_drafts WHERE id = ?`, id)
+	return err
+}
+
 // scanPlannedWorkout reads one row (from QueryRow or Rows). The intervals
 // column is JSON; an empty string means "no structured intervals".
 func scanPlannedWorkout(s interface{ Scan(...any) error }) (models.PlannedWorkout, error) {
