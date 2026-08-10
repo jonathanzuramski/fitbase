@@ -9,8 +9,10 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/fitbase/fitbase/internal/aicoach"
 	"github.com/fitbase/fitbase/internal/db"
 	"github.com/fitbase/fitbase/internal/dropbox"
 	"github.com/fitbase/fitbase/internal/fitness"
@@ -83,6 +85,7 @@ func NewTemplateHandler(database *db.DB, dev bool, webFS fs.FS) http.Handler {
 	mux.HandleFunc("POST /settings/integrations/gdrive/credentials", th.saveIntegrationCredentials("gdrive"))
 	mux.HandleFunc("POST /goals/mileage", th.saveMileageGoal)
 	mux.HandleFunc("GET /heatmap", th.heatmap)
+	mux.HandleFunc("POST /settings/ai", th.saveAISettings)
 	mux.HandleFunc("GET /calendar", th.calendar)
 	mux.HandleFunc("GET /importing", th.importing)
 	mux.HandleFunc("GET /welcome", th.welcomeGet)
@@ -356,6 +359,8 @@ func (th *templateHandler) index(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	aiSettings, _ := th.db.GetAISettings()
+
 	renderTemplate(w, th.templates().index, "base", map[string]any{
 		"Workouts":        workouts,
 		"Fitness":         user_fitness,
@@ -379,6 +384,12 @@ func (th *templateHandler) index(w http.ResponseWriter, r *http.Request) {
 		"TodayFitness":    todayFitness,
 		"StreakDays":      streakDays,
 		"StreakActive":    activeCount,
+		"AIConfigured":    aiSettings.Provider != "" && aiSettings.APIKey != "",
+		"AIProviderLabel": aicoach.ProviderLabel(aiSettings.Provider),
+		"AIChatCapable":   aiSettings.Provider != "" && aiSettings.APIKey != "" && aicoach.SupportsChat(aiSettings.Provider),
+		// Which providers could chat, for the "switch provider" hint — derived
+		// from the registry so the copy never hardcodes a provider name.
+		"AIChatLabels": strings.Join(aicoach.ChatCapableLabels(), " or "),
 	})
 }
 
@@ -525,6 +536,8 @@ func (th *templateHandler) settings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	aiSettings, _ := th.db.GetAISettings()
+
 	renderTemplate(w, th.templates().settings, "base", map[string]any{
 		"Athlete":          athlete,
 		"WeightDisplay":    weightDisplay,
@@ -549,6 +562,10 @@ func (th *templateHandler) settings(w http.ResponseWriter, r *http.Request) {
 		"GDriveClientID":   gdriveClientID,
 		"FTPHistory":       ftpHistory,
 		"Today":            time.Now().Format("2006-01-02"),
+		"AIProvider":       aiSettings.Provider,
+		"AIModel":          aiSettings.Model,
+		"AIConfigured":     aiSettings.Provider != "" && aiSettings.APIKey != "",
+		"AIProviders":      aicoach.AllInfo(),
 	})
 }
 
@@ -896,4 +913,52 @@ func (th *templateHandler) calendar(w http.ResponseWriter, r *http.Request) {
 		"Calendar": cal,
 		"FTP":      athlete.FTPWatts, // used by the plan modal's power-profile preview
 	})
+}
+
+// saveAISettings stores the selected AI provider, model, and API key.
+func (th *templateHandler) saveAISettings(w http.ResponseWriter, r *http.Request) {
+	provider := r.FormValue("provider")
+	model := r.FormValue("model")
+	apiKey := r.FormValue("api_key")
+
+	if _, ok := aicoach.Get(provider); !ok {
+		http.Error(w, "invalid provider", http.StatusBadRequest)
+		return
+	}
+	if model == "" {
+		http.Error(w, "model is required", http.StatusBadRequest)
+		return
+	}
+	// A blank key from the "update settings" form means "keep the existing key" —
+	// the user is just changing the model. That only holds within one provider:
+	// a key for provider A won't authenticate against provider B, so a provider
+	// switch always requires a fresh key.
+	if apiKey == "" {
+		existing, err := th.db.GetAISettings()
+		if err != nil {
+			http.Error(w, "database error", http.StatusInternalServerError)
+			return
+		}
+		if existing.APIKey == "" {
+			http.Error(w, "api_key is required", http.StatusBadRequest)
+			return
+		}
+		if existing.Provider != provider {
+			http.Error(w, "api_key is required when changing provider", http.StatusBadRequest)
+			return
+		}
+		apiKey = existing.APIKey
+	}
+
+	if err := th.db.SaveAISettings(db.AISettings{
+		Provider: provider,
+		Model:    model,
+		APIKey:   apiKey,
+	}); err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+	// Clear any cached insights — they were generated with the previous config.
+	_ = th.db.ClearCachedInsights()
+	http.Redirect(w, r, "/settings", http.StatusSeeOther)
 }

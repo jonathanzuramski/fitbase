@@ -214,6 +214,55 @@
 
 <div id="mobile-card-inject"></div>
 
+<section class="card" id="ai-coach-card">
+  <div class="card-header-row">
+    <h2 class="card-title">AI coach{{if .AIProviderLabel}} <span class="muted">powered by {{.AIProviderLabel}}</span>{{end}}</h2>
+    <div class="ai-coach-header-actions">
+      {{if .AIConfigured}}
+      <div class="ai-coach-actions">
+        <span id="ai-generated-at" class="muted" style="font-size:12px" hidden></span>
+        <button class="btn-secondary" id="ai-generate-btn" onclick="generateInsights()">generate insights</button>
+      </div>
+      {{end}}
+      <button type="button" class="ai-collapse-btn" id="ai-collapse-btn"
+              aria-controls="ai-body" aria-expanded="true" aria-label="Collapse AI coach" title="Hide AI coach">▾</button>
+    </div>
+  </div>
+  <div id="ai-body">
+  {{if .AIConfigured}}
+  <div id="ai-empty" class="muted" style="font-size:13px" hidden>No insights yet — click generate to analyze your training.</div>
+  <div id="ai-insights" class="ai-insights markdown-body" hidden></div>
+  <div id="ai-error" class="ai-error" hidden></div>
+
+  {{if .AIChatCapable}}
+  <div class="coach-chat">
+    <div class="coach-chat-header">
+      <span class="coach-chat-title">Ask the coach</span>
+      <button type="button" class="coach-chat-clear" id="chat-clear" hidden>clear</button>
+    </div>
+    <div id="chat-log" class="coach-chat-log" hidden></div>
+    <p id="chat-hint" class="muted coach-chat-hint">
+      Ask anything about your training — the coach pulls your real data to answer.
+      Try “how did my last block go?” or “am I fresh enough to race Saturday?”
+    </p>
+    <form id="chat-form" class="coach-chat-form" autocomplete="off">
+      <textarea id="chat-input" class="coach-chat-input" rows="1"
+                placeholder="Ask about your training…" required></textarea>
+      <button type="submit" class="btn-secondary" id="chat-send">send</button>
+    </form>
+  </div>
+  {{else}}
+  <p class="muted coach-chat-hint">
+    Chat with the coach needs {{.AIChatLabels}} — switch the provider in <a href="/settings">settings</a>.
+    Generate insights still works with your current provider.
+  </p>
+  {{end}}
+  {{else}}
+  <p class="muted" style="font-size:13px">Configure an AI provider in <a href="/settings">settings</a> to get personalized coaching insights.</p>
+  {{end}}
+  </div>
+</section>
+
 <section class="card">
   <div class="card-header-row">
     <h2 class="card-title">
@@ -300,7 +349,21 @@
 {{end}}
 
 {{define "scripts"}}
+<script src="/static/js/marked.min.js"></script>
+<script src="/static/js/purify.min.js"></script>
 <script>
+  // renderSafeMarkdown converts untrusted LLM output (markdown) to HTML and
+  // sanitizes it: marked builds the HTML, DOMPurify strips any embedded
+  // <script>, event-handler attributes, and javascript: URIs so a crafted coach
+  // reply — or attacker-influenced workout text echoed back by the model —
+  // cannot execute in the page. Falls back to escaped plain text if either
+  // library fails to load, so output is never rendered unsanitized.
+  function renderSafeMarkdown(md) {
+    if (window.marked && window.DOMPurify) {
+      return window.DOMPurify.sanitize(window.marked.parse(md));
+    }
+    return escapeHTML(md);
+  }
   // ── Upload dropdown ─────────────────────────────────────────────────────────
   (function() {
     const more     = document.getElementById('upload-more');
@@ -478,6 +541,30 @@
     setView(localStorage.getItem('activities-view') === 'map' ? 'map' : 'list');
   })();
 
+  // ── AI coach collapse (persisted) ───────────────────────────────────────────
+  // Outside the AIConfigured guards on purpose: anyone can hide the card,
+  // configured or not. The preference sticks across reloads.
+  (function () {
+    const card = document.getElementById('ai-coach-card');
+    const btn  = document.getElementById('ai-collapse-btn');
+    if (!card || !btn) return;
+    const KEY = 'ai-coach-collapsed';
+
+    function apply(collapsed) {
+      card.classList.toggle('ai-collapsed', collapsed);
+      btn.setAttribute('aria-expanded', String(!collapsed));
+      btn.title = collapsed ? 'Show AI coach' : 'Hide AI coach';
+    }
+
+    btn.addEventListener('click', () => {
+      const collapsed = !card.classList.contains('ai-collapsed');
+      apply(collapsed);
+      try { localStorage.setItem(KEY, collapsed ? '1' : '0'); } catch (_) {}
+    });
+
+    apply(localStorage.getItem(KEY) === '1');
+  })();
+
   // ── Mobile layout: pull training load + goals under fitness chart ───────────
   (function () {
     const inject      = document.getElementById('mobile-card-inject');
@@ -504,5 +591,430 @@
     applyLayout();
     window.addEventListener('resize', applyLayout);
   })();
+
+  // ── AI coach ────────────────────────────────────────────────────────────────
+  // GET returns cached markdown; POST streams fresh markdown via SSE.
+  {{if .AIConfigured}}
+  (function () {
+    const btn   = document.getElementById('ai-generate-btn');
+    const body  = document.getElementById('ai-insights');
+    const empty = document.getElementById('ai-empty');
+    const errEl = document.getElementById('ai-error');
+    const tsEl  = document.getElementById('ai-generated-at');
+
+    // marked.parse handles incomplete markdown gracefully (unclosed **, partial
+    // headings, etc.), so we can re-render on every chunk and get live preview.
+    function renderMarkdown(md) {
+      body.innerHTML = renderSafeMarkdown(md);
+    }
+
+    function showCached(data) {
+      renderMarkdown(data.content || '');
+      body.hidden  = false;
+      empty.hidden = true;
+      if (data.generated_at) {
+        tsEl.textContent = 'generated ' + relativeTime(data.generated_at);
+        tsEl.hidden = false;
+      }
+      btn.textContent = 'regenerate';
+    }
+
+    function showError(msg) {
+      errEl.textContent = 'Error: ' + msg;
+      errEl.hidden      = false;
+    }
+
+    async function loadCached() {
+      try {
+        const res = await fetch('/api/coach/insights');
+        if (res.status === 204) {
+          empty.hidden = false;
+          return;
+        }
+        if (!res.ok) throw new Error('load failed');
+        const env = await res.json();
+        // writeJSON wraps the payload in { data: ... }
+        showCached(env.data || env);
+      } catch (e) {
+        empty.hidden = false;
+      }
+    }
+
+    window.generateInsights = async function () {
+      btn.disabled    = true;
+      btn.textContent = 'generating…';
+      errEl.hidden    = true;
+      empty.hidden    = true;
+      body.hidden     = false;
+      tsEl.hidden     = true;
+
+      let md = '';
+      const streamer = markdownStreamer(body);
+      renderMarkdown('_analyzing your training…_');
+
+      try {
+        const res = await fetch('/api/coach/insights', {
+          method:  'POST',
+          headers: { 'Accept': 'text/event-stream' },
+        });
+        if (!res.ok || !res.body) {
+          const j = await res.json().catch(() => ({}));
+          throw new Error(j.error || 'request failed');
+        }
+
+        const reader  = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+        let streamErr = null;
+        let doneMeta  = null;
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          buf = parseSSE(buf, (event, data) => {
+            if (event === 'chunk' && data.text) {
+              md += data.text; // the first paint replaces the placeholder
+              streamer.update(md);
+            } else if (event === 'done') {
+              doneMeta = data;
+            } else if (event === 'error') {
+              streamErr = data.error || 'stream error';
+            }
+          });
+        }
+        if (streamErr) throw new Error(streamErr);
+
+        if (doneMeta && doneMeta.generated_at) {
+          tsEl.textContent = 'generated ' + relativeTime(doneMeta.generated_at);
+          tsEl.hidden = false;
+        }
+        btn.textContent = 'regenerate';
+      } catch (e) {
+        if (!md) { streamer.stop(); body.hidden = true; }
+        showError(e.message);
+        btn.textContent = 'generate insights';
+      } finally {
+        btn.disabled = false;
+      }
+    };
+
+    loadCached();
+  })();
+  {{end}}
+
+  // ── Ask the coach (tool-augmented chat) ─────────────────────────────────────
+  // Stateless server: the browser holds the whole conversation and posts it
+  // every turn. The model pulls data via tools; we show that as it happens,
+  // then stream the answer in.
+  {{if .AIChatCapable}}
+  (function () {
+    const form   = document.getElementById('chat-form');
+    const input  = document.getElementById('chat-input');
+    const send   = document.getElementById('chat-send');
+    const log    = document.getElementById('chat-log');
+    const hint   = document.getElementById('chat-hint');
+    const clear  = document.getElementById('chat-clear');
+
+    // Conversation history sent verbatim each turn (user/assistant text only).
+    let history = [];
+    let busy    = false;
+
+    // The server sends each tool's user-facing label with the SSE event (the
+    // Go tool catalog owns them); fall back to a humanized name.
+    const toolLabel = (d) => d.label || (d.name || '').replace(/_/g, ' ');
+
+    // Add a message row. For the assistant we return the inner element so the
+    // streaming loop can keep re-rendering it as markdown arrives.
+    function addRow(role) {
+      const row = document.createElement('div');
+      row.className = 'chat-msg chat-' + role;
+      const bubble = document.createElement('div');
+      bubble.className = 'chat-bubble' + (role === 'coach' ? ' markdown-body' : '');
+      row.appendChild(bubble);
+      log.appendChild(row);
+      log.scrollTop = log.scrollHeight;
+      return bubble;
+    }
+
+    // running maps tool name → display label while a tool executes.
+    function setStatus(el, running) {
+      const labels = Object.values(running);
+      if (labels.length === 0) { el.textContent = 'thinking…'; return; }
+      el.textContent = 'looking up ' + labels.join(', ') + '…';
+    }
+
+    // Render a preview card for a coach-proposed draft schedule. The card
+    // lets the rider accept the whole batch onto their calendar, or discard.
+    async function renderPreviewCard(id) {
+      const row = document.createElement('div');
+      row.className = 'chat-msg chat-coach';
+      const card = document.createElement('div');
+      card.className = 'coach-preview-card';
+      card.textContent = 'Loading proposed schedule…';
+      row.appendChild(card);
+      log.appendChild(row);
+      log.scrollTop = log.scrollHeight;
+
+      let items;
+      try {
+        const res = await fetch('/api/planned-workouts/drafts/' + encodeURIComponent(id));
+        if (!res.ok) throw new Error('failed to load preview');
+        const env = await res.json();
+        items = env.data || env;
+      } catch (_) {
+        card.innerHTML = '<span class="chat-err">Could not load proposed schedule.</span>';
+        return;
+      }
+
+      card.innerHTML = '';
+      const title = document.createElement('div');
+      title.className = 'coach-preview-title';
+      title.textContent = 'Proposed schedule (' + items.length + ' workout' + (items.length === 1 ? '' : 's') + ')';
+      card.appendChild(title);
+
+      const list = document.createElement('div');
+      list.className = 'coach-preview-list';
+      items.forEach((p) => {
+        const item = document.createElement('div');
+        item.className = 'coach-preview-item';
+        const date = (p.planned_date || '').slice(0, 10);
+        const dur  = Math.round((p.duration_secs || 0) / 60);
+        const tss  = p.tss ? ' · ' + Math.round(p.tss) + ' TSS' : '';
+        const ivl  = (p.intervals && p.intervals.length) ? ' · ' + p.intervals.length + ' steps' : '';
+        item.innerHTML =
+          '<div class="coach-preview-date">' + escapeHTML(date) + ' · ' + escapeHTML(p.sport || 'cycling') + '</div>' +
+          '<div class="coach-preview-main">' +
+            '<span class="coach-preview-title-line">' + escapeHTML(p.title || '(untitled)') + '</span>' +
+            '<span class="coach-preview-meta">' + dur + ' min' + tss + ivl + '</span>' +
+          '</div>' +
+          (p.description ? '<div class="coach-preview-desc">' + escapeHTML(p.description) + '</div>' : '');
+        list.appendChild(item);
+      });
+      card.appendChild(list);
+
+      const actions = document.createElement('div');
+      actions.className = 'coach-preview-actions';
+      const addBtn = document.createElement('button');
+      addBtn.type = 'button';
+      addBtn.className = 'btn-primary';
+      addBtn.textContent = 'add to calendar';
+      const discardBtn = document.createElement('button');
+      discardBtn.type = 'button';
+      discardBtn.className = 'btn-secondary';
+      discardBtn.textContent = 'discard';
+      actions.appendChild(addBtn);
+      actions.appendChild(discardBtn);
+      card.appendChild(actions);
+      log.scrollTop = log.scrollHeight;
+
+      addBtn.addEventListener('click', async () => {
+        addBtn.disabled = discardBtn.disabled = true;
+        try {
+          const res = await fetch('/api/planned-workouts/drafts/' + encodeURIComponent(id) + '/commit', {
+            method:  'POST',
+            headers: { 'Accept': 'application/json' },
+          });
+          if (!res.ok) {
+            // Surface the server's actual reason so the user (and any future
+            // dev poking at this) can see the failure mode, not a generic
+            // "didn't work" message.
+            let detail = '';
+            try {
+              const j = await res.json();
+              detail = j.error || JSON.stringify(j);
+            } catch (_) {
+              detail = await res.text().catch(() => '');
+            }
+            throw new Error('HTTP ' + res.status + (detail ? ': ' + detail : ''));
+          }
+          card.innerHTML = '<div class="coach-preview-done">Added to <a href="/calendar">calendar</a>.</div>';
+        } catch (err) {
+          const errEl = document.createElement('div');
+          errEl.className = 'chat-err';
+          errEl.textContent = 'Could not add to calendar — ' + (err && err.message ? err.message : err);
+          card.appendChild(errEl);
+          addBtn.disabled = discardBtn.disabled = false;
+        }
+      });
+      discardBtn.addEventListener('click', async () => {
+        addBtn.disabled = discardBtn.disabled = true;
+        try { await fetch('/api/planned-workouts/drafts/' + encodeURIComponent(id), { method: 'DELETE' }); } catch (_) {}
+        card.innerHTML = '<div class="coach-preview-discarded">Discarded.</div>';
+      });
+    }
+
+    async function ask(text) {
+      busy = true;
+      send.disabled = input.disabled = true;
+      hint.hidden = true;
+      log.hidden = false;
+      clear.hidden = false;
+
+      history.push({ role: 'user', content: text });
+      addRow('user').textContent = text;
+
+      const coachEl  = addRow('coach');
+      const statusEl = document.createElement('div');
+      statusEl.className = 'chat-status';
+      coachEl.appendChild(statusEl);
+
+      const running = {};
+      setStatus(statusEl, running);
+
+      let md = '', streamErr = null;
+      const streamer = markdownStreamer(coachEl, () => { log.scrollTop = log.scrollHeight; });
+      try {
+        const res = await fetch('/api/coach/chat', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+          body:    JSON.stringify({ messages: history }),
+        });
+        if (!res.ok || !res.body) {
+          const j = await res.json().catch(() => ({}));
+          throw new Error(j.error || 'request failed');
+        }
+
+        const reader  = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          buf = parseSSE(buf, (event, data) => {
+            if (event === 'tool') {
+              if (data.status === 'running') running[data.name] = toolLabel(data);
+              else delete running[data.name];
+              if (md === '') setStatus(statusEl, running);
+            } else if (event === 'chunk' && data.text) {
+              if (md === '') statusEl.remove();
+              md += data.text;
+              streamer.update(md);
+            } else if (event === 'preview' && data.id) {
+              // Coach proposed a schedule — fetch the draft and render a
+              // preview card the rider can accept or discard.
+              renderPreviewCard(data.id);
+            } else if (event === 'error') {
+              streamErr = data.error || 'stream error';
+            }
+          });
+        }
+        if (streamErr) throw new Error(streamErr);
+
+        const answer = md.trim();
+        if (answer) {
+          history.push({ role: 'assistant', content: answer });
+        } else {
+          streamer.stop(); // abandon any pending paint before replacing content
+          coachEl.innerHTML = '<span class="chat-err">No answer returned.</span>';
+        }
+      } catch (e) {
+        streamer.stop(); // abandon any pending paint before replacing content
+        statusEl.remove();
+        coachEl.innerHTML = '<span class="chat-err">Error: ' + escapeHTML(e.message) + '</span>';
+        // Drop the failed user turn so a retry doesn't double it up.
+        if (history.length && history[history.length - 1].role === 'user') history.pop();
+      } finally {
+        busy = false;
+        send.disabled = input.disabled = false;
+        input.focus();
+        log.scrollTop = log.scrollHeight;
+      }
+    }
+
+    function autoGrow() {
+      input.style.height = 'auto';
+      input.style.height = Math.min(input.scrollHeight, 140) + 'px';
+    }
+
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const text = input.value.trim();
+      if (!text || busy) return;
+      input.value = '';
+      autoGrow();
+      ask(text);
+    });
+
+    input.addEventListener('input', autoGrow);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        form.requestSubmit();
+      }
+    });
+
+    clear.addEventListener('click', () => {
+      if (busy) return;
+      history = [];
+      log.innerHTML = '';
+      log.hidden = true;
+      clear.hidden = true;
+      hint.hidden = false;
+      input.focus();
+    });
+  })();
+  {{end}}
+
+  // Parse a chunk of SSE text. Events in the buffer are separated by blank
+  // lines; return the unconsumed tail for the next read. Shared by the
+  // insights and chat streams.
+  function parseSSE(buf, onEvent) {
+    const events = buf.split(/\n\n/);
+    const tail   = events.pop();
+    for (const raw of events) {
+      let event = 'message', data = '';
+      for (const line of raw.split('\n')) {
+        if (line.startsWith('event:')) event = line.slice(6).trim();
+        else if (line.startsWith('data:')) data += line.slice(5).trim();
+      }
+      if (data) {
+        try { onEvent(event, JSON.parse(data)); } catch (_) {}
+      }
+    }
+    return tail;
+  }
+
+  // markdownStreamer coalesces streamed-markdown re-renders into el: chunks
+  // arrive far faster than the display paints, and re-parsing the whole
+  // accumulated markdown per chunk is O(n²). update() renders the latest text
+  // at most once per animation frame; stop() abandons any pending paint (for
+  // error paths that replace el's content). onPaint, if given, runs after each
+  // paint (e.g. to keep a log scrolled to the bottom).
+  function markdownStreamer(el, onPaint) {
+    let latest = '', scheduled = false, stopped = false;
+    return {
+      update(md) {
+        latest = md;
+        if (scheduled || stopped) return;
+        scheduled = true;
+        requestAnimationFrame(() => {
+          scheduled = false;
+          if (stopped) return;
+          el.innerHTML = renderSafeMarkdown(latest);
+          if (onPaint) onPaint();
+        });
+      },
+      stop() { stopped = true; },
+    };
+  }
+
+  function escapeHTML(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function relativeTime(iso) {
+    const then = new Date(iso);
+    const mins = Math.round((Date.now() - then.getTime()) / 60000);
+    if (mins < 1)    return 'just now';
+    if (mins < 60)   return mins + 'm ago';
+    const hrs = Math.round(mins / 60);
+    if (hrs < 24)    return hrs + 'h ago';
+    const days = Math.round(hrs / 24);
+    return days + 'd ago';
+  }
 </script>
 {{end}}

@@ -75,6 +75,7 @@ var migrations = []func(*sql.Tx) error{
 	migrateSchema,              // v1 — frozen baseline schema (schema.sql)
 	migrateBaseline,            // v2 — reconcile pre-user_version schema drift
 	migrateConvergeDerivedData, // v3 — rederive legacy derived data in place
+	migrateAICoach,             // v4 — AI coach settings/cache, schedule drafts, decoupling cache
 }
 
 // migrate replays every migration the database hasn't run yet.
@@ -292,6 +293,54 @@ func migrateConvergeDerivedData(tx *sql.Tx) error {
 			string(js), id); err != nil {
 			return fmt.Errorf("rebuild route_coords for %s: %w", id, err)
 		}
+	}
+	return nil
+}
+
+// migrateAICoach (v4) creates the AI-coach feature's tables: provider settings,
+// the single-row insights cache, coach-proposed schedule drafts, and the
+// per-workout aerobic-decoupling cache. All new objects — IF NOT EXISTS only to
+// stay idempotent against a dev database that pre-created them.
+func migrateAICoach(tx *sql.Tx) error {
+	if _, err := tx.Exec(`
+		-- Configured AI provider/model and the encrypted API key. Single row.
+		CREATE TABLE IF NOT EXISTS ai_settings (
+			id         INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+			provider   TEXT NOT NULL DEFAULT '',
+			model      TEXT NOT NULL DEFAULT '',
+			api_key    TEXT NOT NULL DEFAULT '',
+			updated_at DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+		);
+
+		-- Last generated coaching response, persisted for instant display.
+		-- Single row; content is the full Markdown blob from the provider.
+		CREATE TABLE IF NOT EXISTS ai_insights_cache_v2 (
+			id           INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+			provider     TEXT NOT NULL DEFAULT '',
+			model        TEXT NOT NULL DEFAULT '',
+			content      TEXT NOT NULL DEFAULT '',
+			generated_at DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+		);
+
+		-- Coach-proposed schedules awaiting rider review. The coach's
+		-- propose_schedule tool writes a draft here; the UI fetches it to render
+		-- the preview card and commits or discards it. Abandoned drafts are
+		-- swept opportunistically on the next SavePlannedDraft.
+		CREATE TABLE IF NOT EXISTS planned_workout_drafts (
+			id           TEXT PRIMARY KEY,
+			payload_json TEXT NOT NULL,
+			created_at   DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+		);
+
+		-- Cached aerobic decoupling per workout, filled lazily on first compute
+		-- so coach calls don't re-fetch full streams for immutable rides.
+		-- A row with NULL decoupling_pct means "computed: not derivable from
+		-- this ride's streams"; no row means "not computed yet".
+		CREATE TABLE IF NOT EXISTS workout_decoupling (
+			workout_id     TEXT PRIMARY KEY REFERENCES workouts(id) ON DELETE CASCADE,
+			decoupling_pct REAL
+		)`); err != nil {
+		return fmt.Errorf("create ai coach tables: %w", err)
 	}
 	return nil
 }

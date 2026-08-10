@@ -15,8 +15,8 @@ import (
 
 	"github.com/fitbase/fitbase/internal/api"
 	"github.com/fitbase/fitbase/internal/db"
-	"github.com/fitbase/fitbase/internal/models"
 	"github.com/fitbase/fitbase/internal/importer"
+	"github.com/fitbase/fitbase/internal/models"
 	"github.com/go-chi/chi/v5"
 )
 

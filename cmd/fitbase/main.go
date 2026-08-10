@@ -11,6 +11,11 @@ import (
 	"syscall"
 	"time"
 
+	// Blank import registers every concrete LLM provider with the aicoach
+	// registry via init(). aicoach itself has no compile-time knowledge of
+	// which backends exist.
+	_ "github.com/fitbase/fitbase/internal/aicoach/providers"
+
 	"github.com/fitbase/fitbase/internal/api"
 	"github.com/fitbase/fitbase/internal/config"
 	"github.com/fitbase/fitbase/internal/crypto"
@@ -22,12 +27,16 @@ import (
 )
 
 func main() {
+
+	// loads config from
 	cfg := config.Load()
 
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+	// setup default logger, JSON formatted.
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	})))
 
+	// loads or creates key for DB.
 	key, err := crypto.LoadOrCreateKey(cfg.KeyPath)
 	if err != nil {
 		slog.Error("failed to load master key", "path", cfg.KeyPath, "err", err)
@@ -67,6 +76,7 @@ func main() {
 	handler := api.NewHandler(database, imp)
 	gdriveHandler := api.NewGDriveHandler(database, imp)
 	plannedHandler := api.NewPlannedHandler(database)
+	coachHandler := api.NewCoachHandler(database)
 
 	// Sync sources and manager — sources are created here, registered with the
 	// manager for mutual exclusivity, then passed to their HTTP handlers.
@@ -97,7 +107,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	router := api.NewRouter(handler, dropboxHandler, intervalsHandler, gdriveHandler, plannedHandler, http.FS(staticSub), tmplHandler)
+	router := api.NewRouter(handler, dropboxHandler, intervalsHandler, gdriveHandler, coachHandler, plannedHandler, http.FS(staticSub), tmplHandler)
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%s", cfg.Port),

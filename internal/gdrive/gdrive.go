@@ -4,10 +4,10 @@
 package gdrive
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"bytes"
 	"io"
 	"strings"
 

@@ -7,6 +7,18 @@ import (
 	"github.com/fitbase/fitbase/internal/models"
 )
 
+// RampRate is the change in CTL (fitness) over the trailing N days, rounded
+// to 1 decimal. A +CTL ramp >8/week (≈ +32/4wk) is the conventional
+// over-training warning line; <0 is detraining. Returns 0 when the history is
+// too short to span the requested window.
+func RampRate(history []models.FitnessPoint, days int) float64 {
+	if days <= 0 || len(history) < days+1 {
+		return 0
+	}
+	delta := history[len(history)-1].Fitness - history[len(history)-1-days].Fitness
+	return math.Round(delta*10) / 10
+}
+
 // ClassifyWeeklyLoad returns a Coggan load category label for a week's total TSS.
 func ClassifyWeeklyLoad(tss float64) string {
 	switch {

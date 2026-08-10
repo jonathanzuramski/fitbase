@@ -35,6 +35,16 @@
       {{if $day.InMonth}}
       <button type="button" class="cal-add-btn" data-date="{{$day.DateISO}}" title="Plan a workout">+</button>
       {{end}}
+      {{range $p := $day.Planned}}
+      <div class="cal-planned{{if eq $p.Source "coach"}} cal-planned-coach{{end}}" title="{{if $p.Title}}{{$p.Title}}{{else}}planned{{end}}{{if eq $p.Source "coach"}} · proposed by coach{{end}}">
+        <span class="cal-dot cal-dot-{{$p.Sport | lower}} cal-dot-planned"></span>
+        <span class="cal-planned-info">
+          <span class="cal-planned-target">{{formatDuration $p.DurationSecs}}{{if $p.TSS}} · {{formatOptFloat $p.TSS "T"}}{{end}}</span>
+          {{if $p.Title}}<span class="cal-planned-title">{{$p.Title}}</span>{{end}}
+        </span>
+        <button type="button" class="cal-planned-del" data-id="{{$p.ID}}" title="Remove planned workout">×</button>
+      </div>
+      {{end}}
     </div>
     {{range $w := $day.Workouts}}
     <a href="/workouts/{{$w.ID}}" class="cal-workout" title="{{$w.Sport}}">

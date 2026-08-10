@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-		"github.com/fitbase/fitbase/internal/fitness"
+	"github.com/fitbase/fitbase/internal/fitness"
 )
 
 const tolerance = 1e-9
