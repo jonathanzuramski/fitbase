@@ -21,6 +21,8 @@ Garmin, Wahoo, and TrainingPeaks lock your workouts behind their clouds and char
 - **Power analytics** — NP, IF, TSS, Variability Index, eFTP, and an all-time power curve overlaid on every ride
 - **Heart rate analytics** — hrTSS for non-power activities, HR zones, Efficiency Factor
 - **Training load** — Fitness/Fatigue/Form chart, accurate from day one thanks to a 180-day EMA warmup
+- **AI coach** — bring your own API key (Anthropic, OpenAI, or Gemini): streamed training insights, plus a chat coach that answers questions from your real data via tool calls and drafts training schedules you approve onto the calendar (chat requires a tool-capable provider — currently Claude)
+- **Calendar & planned workouts** — schedule structured future workouts (intervals, target %FTP/zones) by hand or from a coach proposal
 - **Zone-colored charts + GPS route map** — power and HR colored by zone, route on a dark Leaflet map
 - **Google Drive backup** — FIT files archived automatically, full restore in one command
 - **LLM-ready API** — compact `/summary` endpoint built for coaching agents and function calling
@@ -149,9 +151,12 @@ GET    /api/athlete/readiness         today's form, ramp rate, recommendation
 GET    /api/athlete/power-curve       all-time best power at each duration
 GET    /api/fitness?days=90           Fitness/Fatigue/Form history
 POST   /api/upload                    upload a .fit file
+POST   /api/coach/insights            generate an AI training review (SSE)
+POST   /api/coach/chat                tool-augmented AI coach chat (SSE)
+GET    /api/planned-workouts          list scheduled workouts
 ```
 
-The API is built for AI coaching agents. A good call sequence: start with `/athlete/readiness` for today's state, `/athlete/power-curve` and `/athlete/zones` for capability, `/training/weekly` for patterns, then `/workouts/{id}/analysis` for specific feedback. The `/summary` endpoint returns a compact, function-call-friendly shape:
+The API is built for AI coaching agents — the built-in chat coach's tools run on the same data-shaping cores as these endpoints, so external agents and the built-in coach always see identical numbers. A good call sequence: start with `/athlete/readiness` for today's state, `/athlete/power-curve` and `/athlete/zones` for capability, `/training/weekly` for patterns, then `/workouts/{id}/analysis` for specific feedback. The `/summary` endpoint returns a compact, function-call-friendly shape:
 
 ```json
 {
@@ -207,9 +212,20 @@ internal/
     router.go               Route table — maps URL paths to handlers
     handlers.go             Core endpoints: workouts, athlete, fitness, training, upload
     response.go             Shared {"data": ...} / {"error": ...} envelope helpers
+    coach.go                AI coach endpoints — insights (SSE), chat (SSE), model listing
+    coach_tools.go          Executors for the chat coach's tools (specs live in aicoach/)
+    agent_data.go           Shared data-shaping cores reused by REST endpoints and coach tools
+    planned_workout.go      Planned-workout CRUD + coach schedule-draft preview/commit/discard
     intervals_handler.go    intervals.icu connect/sync endpoints
     dropbox_handler.go      Dropbox connect/sync endpoints
     gdrive_handler.go       Google Drive connect/backup/restore endpoints
+
+  aicoach/                  LLM provider layer (no DB access — the api layer executes tools)
+    provider.go             Provider registry + interfaces (Stream, optional live model listing)
+    chat.go                 Agentic chat loop: tool rounds, transcript replay, forced convergence
+    tools.go                Tool catalog the chat coach may call (specs + user-facing labels)
+    client.go               Shared HTTP client with 429/5xx retry/backoff, SSE scanning
+    providers/              One file per backend: anthropic.go (insights + chat), openai.go, gemini.go
 
   web/                      Server-rendered UI (Go html/template, no JS framework)
     web.go                  Template loading (embedded in prod, from disk when FITBASE_DEV=true)
@@ -217,19 +233,23 @@ internal/
     calendar.go             Calendar view data assembly
     template_funcs.go       Custom template helpers (formatting, zone colors, …)
     templates/              base.html + one file per page
-    static/                 css/ (dark theme), js/ (uPlot charts, heatmap), images/
+    static/                 css/ (dark theme), js/ (uPlot charts, heatmap, plan modal, vendored marked+DOMPurify for coach markdown), images/
 
-  db/                       SQLite persistence layer
-    schema.sql              Table definitions — the source of truth for the schema
-    db.go                   Open(), migrations (ALTER TABLE on startup), and all queries — plain database/sql, no ORM
+  db/                       SQLite persistence layer — plain database/sql, no ORM
+    migrate.go              Versioned migration ladder (PRAGMA user_version) — the source of truth for the schema
+    schema.sql              Frozen v1 baseline schema; new tables/columns go in a new migration, never here
+    db.go                   Open() and the core workout/athlete/fitness queries
+    ai.go                   AI settings (encrypted key), insights cache, workout window queries
+    planned_workout.go      Planned workouts + coach schedule drafts (transactional commit)
+    decoupling.go           Per-workout aerobic-decoupling cache
 
-  models/workout.go         Shared domain types (Workout, Athlete, stream samples, zones)
+  models/                   Shared domain types (Workout, Athlete, PlannedWorkout, streams, zones)
   config/config.go          Reads FITBASE_* environment variables into a Config struct
   crypto/crypto.go          AES-256-GCM encrypt/decrypt for credentials stored in the DB
 
   fitparser/parser.go       Decodes raw .fit (and .fit.gz) bytes into a Workout + per-second streams
   fitness/                  Analytics over a parsed workout
-    power.go                Normalized Power, Intensity Factor, TSS, Variability Index, eFTP
+    power.go                Normalized Power, Intensity Factor, TSS, Variability Index, eFTP, aerobic decoupling
     load.go                 Fitness/Fatigue/Form (CTL/ATL/TSB) via EMA over training history
     zones.go                Power and HR zone boundaries and time-in-zone
   route/route.go            GPS route extraction and matching workouts to the same course
@@ -256,8 +276,8 @@ openapi.yaml                REST API spec — keep it in sync with the api/ hand
 
 A few conventions worth knowing before you dig in:
 
-- **Plain `database/sql`** — no ORM. Queries live in `db/db.go`.
-- **Schema changes are additive** — add `ALTER TABLE` migrations in `db.Open()` rather than editing `schema.sql` history.
+- **Plain `database/sql`** — no ORM. Queries live in `internal/db/`.
+- **Schema changes are versioned migrations** — append an entry to the ladder in `db/migrate.go` (`PRAGMA user_version`). Never edit `schema.sql` or any shipped migration: `schema.sql` is v1's frozen payload and existing databases will not replay it.
 - **`log/slog`** for all server-side logging — no `fmt.Print` in production paths.
 - **Standard `testing` only** — no external frameworks. Tests run against real SQLite and real FIT decoding, so there are no mocks to wire up.
 - **`openapi.yaml` leads** — update the spec before changing API handlers.
@@ -270,7 +290,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide, including how to add 
 
 - [ ] **Mobile UI polish** — calendar sizing, graph rendering, metrics layout
 - [ ] **Calendar mini power graph** — sparkline power curve in each day cell
-- [ ] **Planned workouts & projected fitness** — schedule future workouts with target TSS and see the projected fitness trend
+- [ ] **Projected fitness** — see the projected Fitness/Fatigue/Form trend from scheduled workouts
+- [x] **Planned workouts** — schedule future workouts with structured intervals and target TSS, by hand or via the AI coach
+- [x] **AI coach** — streamed insights plus a tool-calling chat coach that drafts schedules
 - [x] **User heatmaps** — a map view of the places you ride most
 - [x] **Mileage goals** — set and track mileage targets
 
