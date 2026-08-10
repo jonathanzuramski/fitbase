@@ -145,13 +145,13 @@ func CoachTools() []ToolSpec {
 		{
 			Name:        ToolProposeSchedule,
 			Label:       "a schedule draft",
-			Description: "Draft a training schedule for the rider to review — call this whenever the rider asks for a plan, a week, or 'what should I do next'; a plan described only in prose never reaches their calendar. The server stores the batch as a DRAFT and returns a preview id; the rider sees a preview card and clicks 'Add to calendar' to accept, or discards. Pass one entry per training day (max 21) with dates today or later; skip rest days rather than sending empty workouts. Gather context first (readiness and weekly load at minimum) so the plan fits current form. Give key sessions structured intervals — warmup, work set with recoveries, cooldown — and use a repeat group (steps + repeat) for patterns like 4x(8min sweet spot + 3min recovery).",
+			Description: "Draft a training schedule for the rider to review — call this whenever the rider asks for a plan, a week, or 'what should I do next'; a plan described only in prose never reaches their calendar. The server stores the batch as a DRAFT and returns a preview id; the rider sees a preview card and clicks 'Add to calendar' to accept, or discards. Pass one entry per training day (max 21) with dates today or later; skip rest days rather than sending empty workouts. Every workout needs a title — it's the session's name on the rider's preview card and calendar. Gather context first (readiness and weekly load at minimum) so the plan fits current form. Give key sessions structured intervals — warmup, work set with recoveries, cooldown — and use a repeat group (steps + repeat) for patterns like 4x(8min sweet spot + 3min recovery).",
 			InputSchema: objSchema(map[string]any{
 				"workouts": arrayProp(
 					objSchema(map[string]any{
 						"date":             stringProp("ISO date YYYY-MM-DD. Must be today or later — never schedule into the past."),
 						"sport":            stringProp("Defaults to 'cycling' if omitted."),
-						"title":            stringProp("Short label, e.g. '4x8 sweet spot' or 'Endurance Z2'."),
+						"title":            stringProp("Required. The workout's name as shown to the rider on the preview card and calendar — a missing title renders as '(untitled)'. Keep it a short session label, e.g. '4x8 sweet spot', '2x20 threshold', 'Endurance Z2'."),
 						"description":      stringProp("Plain-English description of the session and its purpose."),
 						"duration_secs":    intProp("Total target duration in seconds. When intervals are given, their summed duration is used instead."),
 						"intensity_factor": numberProp("Overall IF (e.g. 0.65 endurance, 0.85 threshold, 0.95 race). TSS is estimated as IF^2 * hours * 100 if tss is omitted."),
@@ -175,7 +175,7 @@ func CoachTools() []ToolSpec {
 								"note":           stringProp("Optional cue."),
 							}, "kind", "duration_secs"), "Makes this entry a repeat group: these steps run in order, `repeat` times. Use for work/recovery patterns, e.g. 4x(8min sweet_spot + 3min recovery). A group must not set kind, duration_secs, or a target of its own."),
 						}), "Optional structured intervals in ride order — typically a warmup, the work (often a repeat group), and a cooldown. A step with no target means ride to feel."),
-					}, "date", "duration_secs"),
+					}, "date", "title", "duration_secs"),
 					"One or more planned workouts, one entry per training day. Max 21.",
 				),
 			}, "workouts"),
