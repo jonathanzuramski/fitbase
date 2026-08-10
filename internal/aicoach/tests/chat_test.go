@@ -145,11 +145,16 @@ func (boomError) Error() string { return "boom" }
 var errBoom = boomError{}
 
 func TestChatConvergesWhenModelKeepsCallingTools(t *testing.T) {
-	// The model asks for a tool every turn it has tools. The loop must drop
-	// tools on the final attempt, forcing a text answer instead of looping.
+	// The model asks for a tool every turn it is allowed to. The loop must
+	// forbid tool calls on the final attempt (ToolChoiceNone) — while keeping
+	// the tools defined, since providers reject a transcript with tool_use
+	// blocks when tools are absent — forcing a text answer instead of looping.
 	calls := 0
 	fake.fn = func(in aicoach.ChatTurnInput) (*aicoach.ChatTurnOutput, error) {
-		if len(in.Tools) == 0 {
+		if in.ToolChoice == aicoach.ToolChoiceNone {
+			if len(in.Tools) == 0 {
+				t.Error("tools must stay defined on the forced final round")
+			}
 			return &aicoach.ChatTurnOutput{Text: "Best read I can give with what I have."}, nil
 		}
 		return &aicoach.ChatTurnOutput{
@@ -214,6 +219,9 @@ func TestCoachToolsCatalogWellFormed(t *testing.T) {
 	for _, tl := range tools {
 		if tl.Name == "" || tl.Description == "" {
 			t.Errorf("tool %+v missing name or description", tl)
+		}
+		if tl.Label == "" {
+			t.Errorf("tool %q missing user-facing label (chat status UI shows it)", tl.Name)
 		}
 		if seen[tl.Name] {
 			t.Errorf("duplicate tool name %q", tl.Name)

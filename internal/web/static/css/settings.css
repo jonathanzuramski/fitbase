@@ -477,3 +477,15 @@
 .zone-hr-z5 .zone-label { color: #f97316; }
 .zone-hr-z6 .zone-label { color: #ef4444; }
 .zone-hr-z7 .zone-label { color: #a855f7; }
+
+/* AI coach — "refresh model list" control under the model dropdown. */
+.ai-model-refresh-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+.ai-refresh-status {
+  font-size: 0.85em;
+  color: var(--text-muted, #888);
+}

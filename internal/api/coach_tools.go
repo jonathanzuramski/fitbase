@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -71,11 +72,20 @@ func clampInt(v, def, lo, hi int) int {
 	return v
 }
 
+// toolEvents carries typed UI side effects out of tool execution, so the HTTP
+// layer never has to reverse-engineer them from model-facing result JSON.
+// Any callback may be nil.
+type toolEvents struct {
+	// OnPreview fires when propose_schedule stores a draft the rider should
+	// see as a preview card.
+	OnPreview func(id string, count int)
+}
+
 // execTool runs one tool call from the conversational coach and returns its
-// result as a JSON string. Satisfies aicoach.ToolExecutor. Unknown tools and
-// bad input return an error, which Coach.Chat relays to the model as a tool
-// error rather than aborting the conversation.
-func (h *CoachHandler) execTool(_ context.Context, name string, input json.RawMessage) (string, error) {
+// result as a JSON string. Unknown tools and bad input return an error, which
+// Coach.Chat relays to the model as a tool error rather than aborting the
+// conversation.
+func (h *CoachHandler) execTool(_ context.Context, name string, input json.RawMessage, ev toolEvents) (string, error) {
 	switch name {
 	case aicoach.ToolGetAthleteProfile:
 		return h.toolAthleteProfile()
@@ -90,11 +100,17 @@ func (h *CoachHandler) execTool(_ context.Context, name string, input json.RawMe
 	case aicoach.ToolGetWeeklyBreakdown:
 		return h.toolWeeklyBreakdown(input)
 	case aicoach.ToolGetPowerCurve:
-		return h.toolPowerCurve()
+		return h.toolPowerCurve(input)
 	case aicoach.ToolGetZoneDistribution:
 		return h.toolZoneDistribution(input)
+	case aicoach.ToolGetFTPHistory:
+		return h.toolFTPHistory()
+	case aicoach.ToolGetPerformanceTrend:
+		return h.toolPerformanceTrend(input)
+	case aicoach.ToolGetGoalProgress:
+		return h.toolGoalProgress()
 	case aicoach.ToolProposeSchedule:
-		return h.toolProposeSchedule(input)
+		return h.toolProposeSchedule(input, ev)
 	default:
 		return "", fmt.Errorf("unknown tool %q", name)
 	}
@@ -177,19 +193,15 @@ func (h *CoachHandler) toolListRecentWorkouts(input json.RawMessage) (string, er
 	sport := strings.ToLower(strings.TrimSpace(args.Sport))
 
 	since := time.Now().UTC().AddDate(0, 0, -days)
-	rows, err := h.db.ListWorkoutsSince(since)
+	// Sport filter and limit run in SQL so the DB never hydrates rows this
+	// tool would discard.
+	rows, err := h.db.ListWorkoutsSince(since, sport, limit)
 	if err != nil {
 		return "", err
 	}
-	out := make([]models.WorkoutSummary, 0, limit)
+	out := make([]models.WorkoutSummary, 0, len(rows))
 	for i := range rows {
-		if sport != "" && strings.ToLower(rows[i].Sport) != sport {
-			continue
-		}
 		out = append(out, rows[i].ToSummary())
-		if len(out) >= limit {
-			break
-		}
 	}
 	return jsonResult(map[string]any{
 		"window_days": days,
@@ -253,22 +265,63 @@ func (h *CoachHandler) toolWeeklyBreakdown(input json.RawMessage) (string, error
 	return jsonResult(map[string]any{"weeks": rows})
 }
 
-// toolPowerCurve reuses the same core as GET /api/athlete/power-curve.
-func (h *CoachHandler) toolPowerCurve() (string, error) {
+// toolPowerCurve reuses the same core as GET /api/athlete/power-curve for the
+// all-time bests. When the model passes a days window it additionally fetches
+// the best efforts inside that window and reports them against the all-time
+// numbers, so "current form vs lifetime PR" is answerable in one call.
+func (h *CoachHandler) toolPowerCurve(input json.RawMessage) (string, error) {
+	var args struct {
+		Days int `json:"days"`
+	}
+	_ = json.Unmarshal(input, &args)
+
 	report, err := powerCurveReport(h.db)
 	if err != nil {
 		return "", err
 	}
-	return jsonResult(report)
+	if args.Days == 0 {
+		return jsonResult(report)
+	}
+
+	days := clampInt(args.Days, 90, 7, 365)
+	since := time.Now().UTC().AddDate(0, 0, -days)
+	recent, err := h.db.GetPowerCurveSince(since)
+	if err != nil {
+		return "", err
+	}
+
+	type recentEntry struct {
+		Duration           string   `json:"duration"`
+		AllTimeWatts       int      `json:"all_time_watts"`
+		RecentWatts        *int     `json:"recent_watts,omitempty"`
+		RecentPctOfAllTime *float64 `json:"recent_pct_of_all_time,omitempty"`
+	}
+	entries := make([]recentEntry, 0, len(report.Entries))
+	for _, e := range report.Entries {
+		re := recentEntry{Duration: e.DurationLabel, AllTimeWatts: e.Watts}
+		if best, ok := recent[e.DurationSecs]; ok && e.Watts > 0 {
+			w := best.Watts
+			pct := round1(float64(w) / float64(e.Watts) * 100)
+			re.RecentWatts = &w
+			re.RecentPctOfAllTime = &pct
+		}
+		entries = append(entries, re)
+	}
+	return jsonResult(map[string]any{
+		"all_time":           report,
+		"window_days":        days,
+		"recent_vs_all_time": entries,
+		"note":               "recent_pct_of_all_time near 100 means current form matches lifetime bests; missing recent_watts means no effort at that duration in the window.",
+	})
 }
 
 // toolProposeSchedule is the only write tool. It validates each proposed
 // workout (via the same plannedRequest.toModel path the manual quick-add uses)
-// and stores the batch as a coach draft in planned_workout_drafts. The
-// returned preview_id is sniffed by the Chat HTTP handler, which forwards it
+// and stores the batch as a coach draft in planned_workout_drafts. The draft's
+// preview id is reported through ev.OnPreview — the Chat handler forwards it
 // to the browser over SSE so the UI can render a preview card. Nothing lands
 // on the calendar until the rider commits the draft.
-func (h *CoachHandler) toolProposeSchedule(input json.RawMessage) (string, error) {
+func (h *CoachHandler) toolProposeSchedule(input json.RawMessage, ev toolEvents) (string, error) {
 	var args struct {
 		Workouts []plannedRequest `json:"workouts"`
 	}
@@ -277,6 +330,12 @@ func (h *CoachHandler) toolProposeSchedule(input json.RawMessage) (string, error
 	}
 	if len(args.Workouts) == 0 {
 		return "", fmt.Errorf("workouts is empty — propose at least one")
+	}
+	// Cap matches the "max 21" in the tool description: three weeks of daily
+	// workouts is more than any sane proposal, and the cap keeps a confused
+	// model from staging an unbounded draft blob.
+	if len(args.Workouts) > 21 {
+		return "", fmt.Errorf("too many workouts (%d) — propose at most 21 (three weeks); split longer plans into blocks", len(args.Workouts))
 	}
 	// Validate every item before persisting so a malformed entry doesn't leave
 	// the model with a draft id pointing at unreviewable content.
@@ -293,11 +352,204 @@ func (h *CoachHandler) toolProposeSchedule(input json.RawMessage) (string, error
 	if err != nil {
 		return "", err
 	}
+	if ev.OnPreview != nil {
+		ev.OnPreview(id, len(args.Workouts))
+	}
 	return jsonResult(map[string]any{
 		"preview_id": id,
 		"count":      len(args.Workouts),
 		"message":    "Saved as a draft. The rider sees a preview card; tell them to review it and click 'Add to calendar' to accept.",
 	})
+}
+
+// toolFTPHistory returns every recorded FTP change oldest-first with the delta
+// from the previous setting, so the progression reads chronologically.
+func (h *CoachHandler) toolFTPHistory() (string, error) {
+	entries, err := h.db.AllFTPHistory() // newest first
+	if err != nil {
+		return "", err
+	}
+	type ftpChange struct {
+		Date       string `json:"date"`
+		FTPWatts   int    `json:"ftp_watts"`
+		DeltaWatts *int   `json:"delta_watts,omitempty"`
+	}
+	out := make([]ftpChange, 0, len(entries))
+	for i := len(entries) - 1; i >= 0; i-- {
+		e := entries[i]
+		c := ftpChange{Date: e.EffectiveFrom.Format("2006-01-02"), FTPWatts: e.FTPWatts}
+		if i < len(entries)-1 {
+			d := e.FTPWatts - entries[i+1].FTPWatts
+			c.DeltaWatts = &d
+		}
+		out = append(out, c)
+	}
+	return jsonResult(map[string]any{
+		"count":   len(out),
+		"changes": out,
+		"note":    "Oldest first. delta_watts is the change from the previous setting. Workouts' %FTP/TSS were computed against the FTP in effect on their date.",
+	})
+}
+
+// toolPerformanceTrend aggregates the per-week markers that distinguish real
+// fitness change from mere load accumulation: EF (NP÷avgHR), average IF (so EF
+// comparisons can be intensity-matched), and aerobic decoupling on long rides,
+// plus FTP changes inside the window. Decoupling pays a stream fetch per long
+// ride — same cost the insights path already accepts in briefFromWorkout.
+func (h *CoachHandler) toolPerformanceTrend(input json.RawMessage) (string, error) {
+	var args struct {
+		Days int `json:"days"`
+	}
+	_ = json.Unmarshal(input, &args)
+	days := clampInt(args.Days, 90, 14, 365)
+	since := time.Now().UTC().AddDate(0, 0, -days)
+
+	rows, err := h.db.ListWorkoutsSince(since, "", 0)
+	if err != nil {
+		return "", err
+	}
+
+	type weekAgg struct {
+		rides                int
+		efSum, ifSum, decSum float64
+		efN, ifN, decN       int
+	}
+	weeks := map[string]*weekAgg{}
+	for i := range rows {
+		w := rows[i]
+		// Label by the Monday of the recorded week (UTC) — consistent bucketing
+		// is what matters for a trend, not calendar-perfect local weeks.
+		wd := (int(w.RecordedAt.UTC().Weekday()) + 6) % 7
+		monday := w.RecordedAt.UTC().AddDate(0, 0, -wd).Format("2006-01-02")
+		agg := weeks[monday]
+		if agg == nil {
+			agg = &weekAgg{}
+			weeks[monday] = agg
+		}
+		agg.rides++
+		if ef, ok := fitness.EfficiencyFactor(w.NormalizedPower, w.AvgHeartRate); ok {
+			agg.efSum += ef
+			agg.efN++
+		}
+		if w.IntensityFactor != nil {
+			agg.ifSum += *w.IntensityFactor
+			agg.ifN++
+		}
+		if w.DurationSecs >= 3600 && w.AvgPowerWatts != nil && w.AvgHeartRate != nil {
+			if dec, ok := h.decouplingForWorkout(w.ID); ok {
+				agg.decSum += dec
+				agg.decN++
+			}
+		}
+	}
+
+	type weekRow struct {
+		WeekStart        string   `json:"week_start"`
+		Rides            int      `json:"rides"`
+		AvgIF            *float64 `json:"avg_if,omitempty"`
+		AvgEF            *float64 `json:"avg_ef,omitempty"`
+		AvgDecouplingPct *float64 `json:"avg_decoupling_pct,omitempty"`
+		LongRides        int      `json:"long_rides_with_decoupling,omitempty"`
+	}
+	keys := make([]string, 0, len(weeks))
+	for k := range weeks {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make([]weekRow, 0, len(keys))
+	for _, k := range keys {
+		agg := weeks[k]
+		row := weekRow{WeekStart: k, Rides: agg.rides, LongRides: agg.decN}
+		if agg.ifN > 0 {
+			v := round2(agg.ifSum / float64(agg.ifN))
+			row.AvgIF = &v
+		}
+		if agg.efN > 0 {
+			v := round2(agg.efSum / float64(agg.efN))
+			row.AvgEF = &v
+		}
+		if agg.decN > 0 {
+			v := round2(agg.decSum / float64(agg.decN))
+			row.AvgDecouplingPct = &v
+		}
+		out = append(out, row)
+	}
+
+	type ftpChange struct {
+		Date     string `json:"date"`
+		FTPWatts int    `json:"ftp_watts"`
+	}
+	ftpChanges := []ftpChange{}
+	if hist, err := h.db.AllFTPHistory(); err == nil {
+		for i := len(hist) - 1; i >= 0; i-- {
+			if hist[i].EffectiveFrom.After(since) {
+				ftpChanges = append(ftpChanges, ftpChange{
+					Date:     hist[i].EffectiveFrom.Format("2006-01-02"),
+					FTPWatts: hist[i].FTPWatts,
+				})
+			}
+		}
+	}
+
+	return jsonResult(map[string]any{
+		"window_days":           days,
+		"weeks":                 out,
+		"ftp_changes_in_window": ftpChanges,
+		"note":                  "EF = normalized power ÷ avg HR. Compare EF only across weeks with similar avg_if — rising EF at matched IF is real aerobic gain. Decoupling under 5% on long rides indicates durability.",
+	})
+}
+
+// toolGoalProgress reports the rider's self-set weekly/yearly distance goals
+// and progress toward them, in km. Sports without a goal are omitted.
+func (h *CoachHandler) toolGoalProgress() (string, error) {
+	goals, err := h.db.GetAllMileageGoals()
+	if err != nil {
+		return "", err
+	}
+	tz := h.db.AthleteLocation()
+	type sportGoal struct {
+		Sport    string   `json:"sport"`
+		WeeklyKM float64  `json:"weekly_goal_km,omitempty"`
+		YearlyKM float64  `json:"yearly_goal_km,omitempty"`
+		WeekKM   float64  `json:"this_week_km"`
+		YearKM   float64  `json:"year_to_date_km"`
+		WeekPct  *float64 `json:"week_pct,omitempty"`
+		YearPct  *float64 `json:"year_pct,omitempty"`
+	}
+	out := []sportGoal{}
+	for _, sport := range []string{"cycling", "running", "swimming"} {
+		g, ok := goals[sport]
+		if !ok || (g.WeeklyMeters == 0 && g.YearlyMeters == 0) {
+			continue
+		}
+		prog, err := h.db.GetMileageProgress(sport, tz)
+		if err != nil {
+			continue
+		}
+		sg := sportGoal{
+			Sport:    sport,
+			WeeklyKM: round1(g.WeeklyMeters / 1000),
+			YearlyKM: round1(g.YearlyMeters / 1000),
+			WeekKM:   round1(prog.WeekMeters / 1000),
+			YearKM:   round1(prog.YearMeters / 1000),
+		}
+		if g.WeeklyMeters > 0 {
+			p := round1(prog.WeekMeters / g.WeeklyMeters * 100)
+			sg.WeekPct = &p
+		}
+		if g.YearlyMeters > 0 {
+			p := round1(prog.YearMeters / g.YearlyMeters * 100)
+			sg.YearPct = &p
+		}
+		out = append(out, sg)
+	}
+	if len(out) == 0 {
+		return jsonResult(map[string]any{
+			"goals": []any{},
+			"note":  "The rider has not set any mileage goals — don't invent targets; plan from form and load instead.",
+		})
+	}
+	return jsonResult(map[string]any{"goals": out})
 }
 
 // toolZoneDistribution has no REST equivalent (the analysis endpoint is

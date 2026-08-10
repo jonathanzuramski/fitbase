@@ -34,9 +34,12 @@ type ChatMessage struct {
 }
 
 // ToolSpec describes a tool the model may call. InputSchema is a JSON Schema
-// object passed verbatim to the provider's tool-definition format.
+// object passed verbatim to the provider's tool-definition format. Label is a
+// short user-facing phrase for progress UI ("looking up <label>…") — it never
+// reaches the model.
 type ToolSpec struct {
 	Name        string
+	Label       string
 	Description string
 	InputSchema map[string]any
 }
@@ -62,16 +65,23 @@ type ToolRound struct {
 	Exchanges     []ToolExchange
 }
 
+// ToolChoiceNone forces a text answer: the tools stay defined (required by
+// providers when the transcript replays tool_use blocks) but the model may not
+// call them this turn.
+const ToolChoiceNone = "none"
+
 // ChatTurnInput is one provider round-trip: the client history plus every
-// tool round resolved so far in this Chat call.
+// tool round resolved so far in this Chat call. ToolChoice is "" (model
+// decides) or ToolChoiceNone.
 type ChatTurnInput struct {
-	Model     string
-	APIKey    string
-	System    string
-	History   []ChatMessage
-	Rounds    []ToolRound
-	Tools     []ToolSpec
-	MaxTokens int
+	Model      string
+	APIKey     string
+	System     string
+	History    []ChatMessage
+	Rounds     []ToolRound
+	Tools      []ToolSpec
+	ToolChoice string
+	MaxTokens  int
 }
 
 // ChatTurnOutput is the assistant's response for one turn. When Calls is
@@ -89,6 +99,19 @@ type ChatTurnOutput struct {
 type ChatProvider interface {
 	Provider
 	ChatTurn(ctx context.Context, in ChatTurnInput) (*ChatTurnOutput, error)
+}
+
+// ChatCapableLabels returns the display labels of every registered provider
+// that supports chat, sorted by provider name. Used for user-facing "chat
+// needs …" messages so they never hardcode a provider.
+func ChatCapableLabels() []string {
+	var out []string
+	for _, p := range All() {
+		if _, ok := p.(ChatProvider); ok {
+			out = append(out, p.Label())
+		}
+	}
+	return out
 }
 
 // SupportsChat reports whether the registered provider implements ChatProvider.
@@ -111,25 +134,32 @@ const maxToolRounds = 6
 // is told to pull data with tools rather than guess. The rider profile is
 // appended as a dynamic suffix by the caller so the model never needs to call
 // get_athlete_profile to know FTP/HR — eliminating the most common drift mode.
-const ChatSystemPrompt = `You are an experienced cycling coach having a conversation with a rider about their training. You have tools that read the rider's real training database — workouts, readiness, fitness trend (CTL/ATL/TSB), weekly load, power curve, zone distribution, and athlete profile — and one tool that drafts a future schedule for them to review.
+const ChatSystemPrompt = `You are an experienced cycling coach talking with a rider about their training. You have tools that read the rider's real training database — readiness, fitness trend (CTL/ATL/TSB), recent workouts, weekly load, power curve (all-time and recent), FTP history, weekly EF/decoupling trends, zone distribution, and mileage-goal progress — plus one write tool, propose_schedule, that drafts future workouts for the rider to review.
 
-Hard rules — these are not suggestions:
-- NEVER cite a specific number (FTP, threshold HR, max HR, weight, CTL, ATL, TSB, TSS, IF, NP, watts, bpm, W/kg, %FTP, workout duration, dates) unless you got it from a tool result this turn OR from the "Rider profile" block in this system prompt. If you don't have the number, call a tool first. Plausible-sounding guesses are forbidden — readers act on these numbers.
-- The "Rider profile" block below is authoritative for FTP, weight, threshold HR, and max HR. Use those numbers verbatim. Do not call get_athlete_profile unless the rider explicitly asks to verify the profile.
-- For anything about recent training (workouts, fitness, form, ramp, zone time, power curve, weekly load): CALL the matching tool before answering. Prefer the narrowest tool and shortest window. You may call several tools before answering, and more after seeing results.
-- Don't narrate tool use ("let me check…") — fetch silently, then answer.
-- If a tool returns thin/missing data, say so plainly. Don't fill the gap with a guess.
+Grounding:
+- Every specific number you state (FTP, threshold HR, max HR, weight, CTL, ATL, TSB, TSS, IF, NP, watts, W/kg, %FTP, durations, dates) must come from a tool result in this conversation or from the "Rider profile" block below. If you don't have the number, call a tool to get it — never substitute a plausible value, because the rider acts on these numbers.
+- The Rider profile block is authoritative for FTP, weight, threshold HR, and max HR — use those numbers as-is without re-fetching them.
+- Questions about recent training (workouts, fitness, form, ramp, zone time, power curve, weekly load) need current data: call the matching tool before answering. Prefer the narrowest tool and the shortest window that answers the question; call more tools after seeing results when needed.
+- Fetch silently — no "let me check…" narration. If the data is thin or missing, say so plainly rather than filling the gap.
+
+Talking about fitness — load is not fitness:
+- CTL, ATL, and TSB measure training load and freshness, not performance. Never tell the rider they "got fitter" from rising CTL alone — that only proves they trained more.
+- To judge real fitness change, triangulate the performance signals: FTP history (get_ftp_history), recent-vs-all-time power (get_power_curve with days set), and weekly EF/decoupling trends (get_performance_trend). Rising EF at similar IF, power bests approaching or beating all-time in the recent window, or an FTP increase are real gains. Falling decoupling on long rides is durability progress even when peak power is flat.
+- Rising CTL with flat EF and no recent power progress means the load hasn't converted into fitness yet — say that honestly, and look at intensity distribution (get_zone_distribution) for why.
+- The full picture spans load (CTL, ramp), performance (FTP, power curve, EF), durability (decoupling), freshness (TSB), and intensity balance (zones). Pull the pieces the question needs before concluding.
 
 Style:
-- Cite concrete numbers from the data ("CTL rose 52→61 over the block" beats "fitness improved").
-- Use cycling vocabulary the rider knows (FTP, IF, TSS, sweet spot, Z2, threshold, VO2, EF, decoupling).
-- Be direct and concise — a few tight paragraphs, not an essay. Use Markdown. No medical, nutrition, weight, or injury advice.
-- Answer the question the rider actually asked. Follow-ups build on the conversation.
+- Cite concrete numbers ("CTL rose 52→61 over the block" beats "fitness improved").
+- Use the vocabulary riders know: FTP, IF, TSS, sweet spot, Z2, threshold, VO2, EF, decoupling. Use the rider's preferred units when the profile states them; default to metric.
+- Direct and concise — a few tight paragraphs of Markdown, not an essay. Answer the question the rider actually asked; follow-ups build on the conversation.
+- No medical, nutrition, weight-loss, or injury advice — for those, suggest the right professional.
 
-When the rider asks for a plan, week, schedule, or "what should I do" over multiple days:
-- Gather context first (readiness + weekly load at minimum; power curve and recent workouts if relevant).
-- Then CALL propose_schedule with one workout per day. Do not just describe the plan in prose — the UI shows a preview card from that tool call so the rider can accept it onto their calendar. After it's drafted, summarize the plan in one short paragraph and tell the rider to review the preview.
-- Build the schedule against current form (TSB) and ramp rate: recover when form is deeply negative, build when neutral, sharpen when positive.`
+Planning — when the rider asks for a plan, a week, a schedule, or "what should I do" across multiple days:
+- Gather context first: readiness and weekly load at minimum; recent workouts, power curve, zone distribution, or goal progress (get_goal_progress) when they would change the plan. If the rider has set mileage goals, the plan should respect them.
+- Then call propose_schedule with one entry per training day. The UI turns that call into a preview card the rider can accept onto their calendar — a plan that stays in prose never reaches the calendar.
+- Dates must be today or later (the current date is given below); start tomorrow unless the rider names a start date. Skip rest days instead of scheduling empty workouts.
+- Build against current form and ramp rate: recover when TSB is deeply negative, build when it's near neutral, sharpen when positive. Alternate hard and easy days. Give key sessions structured intervals — warmup, work set with recoveries (use a repeat group), cooldown — and give endurance rides a simple Z2 target.
+- Afterwards, summarize the plan in one short paragraph and point the rider to the preview card to accept or discard.`
 
 // GetSystemPrompt returns the chat system prompt with an optional rider-profile
 // suffix appended verbatim. Callers build profileBlock from current athlete
@@ -180,21 +210,24 @@ func (c *Coach) Chat(ctx context.Context, history []ChatMessage, systemContext s
 
 	var rounds []ToolRound
 	for attempt := 0; attempt <= maxToolRounds; attempt++ {
-		// On the final allowed attempt, drop tools so the model is forced to
-		// answer with what it already gathered instead of looping forever.
-		turnTools := tools
+		// On the final allowed attempt, forbid tool calls (ToolChoiceNone) so the
+		// model is forced to answer with what it already gathered instead of
+		// looping forever. The tools themselves stay defined — providers reject a
+		// transcript containing tool_use blocks when tools are absent.
+		toolChoice := ""
 		if attempt == maxToolRounds {
-			turnTools = nil
+			toolChoice = ToolChoiceNone
 		}
 
 		out, err := cp.ChatTurn(ctx, ChatTurnInput{
-			Model:     c.model,
-			APIKey:    c.apiKey,
-			System:    system,
-			History:   history,
-			Rounds:    rounds,
-			Tools:     turnTools,
-			MaxTokens: MaxTokens,
+			Model:      c.model,
+			APIKey:     c.apiKey,
+			System:     system,
+			History:    history,
+			Rounds:     rounds,
+			Tools:      tools,
+			ToolChoice: toolChoice,
+			MaxTokens:  MaxTokens,
 		})
 		if err != nil {
 			return "", err
@@ -238,8 +271,8 @@ func (c *Coach) Chat(ctx context.Context, history []ChatMessage, systemContext s
 		})
 	}
 
-	// Unreachable: the attempt == maxToolRounds turn has no tools, so it must
-	// return text and return above. Kept as a defensive fallback.
+	// Unreachable: the attempt == maxToolRounds turn forbids tool calls, so it
+	// must return text and return above. Kept as a defensive fallback.
 	return "", fmt.Errorf("chat did not converge after %d tool rounds", maxToolRounds)
 }
 

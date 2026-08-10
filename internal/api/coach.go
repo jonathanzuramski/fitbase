@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -52,6 +53,45 @@ func (h *CoachHandler) GetCachedInsights(w http.ResponseWriter, r *http.Request)
 		Model:       cached.Model,
 		GeneratedAt: cached.GeneratedAt.Format(time.RFC3339),
 	})
+}
+
+// ListModels returns the available models for a provider so the settings page
+// can refresh its dropdown from the provider's live catalog instead of a
+// hardcoded list. The API key is taken from the request body (the value the
+// user just typed) and falls back to the saved key for that provider, so a
+// refresh works both before and after saving. Providers that can't list live
+// return their curated fallback.
+//
+// POST /api/coach/models   body: {"provider":"anthropic","api_key":"..."}
+func (h *CoachHandler) ListModels(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Provider string `json:"provider"`
+		APIKey   string `json:"api_key"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Provider == "" {
+		writeError(w, http.StatusBadRequest, "provider is required")
+		return
+	}
+
+	apiKey := strings.TrimSpace(req.APIKey)
+	if apiKey == "" {
+		// Fall back to the saved key, but only if it belongs to the same
+		// provider — a key for provider A won't authenticate against provider B.
+		if s, err := h.db.GetAISettings(); err == nil && s.Provider == req.Provider {
+			apiKey = s.APIKey
+		}
+	}
+
+	models, err := aicoach.ListModels(r.Context(), req.Provider, apiKey)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "could not fetch models: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"models": models})
 }
 
 // GenerateInsights streams markdown chunks from the LLM over SSE as they arrive,
@@ -151,8 +191,11 @@ func (h *CoachHandler) Chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !aicoach.SupportsChat(settings.Provider) {
+		// Name the capable providers from the registry rather than hardcoding
+		// one — the message stays true as providers gain chat support.
 		writeError(w, http.StatusBadRequest,
-			"chat requires a provider that supports tool use — switch to Claude in settings (other providers still support generate insights)")
+			fmt.Sprintf("chat requires a provider that supports tool use — switch to %s in settings (other providers still support generate insights)",
+				strings.Join(aicoach.ChatCapableLabels(), " or ")))
 		return
 	}
 
@@ -173,6 +216,13 @@ func (h *CoachHandler) Chat(w http.ResponseWriter, r *http.Request) {
 		// conversation that opens with an assistant message.
 		for len(req.Messages) > 0 && req.Messages[0].Role != aicoach.ChatRoleUser {
 			req.Messages = req.Messages[1:]
+		}
+		// If the window was entirely assistant turns, stripping emptied it. Guard
+		// before the len-1 index below so a crafted history can't panic the
+		// handler (the earlier len==0 check ran before this trim).
+		if len(req.Messages) == 0 {
+			writeError(w, http.StatusBadRequest, "no user message in recent history")
+			return
 		}
 	}
 	for _, m := range req.Messages {
@@ -196,12 +246,19 @@ func (h *CoachHandler) Chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build the rider-profile suffix so the model has FTP/HR in context from
-	// turn 1. Failing to load is non-fatal — the chat still works, the model
-	// just has to fall back to calling get_athlete_profile.
-	var systemContext string
+	// Build the dynamic system suffix: today's date (in the rider's timezone,
+	// so propose_schedule dates and "this week" reasoning line up with their
+	// calendar) plus the rider profile so the model has FTP/HR in context from
+	// turn 1. Failing to load the athlete is non-fatal — the chat still works,
+	// the model just has to fall back to calling get_athlete_profile.
+	loc := h.db.AthleteLocation()
+	var profileBlock string
 	if athlete, err := h.db.GetAthlete(); err == nil && athlete != nil {
-		systemContext = buildRiderProfileBlock(athlete)
+		profileBlock = buildRiderProfileBlock(athlete)
+	}
+	systemContext := "Today is " + time.Now().In(loc).Format("Monday, 2006-01-02") + "."
+	if profileBlock != "" {
+		systemContext += "\n\n" + profileBlock
 	}
 
 	setupSSE(w)
@@ -209,34 +266,38 @@ func (h *CoachHandler) Chat(w http.ResponseWriter, r *http.Request) {
 		f.Flush()
 	}
 
-	// Wrap the executor so that when propose_schedule successfully creates a
-	// draft, the preview id is forwarded to the browser as a dedicated SSE
-	// event. The chat UI uses it to fetch the draft and render the
-	// "review and add to calendar" card.
+	// Tool side effects reach the browser through a typed callback instead of
+	// the HTTP layer re-parsing model-facing tool JSON: when propose_schedule
+	// creates a draft, its executor reports the preview id here and it is
+	// forwarded as a dedicated SSE event. The chat UI uses it to fetch the
+	// draft and render the "review and add to calendar" card.
+	ev := toolEvents{
+		OnPreview: func(id string, count int) {
+			writeSSE(w, "preview", map[string]any{"id": id, "count": count})
+		},
+	}
 	exec := func(ctx context.Context, name string, input json.RawMessage) (string, error) {
-		res, err := h.execTool(ctx, name, input)
-		if err == nil && name == aicoach.ToolProposeSchedule {
-			var meta struct {
-				PreviewID string `json:"preview_id"`
-				Count     int    `json:"count"`
-			}
-			if json.Unmarshal([]byte(res), &meta) == nil && meta.PreviewID != "" {
-				writeSSE(w, "preview", map[string]any{"id": meta.PreviewID, "count": meta.Count})
-			}
-		}
-		return res, err
+		return h.execTool(ctx, name, input, ev)
 	}
 
-	_, err = coach.Chat(r.Context(), req.Messages, systemContext, aicoach.CoachTools(), exec, aicoach.ChatCallbacks{
+	// The catalog owns each tool's user-facing label; sending it with the tool
+	// events keeps the frontend from re-declaring backend knowledge.
+	tools := aicoach.CoachTools()
+	toolLabels := make(map[string]string, len(tools))
+	for _, t := range tools {
+		toolLabels[t.Name] = t.Label
+	}
+
+	_, err = coach.Chat(r.Context(), req.Messages, systemContext, tools, exec, aicoach.ChatCallbacks{
 		OnToolStart: func(name string) {
-			writeSSE(w, "tool", map[string]string{"name": name, "status": "running"})
+			writeSSE(w, "tool", map[string]string{"name": name, "label": toolLabels[name], "status": "running"})
 		},
 		OnToolEnd: func(name string, ok bool) {
 			status := "done"
 			if !ok {
 				status = "error"
 			}
-			writeSSE(w, "tool", map[string]string{"name": name, "status": status})
+			writeSSE(w, "tool", map[string]string{"name": name, "label": toolLabels[name], "status": status})
 		},
 		OnText: func(chunk string) error {
 			writeSSE(w, "chunk", map[string]string{"text": chunk})
@@ -285,7 +346,7 @@ func (h *CoachHandler) collectCoachingData() (*aicoach.CoachingData, error) {
 	}
 
 	cutoff56 := time.Now().UTC().AddDate(0, 0, -56)
-	workoutRows, err := h.db.ListWorkoutsSince(cutoff56)
+	workoutRows, err := h.db.ListWorkoutsSince(cutoff56, "", 0)
 	if err != nil {
 		return nil, err
 	}
@@ -335,15 +396,34 @@ func (h *CoachHandler) collectCoachingData() (*aicoach.CoachingData, error) {
 		SweetSpotSecs: ssSecs,
 	}
 
-	return aicoach.BuildData(profile, fitnessPts, workouts, weekly, powerBests, zones), nil
+	// FTP history, oldest-first, capped to the last 12 changes so the payload
+	// stays small. This is what lets the model separate "trained more" from
+	// "got faster" in the performance section.
+	var ftpHistory []aicoach.FTPPoint
+	if hist, err := h.db.AllFTPHistory(); err == nil { // newest first
+		if len(hist) > 12 {
+			hist = hist[:12]
+		}
+		for i := len(hist) - 1; i >= 0; i-- {
+			ftpHistory = append(ftpHistory, aicoach.FTPPoint{
+				Date:     hist[i].EffectiveFrom.Format("2006-01-02"),
+				FTPWatts: hist[i].FTPWatts,
+			})
+		}
+	}
+
+	return aicoach.BuildData(profile, fitnessPts, workouts, weekly, powerBests, zones, ftpHistory), nil
 }
 
+// round2/round1 use math.Round (not int truncation) so negative values — TSB
+// during a training block, negative decoupling — round the same way as the
+// REST endpoints instead of biasing toward zero.
 func round2(f float64) float64 {
-	return float64(int(f*100+0.5)) / 100
+	return math.Round(f*100) / 100
 }
 
 func round1(f float64) float64 {
-	return float64(int(f*10+0.5)) / 10
+	return math.Round(f*10) / 10
 }
 
 // buildRiderProfileBlock renders the athlete's authoritative numbers as a
@@ -374,6 +454,9 @@ func buildRiderProfileBlock(a *models.Athlete) string {
 	if a.Age > 0 {
 		fmt.Fprintf(&b, "- Age: %d\n", a.Age)
 	}
+	if a.Units != "" {
+		fmt.Fprintf(&b, "- Preferred units: %s\n", a.Units)
+	}
 	return b.String()
 }
 
@@ -400,13 +483,23 @@ func formatZoneValues(secs []int) aicoach.ZoneValues {
 	return aicoach.ZoneValues{Unit: "minutes", Values: values}
 }
 
-// decouplingForWorkout fetches a workout's stream and runs the centralized
-// aerobic-decoupling calculation. Thin wrapper so callers don't repeat the
-// "load streams → compute" two-step.
+// decouplingForWorkout returns a workout's aerobic decoupling, computing it
+// from the streams on first use and caching it (workout_decoupling) — a
+// finished ride's streams never change, so every later insights/chat call is
+// an indexed read instead of a full stream fetch + resample.
 func (h *CoachHandler) decouplingForWorkout(workoutID string) (float64, bool) {
+	if val, ok, found, err := h.db.GetWorkoutDecoupling(workoutID); err == nil && found {
+		return val, ok
+	}
 	streams, err := h.db.GetStreams(workoutID)
 	if err != nil {
-		return 0, false
+		return 0, false // transient failure: don't cache, retry next call
 	}
-	return fitness.AerobicDecoupling(streams)
+	dec, ok := fitness.AerobicDecoupling(streams)
+	var cached *float64
+	if ok {
+		cached = &dec
+	}
+	_ = h.db.SaveWorkoutDecoupling(workoutID, cached) // best-effort
+	return dec, ok
 }

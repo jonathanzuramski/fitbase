@@ -27,6 +27,42 @@ func (anthropicProvider) Models() []aicoach.ModelOption {
 	}
 }
 
+// ListModels fetches the live model catalog from the Anthropic API. The
+// /v1/models endpoint returns only chat-capable Claude models, newest first,
+// so no filtering is needed.
+func (anthropicProvider) ListModels(ctx context.Context, apiKey string) ([]aicoach.ModelOption, error) {
+	headers := map[string]string{
+		"x-api-key":         apiKey,
+		"anthropic-version": "2023-06-01",
+	}
+	body, err := aicoach.GetJSON(ctx, "https://api.anthropic.com/v1/models?limit=100", headers)
+	if err != nil {
+		return nil, fmt.Errorf("anthropic: %w", err)
+	}
+	return parseAnthropicModels(body)
+}
+
+func parseAnthropicModels(body []byte) ([]aicoach.ModelOption, error) {
+	var resp struct {
+		Data []struct {
+			ID          string `json:"id"`
+			DisplayName string `json:"display_name"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("anthropic: parse models: %w", err)
+	}
+	out := make([]aicoach.ModelOption, 0, len(resp.Data))
+	for _, m := range resp.Data {
+		label := m.DisplayName
+		if label == "" {
+			label = m.ID
+		}
+		out = append(out, aicoach.ModelOption{Value: m.ID, Label: label})
+	}
+	return out, nil
+}
+
 func (anthropicProvider) Stream(ctx context.Context, cfg aicoach.CallConfig, onChunk func(string) error) error {
 	reqBody := map[string]any{
 		"model":      cfg.Model,
@@ -136,6 +172,11 @@ func (anthropicProvider) ChatTurn(ctx context.Context, in aicoach.ChatTurnInput)
 			}
 		}
 		reqBody["tools"] = tools
+		if in.ToolChoice == aicoach.ToolChoiceNone {
+			// Forbid tool calls without dropping the definitions — the API
+			// rejects a transcript containing tool_use blocks if tools are absent.
+			reqBody["tool_choice"] = map[string]any{"type": "none"}
+		}
 	}
 
 	headers := map[string]string{

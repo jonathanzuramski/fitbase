@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/fitbase/fitbase/internal/aicoach"
@@ -386,6 +387,9 @@ func (th *templateHandler) index(w http.ResponseWriter, r *http.Request) {
 		"AIConfigured":    aiSettings.Provider != "" && aiSettings.APIKey != "",
 		"AIProviderLabel": aicoach.ProviderLabel(aiSettings.Provider),
 		"AIChatCapable":   aiSettings.Provider != "" && aiSettings.APIKey != "" && aicoach.SupportsChat(aiSettings.Provider),
+		// Which providers could chat, for the "switch provider" hint — derived
+		// from the registry so the copy never hardcodes a provider name.
+		"AIChatLabels": strings.Join(aicoach.ChatCapableLabels(), " or "),
 	})
 }
 
@@ -926,8 +930,9 @@ func (th *templateHandler) saveAISettings(w http.ResponseWriter, r *http.Request
 		return
 	}
 	// A blank key from the "update settings" form means "keep the existing key" —
-	// the user is just changing provider/model. Fall back to what's stored;
-	// reject only when nothing is stored yet.
+	// the user is just changing the model. That only holds within one provider:
+	// a key for provider A won't authenticate against provider B, so a provider
+	// switch always requires a fresh key.
 	if apiKey == "" {
 		existing, err := th.db.GetAISettings()
 		if err != nil {
@@ -936,6 +941,10 @@ func (th *templateHandler) saveAISettings(w http.ResponseWriter, r *http.Request
 		}
 		if existing.APIKey == "" {
 			http.Error(w, "api_key is required", http.StatusBadRequest)
+			return
+		}
+		if existing.Provider != provider {
+			http.Error(w, "api_key is required when changing provider", http.StatusBadRequest)
 			return
 		}
 		apiKey = existing.APIKey

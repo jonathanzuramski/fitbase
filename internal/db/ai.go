@@ -22,11 +22,14 @@ type AISettings struct {
 func (db *DB) GetAISettings() (AISettings, error) {
 	var provider, model, encKey string
 	err := db.QueryRow(`SELECT provider, model, api_key FROM ai_settings WHERE id = 1`).Scan(&provider, &model, &encKey)
-	if err == sql.ErrNoRows || provider == "" {
+	if err == sql.ErrNoRows {
 		return AISettings{}, nil
 	}
 	if err != nil {
 		return AISettings{}, err
+	}
+	if provider == "" {
+		return AISettings{}, nil
 	}
 	if encKey == "" {
 		return AISettings{Provider: provider, Model: model}, nil
@@ -97,16 +100,28 @@ func (db *DB) GetRecentZoneTotals(days int) ([7]int, [5]int, int, error) {
 
 // ListWorkoutsSince returns workouts with recorded_at >= since, newest first.
 // Used by the AI coach to bound context to a recent window without pulling
-// the full workout history.
-func (db *DB) ListWorkoutsSince(since time.Time) ([]models.Workout, error) {
-	rows, err := db.Query(`
+// the full workout history. sport ("" = all sports, matched case-insensitively)
+// and limit (0 = no cap) are applied in SQL so the DB never hydrates rows the
+// caller would discard.
+func (db *DB) ListWorkoutsSince(since time.Time, sport string, limit int) ([]models.Workout, error) {
+	q := `
 		SELECT id, filename, recorded_at, sport, duration_secs, elapsed_secs, distance_meters,
 		       elevation_gain_meters, avg_power_watts, max_power_watts, normalized_power,
 		       avg_heart_rate, max_heart_rate, avg_cadence, avg_speed_mps,
 		       tss, intensity_factor, is_indoor, route_id, created_at
 		FROM workouts
-		WHERE recorded_at >= ?
-		ORDER BY recorded_at DESC`, since.UTC().Format(time.RFC3339))
+		WHERE recorded_at >= ?`
+	args := []any{since.UTC().Format(time.RFC3339)}
+	if sport != "" {
+		q += ` AND LOWER(sport) = LOWER(?)`
+		args = append(args, sport)
+	}
+	q += ` ORDER BY recorded_at DESC`
+	if limit > 0 {
+		q += ` LIMIT ?`
+		args = append(args, limit)
+	}
+	rows, err := db.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -140,11 +155,14 @@ func (db *DB) GetCachedInsights() (*CachedInsights, error) {
 		SELECT provider, model, content, generated_at
 		FROM ai_insights_cache_v2 WHERE id = 1`).
 		Scan(&c.Provider, &c.Model, &c.Content, &generatedAt)
-	if err == sql.ErrNoRows || c.Content == "" {
+	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
+	}
+	if c.Content == "" {
+		return nil, nil
 	}
 	if t, perr := time.Parse(time.RFC3339, generatedAt); perr == nil {
 		c.GeneratedAt = t

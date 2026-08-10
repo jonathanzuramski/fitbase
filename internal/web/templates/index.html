@@ -253,7 +253,7 @@
   </div>
   {{else}}
   <p class="muted coach-chat-hint">
-    Chat with the coach needs Claude — switch the provider in <a href="/settings">settings</a>.
+    Chat with the coach needs {{.AIChatLabels}} — switch the provider in <a href="/settings">settings</a>.
     Generate insights still works with your current provider.
   </p>
   {{end}}
@@ -349,8 +349,21 @@
 {{end}}
 
 {{define "scripts"}}
-<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="/static/js/marked.min.js"></script>
+<script src="/static/js/purify.min.js"></script>
 <script>
+  // renderSafeMarkdown converts untrusted LLM output (markdown) to HTML and
+  // sanitizes it: marked builds the HTML, DOMPurify strips any embedded
+  // <script>, event-handler attributes, and javascript: URIs so a crafted coach
+  // reply — or attacker-influenced workout text echoed back by the model —
+  // cannot execute in the page. Falls back to escaped plain text if either
+  // library fails to load, so output is never rendered unsanitized.
+  function renderSafeMarkdown(md) {
+    if (window.marked && window.DOMPurify) {
+      return window.DOMPurify.sanitize(window.marked.parse(md));
+    }
+    return escapeHTML(md);
+  }
   // ── Upload dropdown ─────────────────────────────────────────────────────────
   (function() {
     const more     = document.getElementById('upload-more');
@@ -592,7 +605,7 @@
     // marked.parse handles incomplete markdown gracefully (unclosed **, partial
     // headings, etc.), so we can re-render on every chunk and get live preview.
     function renderMarkdown(md) {
-      body.innerHTML = window.marked ? window.marked.parse(md) : escapeHTML(md);
+      body.innerHTML = renderSafeMarkdown(md);
     }
 
     function showCached(data) {
@@ -627,24 +640,6 @@
       }
     }
 
-    // Parse a chunk of SSE text. Events in the buffer are separated by blank
-    // lines; return the unconsumed tail for the next read.
-    function parseSSE(buf, onEvent) {
-      const events = buf.split(/\n\n/);
-      const tail   = events.pop();
-      for (const raw of events) {
-        let event = 'message', data = '';
-        for (const line of raw.split('\n')) {
-          if (line.startsWith('event:')) event = line.slice(6).trim();
-          else if (line.startsWith('data:')) data += line.slice(5).trim();
-        }
-        if (data) {
-          try { onEvent(event, JSON.parse(data)); } catch (_) {}
-        }
-      }
-      return tail;
-    }
-
     window.generateInsights = async function () {
       btn.disabled    = true;
       btn.textContent = 'generating…';
@@ -654,6 +649,7 @@
       tsEl.hidden     = true;
 
       let md = '';
+      const streamer = markdownStreamer(body);
       renderMarkdown('_analyzing your training…_');
 
       try {
@@ -678,9 +674,8 @@
           buf += decoder.decode(value, { stream: true });
           buf = parseSSE(buf, (event, data) => {
             if (event === 'chunk' && data.text) {
-              if (md === '') body.innerHTML = ''; // clear the placeholder on first token
-              md += data.text;
-              renderMarkdown(md);
+              md += data.text; // the first paint replaces the placeholder
+              streamer.update(md);
             } else if (event === 'done') {
               doneMeta = data;
             } else if (event === 'error') {
@@ -696,7 +691,7 @@
         }
         btn.textContent = 'regenerate';
       } catch (e) {
-        if (!md) body.hidden = true;
+        if (!md) { streamer.stop(); body.hidden = true; }
         showError(e.message);
         btn.textContent = 'generate insights';
       } finally {
@@ -725,21 +720,9 @@
     let history = [];
     let busy    = false;
 
-    const TOOL_LABELS = {
-      get_athlete_profile:   'your profile',
-      get_current_fitness:   'your current form',
-      get_fitness_trend:     'your fitness trend',
-      list_recent_workouts:  'your recent workouts',
-      get_workout_detail:    'that workout',
-      get_weekly_breakdown:  'your weekly load',
-      get_power_curve:       'your power curve',
-      get_zone_distribution: 'your zone distribution',
-    };
-    const toolLabel = (n) => TOOL_LABELS[n] || n.replace(/_/g, ' ');
-
-    function renderMd(md) {
-      return window.marked ? window.marked.parse(md) : escapeHTML(md);
-    }
+    // The server sends each tool's user-facing label with the SSE event (the
+    // Go tool catalog owns them); fall back to a humanized name.
+    const toolLabel = (d) => d.label || (d.name || '').replace(/_/g, ' ');
 
     // Add a message row. For the assistant we return the inner element so the
     // streaming loop can keep re-rendering it as markdown arrives.
@@ -754,26 +737,11 @@
       return bubble;
     }
 
-    function setStatus(el, tools) {
-      const names = Object.keys(tools);
-      if (names.length === 0) { el.textContent = 'thinking…'; return; }
-      el.textContent = 'looking up ' + names.map(toolLabel).join(', ') + '…';
-    }
-
-    // Events in the buffer are separated by blank lines; return the unconsumed
-    // tail for the next read. (Local copy — the insights parser is IIFE-scoped.)
-    function parseSSE(buf, onEvent) {
-      const events = buf.split(/\n\n/);
-      const tail   = events.pop();
-      for (const raw of events) {
-        let event = 'message', data = '';
-        for (const line of raw.split('\n')) {
-          if (line.startsWith('event:')) event = line.slice(6).trim();
-          else if (line.startsWith('data:')) data += line.slice(5).trim();
-        }
-        if (data) { try { onEvent(event, JSON.parse(data)); } catch (_) {} }
-      }
-      return tail;
+    // running maps tool name → display label while a tool executes.
+    function setStatus(el, running) {
+      const labels = Object.values(running);
+      if (labels.length === 0) { el.textContent = 'thinking…'; return; }
+      el.textContent = 'looking up ' + labels.join(', ') + '…';
     }
 
     // Render a preview card for a coach-proposed draft schedule. The card
@@ -895,6 +863,7 @@
       setStatus(statusEl, running);
 
       let md = '', streamErr = null;
+      const streamer = markdownStreamer(coachEl, () => { log.scrollTop = log.scrollHeight; });
       try {
         const res = await fetch('/api/coach/chat', {
           method:  'POST',
@@ -915,14 +884,13 @@
           buf += decoder.decode(value, { stream: true });
           buf = parseSSE(buf, (event, data) => {
             if (event === 'tool') {
-              if (data.status === 'running') running[data.name] = true;
+              if (data.status === 'running') running[data.name] = toolLabel(data);
               else delete running[data.name];
               if (md === '') setStatus(statusEl, running);
             } else if (event === 'chunk' && data.text) {
               if (md === '') statusEl.remove();
               md += data.text;
-              coachEl.innerHTML = renderMd(md);
-              log.scrollTop = log.scrollHeight;
+              streamer.update(md);
             } else if (event === 'preview' && data.id) {
               // Coach proposed a schedule — fetch the draft and render a
               // preview card the rider can accept or discard.
@@ -938,9 +906,11 @@
         if (answer) {
           history.push({ role: 'assistant', content: answer });
         } else {
+          streamer.stop(); // abandon any pending paint before replacing content
           coachEl.innerHTML = '<span class="chat-err">No answer returned.</span>';
         }
       } catch (e) {
+        streamer.stop(); // abandon any pending paint before replacing content
         statusEl.remove();
         coachEl.innerHTML = '<span class="chat-err">Error: ' + escapeHTML(e.message) + '</span>';
         // Drop the failed user turn so a retry doesn't double it up.
@@ -986,6 +956,49 @@
     });
   })();
   {{end}}
+
+  // Parse a chunk of SSE text. Events in the buffer are separated by blank
+  // lines; return the unconsumed tail for the next read. Shared by the
+  // insights and chat streams.
+  function parseSSE(buf, onEvent) {
+    const events = buf.split(/\n\n/);
+    const tail   = events.pop();
+    for (const raw of events) {
+      let event = 'message', data = '';
+      for (const line of raw.split('\n')) {
+        if (line.startsWith('event:')) event = line.slice(6).trim();
+        else if (line.startsWith('data:')) data += line.slice(5).trim();
+      }
+      if (data) {
+        try { onEvent(event, JSON.parse(data)); } catch (_) {}
+      }
+    }
+    return tail;
+  }
+
+  // markdownStreamer coalesces streamed-markdown re-renders into el: chunks
+  // arrive far faster than the display paints, and re-parsing the whole
+  // accumulated markdown per chunk is O(n²). update() renders the latest text
+  // at most once per animation frame; stop() abandons any pending paint (for
+  // error paths that replace el's content). onPaint, if given, runs after each
+  // paint (e.g. to keep a log scrolled to the bottom).
+  function markdownStreamer(el, onPaint) {
+    let latest = '', scheduled = false, stopped = false;
+    return {
+      update(md) {
+        latest = md;
+        if (scheduled || stopped) return;
+        scheduled = true;
+        requestAnimationFrame(() => {
+          scheduled = false;
+          if (stopped) return;
+          el.innerHTML = renderSafeMarkdown(latest);
+          if (onPaint) onPaint();
+        });
+      },
+      stop() { stopped = true; },
+    };
+  }
 
   function escapeHTML(s) {
     const d = document.createElement('div');

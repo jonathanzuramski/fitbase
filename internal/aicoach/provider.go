@@ -2,6 +2,7 @@ package aicoach
 
 import (
 	"context"
+	"fmt"
 	"sort"
 )
 
@@ -30,6 +31,29 @@ type Provider interface {
 	// Stream invokes onChunk for each text delta as the model generates. It
 	// returns when the stream ends or the first error occurs.
 	Stream(ctx context.Context, cfg CallConfig, onChunk func(string) error) error
+}
+
+// ModelLister is an optional capability: a provider that can enumerate its
+// models live from the backend's API implements it. Providers that don't (or
+// when no API key is available) fall back to the curated Models() list, so the
+// settings dropdown always has something to show.
+type ModelLister interface {
+	ListModels(ctx context.Context, apiKey string) ([]ModelOption, error)
+}
+
+// ListModels returns the models for a provider. When the provider supports live
+// listing and an API key is supplied, it fetches the current catalog from the
+// provider's API so the list never goes stale; otherwise it returns the curated
+// fallback. Unknown provider names are an error.
+func ListModels(ctx context.Context, name, apiKey string) ([]ModelOption, error) {
+	p, ok := Get(name)
+	if !ok {
+		return nil, fmt.Errorf("unknown provider %q", name)
+	}
+	if lister, ok := p.(ModelLister); ok && apiKey != "" {
+		return lister.ListModels(ctx, apiKey)
+	}
+	return p.Models(), nil
 }
 
 // ProviderInfo is the JSON-serializable view of a Provider, used to pass

@@ -203,8 +203,9 @@ func (h *PlannedHandler) GetDraft(w http.ResponseWriter, r *http.Request) {
 }
 
 // CommitDraft persists every workout in a draft (as source=coach) and removes
-// the draft. Returns the created list. If any item fails validation nothing
-// is persisted and the draft is left intact for retry/correction.
+// the draft, atomically. Returns the created list. If any item fails
+// validation, or any insert fails mid-batch, nothing is persisted and the
+// draft is left intact for retry/correction.
 //
 // POST /api/planned-workouts/drafts/{id}/commit
 func (h *PlannedHandler) CommitDraft(w http.ResponseWriter, r *http.Request) {
@@ -236,16 +237,13 @@ func (h *PlannedHandler) CommitDraft(w http.ResponseWriter, r *http.Request) {
 		pending = append(pending, p)
 	}
 
-	saved := make([]models.PlannedWorkout, 0, len(pending))
-	for _, p := range pending {
-		s, err := h.db.CreatePlannedWorkout(p)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "database error")
-			return
-		}
-		saved = append(saved, s)
+	// Inserts and the draft delete run in one transaction so a mid-batch DB
+	// failure can't leave a half-committed schedule that a retry would double.
+	saved, err := h.db.CommitPlannedDraft(id, pending)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "database error")
+		return
 	}
-	_ = h.db.DeletePlannedDraft(id) // non-fatal if delete fails; the draft is now harmless
 
 	writeJSON(w, http.StatusCreated, saved)
 }

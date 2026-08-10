@@ -556,6 +556,40 @@ func (db *DB) GetAllTimePowerCurve() (map[int]models.AllTimeBest, error) {
 	return result, rows.Err()
 }
 
+// GetPowerCurveSince returns the best watts per standard duration across
+// workouts recorded on or after `since` — the recent-form counterpart to
+// GetAllTimePowerCurve, used by the coach to compare current ability against
+// all-time bests.
+func (db *DB) GetPowerCurveSince(since time.Time) (map[int]models.AllTimeBest, error) {
+	rows, err := db.Query(`
+		SELECT wpc.duration_secs, wpc.watts, wpc.workout_id
+		FROM workout_power_curve wpc
+		INNER JOIN (
+			SELECT wpc2.duration_secs, MAX(wpc2.watts) AS max_watts
+			FROM workout_power_curve wpc2
+			INNER JOIN workouts w2 ON w2.id = wpc2.workout_id
+			WHERE w2.recorded_at >= ?
+			GROUP BY wpc2.duration_secs
+		) best ON wpc.duration_secs = best.duration_secs AND wpc.watts = best.max_watts
+		INNER JOIN workouts w ON w.id = wpc.workout_id AND w.recorded_at >= ?
+		GROUP BY wpc.duration_secs`,
+		since.UTC().Format(time.RFC3339), since.UTC().Format(time.RFC3339))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close() //nolint:errcheck
+	result := map[int]models.AllTimeBest{}
+	for rows.Next() {
+		var dur int
+		var b models.AllTimeBest
+		if err := rows.Scan(&dur, &b.Watts, &b.WorkoutID); err != nil {
+			return nil, err
+		}
+		result[dur] = b
+	}
+	return result, rows.Err()
+}
+
 // ── Zone times ────────────────────────────────────────────────────────────────
 
 // InsertZoneTimes stores pre-computed zone seconds for a workout. ss is the
@@ -986,6 +1020,14 @@ func (db *DB) UpdateWorkoutLoad(id string, tss, intensityFactor float64) error {
 }
 
 // ── Training load ─────────────────────────────────────────────────────────────
+
+// AthleteLocation returns the athlete's configured timezone, falling back to
+// UTC. Exported so callers outside this package (the AI coach's "today" and
+// goal-progress weeks) resolve the timezone through the same policy as the
+// rest of the app.
+func (db *DB) AthleteLocation() *time.Location {
+	return db.athleteLocation()
+}
 
 // athleteLocation returns the athlete's configured timezone, falling back to UTC.
 // Used to anchor "today" and per-day TSS grouping to the user's local calendar

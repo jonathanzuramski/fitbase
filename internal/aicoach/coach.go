@@ -25,6 +25,15 @@ type CoachingData struct {
 	WeeklyLoads    []WeeklyLoad   `json:"weekly_loads_8w"`
 	PowerCurve     []PowerBest    `json:"power_curve_key_efforts"`
 	ZoneTotals     ZoneDist       `json:"zone_distribution_56d"`
+	FTPHistory     []FTPPoint     `json:"ftp_history,omitempty"`
+}
+
+// FTPPoint is one FTP setting change — the most direct performance-progression
+// record the app stores, included so the insights model can separate "trained
+// more" (CTL) from "got faster" (FTP went up).
+type FTPPoint struct {
+	Date     string `json:"date"`
+	FTPWatts int    `json:"ftp_watts"`
 }
 
 type AthleteProfile struct {
@@ -104,7 +113,7 @@ Respond in Markdown with exactly these three sections, in this order:
 Read the last 4–8 weeks. Comment on volume and intensity (weekly TSS, hours, ramp rate), CTL/ATL/TSB trajectory, and how the work was distributed across zones. Call out specific workouts when they tell a story — a hard threshold day, a long endurance ride, a missed week. If load_type labels suggest a productive build, a taper, or overreaching, name it.
 
 ## Performance gains and concerns
-Flag concrete signals of adaptation or stagnation. Use EF (efficiency factor) trend at matched intensity as your primary aerobic-fitness indicator — a rising EF on similar IF rides means real gains. Power curve PRs and W/kg at key durations (5s, 1min, 5min, 20min, 60min) show where the rider is sharpest and where they're soft. Aerobic decoupling >5% on long rides points to durability gaps. High variability index (>1.10) on what should be steady work suggests pacing or terrain issues. Be honest about plateaus — don't manufacture progress that isn't in the numbers.
+Flag concrete signals of adaptation or stagnation — and keep load separate from fitness: rising CTL only proves the rider trained more, so never present it alone as "getting fitter". Real gains show up in the performance data: EF (efficiency factor) trend at matched intensity is your primary aerobic indicator — rising EF on similar-IF rides means real adaptation. An FTP increase in ftp_history is the most direct evidence of progression. Power curve PRs and W/kg at key durations (5s, 1min, 5min, 20min, 60min) show where the rider is sharpest and where they're soft. Aerobic decoupling >5% on long rides points to durability gaps; falling decoupling is progress even when peak power is flat. High variability index (>1.10) on what should be steady work suggests pacing or terrain issues. If CTL rose but EF is flat and there are no power PRs, say the load hasn't converted into fitness yet. Be honest about plateaus — don't manufacture progress that isn't in the numbers.
 
 ## Next 1–2 weeks
 Give a clear, prescriptive plan. Recommend a target weekly TSS range, the number of key sessions, and which energy systems to target based on what's underdeveloped. Tie it to current form (TSB) — recover if deeply negative, build if neutral, sharpen if positive. Suggest 1–2 specific workout types (e.g., "2×20 at 95% FTP", "3hr Z2 with 4×8min at sweet spot"). End with one thing to watch for.
@@ -194,6 +203,7 @@ func BuildData(
 	weekly []WeeklyLoad,
 	powerBests []PowerBest,
 	zoneTotals ZoneDist,
+	ftpHistory []FTPPoint,
 ) *CoachingData {
 	var current FitnessMetrics
 	if len(fitnessHistory) > 0 {
@@ -209,5 +219,6 @@ func BuildData(
 		WeeklyLoads:    weekly,
 		PowerCurve:     powerBests,
 		ZoneTotals:     zoneTotals,
+		FTPHistory:     ftpHistory,
 	}
 }

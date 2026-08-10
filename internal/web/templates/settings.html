@@ -402,6 +402,10 @@
           <option value="">select model…</option>
         </select>
         <input type="password" name="api_key" placeholder="API key (leave blank to keep current)" class="form-input" autocomplete="off" />
+        <div class="ai-model-refresh-row">
+          <button type="button" class="btn-secondary ai-refresh-models">refresh model list</button>
+          <span class="ai-refresh-status" aria-live="polite"></span>
+        </div>
         <button type="submit" class="btn-secondary">save</button>
       </form>
     </details>
@@ -417,6 +421,10 @@
         <option value="">select model…</option>
       </select>
       <input type="password" name="api_key" placeholder="API key" class="form-input" required />
+      <div class="ai-model-refresh-row">
+        <button type="button" class="btn-secondary ai-refresh-models">refresh model list</button>
+        <span class="ai-refresh-status" aria-live="polite"></span>
+      </div>
       <button type="submit" class="btn-primary">save</button>
     </form>
     {{end}}
@@ -563,27 +571,88 @@
     const providers = {{toJSON .AIProviders}};
     const catalog = {};
     providers.forEach(function (p) { catalog[p.name] = p.models; });
-    const savedModel = {{toJSON .AIModel}};
+    const savedModel    = {{toJSON .AIModel}};
+    const savedProvider = {{toJSON .AIProvider}};
 
     document.querySelectorAll('.ai-provider-select').forEach(function (providerSel) {
       const form = providerSel.closest('form');
       const modelSel = form.querySelector('.ai-model-select');
+      const refreshBtn = form.querySelector('.ai-refresh-models');
+      const statusEl = form.querySelector('.ai-refresh-status');
+      const keyInput = form.querySelector('input[name="api_key"]');
 
       function populateModels(provider) {
+        // Preserve the current pick (or, for the saved provider, the saved
+        // model on first render) so a refresh doesn't reset the selection.
+        const current = modelSel.value || (provider === savedProvider ? savedModel : '');
         modelSel.innerHTML = '<option value="">select model…</option>';
         (catalog[provider] || []).forEach(function (m) {
           const opt = document.createElement('option');
           opt.value = m.value;
           opt.textContent = m.label;
-          if (m.value === savedModel) opt.selected = true;
+          if (m.value === current) opt.selected = true;
           modelSel.appendChild(opt);
         });
+        // The current model may have come from a live "refresh model list"
+        // fetch and be absent from the build-time curated catalog — append it
+        // so it stays selectable and the required field stays submittable.
+        if (current && !Array.prototype.some.call(modelSel.options, function (o) { return o.value === current; })) {
+          const opt = document.createElement('option');
+          opt.value = current;
+          opt.textContent = current;
+          opt.selected = true;
+          modelSel.appendChild(opt);
+        }
+      }
+
+      // refreshModels fetches the provider's live catalog using the key just
+      // typed (or the saved one, server-side) and repopulates the dropdown, so
+      // the model list never depends on a hardcoded build-time list.
+      async function refreshModels() {
+        const provider = providerSel.value;
+        if (!provider) { statusEl.textContent = 'pick a provider first'; return; }
+        refreshBtn.disabled = true;
+        statusEl.textContent = 'fetching…';
+        try {
+          const res = await fetch('/api/coach/models', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ provider: provider, api_key: keyInput ? keyInput.value : '' }),
+          });
+          let body = {};
+          try { body = await res.json(); } catch (_) {}
+          if (!res.ok) {
+            // 404 here almost always means the server predates this endpoint —
+            // rebuild/restart it. Surface the real status so it's diagnosable.
+            throw new Error(body.error || ('HTTP ' + res.status +
+              (res.status === 404 ? ' — restart the server to pick up the new route' : '')));
+          }
+          // Successful responses are wrapped in a {data: ...} envelope by the
+          // server (see writeJSON), so the models live at body.data.models.
+          const payload = body.data || body;
+          const models = Array.isArray(payload.models) ? payload.models : [];
+          if (models.length === 0) {
+            // Keep the existing options rather than blanking the dropdown.
+            statusEl.textContent = 'no models returned — check the API key';
+            return;
+          }
+          catalog[provider] = models;
+          populateModels(provider);
+          statusEl.textContent = models.length + ' models loaded';
+        } catch (e) {
+          console.error('coach: refresh models failed', e);
+          statusEl.textContent = 'error: ' + e.message;
+        } finally {
+          refreshBtn.disabled = false;
+        }
       }
 
       if (providerSel.value) populateModels(providerSel.value);
       providerSel.addEventListener('change', function () {
+        statusEl.textContent = '';
         populateModels(this.value);
       });
+      if (refreshBtn) refreshBtn.addEventListener('click', refreshModels);
     });
   })();
 </script>

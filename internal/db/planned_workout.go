@@ -11,10 +11,18 @@ import (
 	"github.com/fitbase/fitbase/internal/models"
 )
 
-// CreatePlannedWorkout persists p, generating an id if one isn't supplied and
-// returning the stored row (with id and created_at populated). Intervals are
-// serialized to JSON for storage.
-func (db *DB) CreatePlannedWorkout(p models.PlannedWorkout) (models.PlannedWorkout, error) {
+// querier abstracts *DB / *sql.Tx so the planned-workout insert core can run
+// standalone or inside a transaction.
+type querier interface {
+	Exec(query string, args ...any) (sql.Result, error)
+	QueryRow(query string, args ...any) *sql.Row
+}
+
+// createPlannedWorkout is the insert core shared by CreatePlannedWorkout and
+// CommitPlannedDraft: it persists p on q, generating an id if one isn't
+// supplied, and returns the stored row (with id and created_at populated).
+// Intervals are serialized to JSON for storage.
+func createPlannedWorkout(q querier, p models.PlannedWorkout) (models.PlannedWorkout, error) {
 	if p.ID == "" {
 		p.ID = uuid.NewString()
 	}
@@ -34,7 +42,7 @@ func (db *DB) CreatePlannedWorkout(p models.PlannedWorkout) (models.PlannedWorko
 		intervalsJSON = string(js)
 	}
 
-	_, err := db.Exec(`
+	_, err := q.Exec(`
 		INSERT INTO planned_workouts (
 			id, planned_date, sport, title, description,
 			duration_secs, tss, intensity_factor, intervals_json, source
@@ -47,14 +55,50 @@ func (db *DB) CreatePlannedWorkout(p models.PlannedWorkout) (models.PlannedWorko
 	}
 
 	// Re-read so created_at is the server-assigned value.
-	saved, err := db.GetPlannedWorkout(p.ID)
+	row := q.QueryRow(`
+		SELECT id, planned_date, sport, title, description,
+		       duration_secs, tss, intensity_factor, intervals_json, source, created_at
+		FROM planned_workouts WHERE id = ?`, p.ID)
+	saved, err := scanPlannedWorkout(row)
+	if err == sql.ErrNoRows {
+		return models.PlannedWorkout{}, fmt.Errorf("planned workout vanished after insert: %s", p.ID)
+	}
 	if err != nil {
 		return models.PlannedWorkout{}, err
 	}
-	if saved == nil {
-		return models.PlannedWorkout{}, fmt.Errorf("planned workout vanished after insert: %s", p.ID)
+	return saved, nil
+}
+
+// CreatePlannedWorkout persists p and returns the stored row.
+func (db *DB) CreatePlannedWorkout(p models.PlannedWorkout) (models.PlannedWorkout, error) {
+	return createPlannedWorkout(db, p)
+}
+
+// CommitPlannedDraft persists every workout in ps and removes the draft, all in
+// one transaction: a mid-batch failure rolls everything back and leaves the
+// draft intact, so a retry can never duplicate already-inserted workouts.
+func (db *DB) CommitPlannedDraft(draftID string, ps []models.PlannedWorkout) ([]models.PlannedWorkout, error) {
+	tx, err := db.Begin()
+	if err != nil {
+		return nil, err
 	}
-	return *saved, nil
+	defer tx.Rollback() //nolint:errcheck
+
+	saved := make([]models.PlannedWorkout, 0, len(ps))
+	for _, p := range ps {
+		s, err := createPlannedWorkout(tx, p)
+		if err != nil {
+			return nil, err
+		}
+		saved = append(saved, s)
+	}
+	if _, err := tx.Exec(`DELETE FROM planned_workout_drafts WHERE id = ?`, draftID); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return saved, nil
 }
 
 // GetPlannedWorkout returns the planned workout with the given id, or (nil, nil)
@@ -121,6 +165,12 @@ func (db *DB) DeletePlannedWorkout(id string) error {
 // The payload is opaque JSON — typically a {"workouts":[…]} object the coach
 // tool built.
 func (db *DB) SavePlannedDraft(payloadJSON string) (string, error) {
+	// Opportunistically sweep abandoned drafts (rider ignored the preview card,
+	// closed the tab, …) so they don't accumulate forever. Best-effort; the
+	// cutoff matches the stored strftime format so string comparison is exact.
+	_, _ = db.Exec(`DELETE FROM planned_workout_drafts
+		WHERE created_at < strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-7 days')`)
+
 	id := uuid.NewString()
 	_, err := db.Exec(`
 		INSERT INTO planned_workout_drafts (id, payload_json) VALUES (?, ?)
