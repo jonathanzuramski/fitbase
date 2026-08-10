@@ -343,6 +343,11 @@ func (h *CoachHandler) toolProposeSchedule(input json.RawMessage, ev toolEvents)
 		if _, err := req.toModel("coach"); err != nil {
 			return "", fmt.Errorf("workouts[%d]: %s", i, err.Error())
 		}
+		// Titles are only schema-required (provider-enforced), so an empty
+		// string can still arrive; the preview card would render '(untitled)'.
+		if strings.TrimSpace(req.Title) == "" {
+			return "", fmt.Errorf("workouts[%d]: title is required — a short session label the rider sees on the card, e.g. '2x20 threshold'", i)
+		}
 	}
 	payload, err := json.Marshal(draftPayload{Workouts: args.Workouts})
 	if err != nil {
