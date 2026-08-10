@@ -1,13 +1,48 @@
 name: Docker
 
+# Every merge to main ships a new image: `latest` plus a pinnable sha-<commit>
+# tag. Version tags additionally publish the numbered semver images.
+#
+# Triggers on pushes directly, NOT only on release:published — releases are
+# created by release.yml using the default GITHUB_TOKEN, and events created
+# with that token never trigger other workflows (GitHub's recursion guard).
+# release:published stays as a fallback for releases published manually in the UI.
 on:
+  push:
+    branches: [main]
+    tags: ["v*"]
   release:
     types: [published]
+  # Manual backfill: run from the Actions tab with a ref selected.
+  workflow_dispatch:
 
 jobs:
+  # Publishing waits on the same checks as CI. CI also runs on main pushes but
+  # in parallel — without this gate a broken merge would still reach `latest`.
+  test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
   publish:
     name: Build & Push Image
     runs-on: ubuntu-latest
+    needs: test
     permissions:
       contents: read
       packages: write
@@ -28,6 +63,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+            type=sha
             type=raw,value=latest
 
       - uses: docker/build-push-action@v6
