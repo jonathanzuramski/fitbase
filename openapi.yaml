@@ -335,6 +335,62 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/planned-workouts/drafts/{id}:
+    get:
+      summary: Preview a coach-proposed schedule draft
+      description: |
+        Returns the validated planned workouts inside a draft created by the AI
+        coach's `propose_schedule` tool, without persisting anything. The chat
+        UI renders these as the "review and add to calendar" preview card.
+      parameters:
+        - $ref: "#/components/parameters/DraftID"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:  { type: array, items: { $ref: "#/components/schemas/PlannedWorkout" } }
+                  error: { type: string, nullable: true }
+        "400":
+          description: Draft contains an invalid item
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: Discard a schedule draft
+      description: Removes the draft without committing anything to the calendar.
+      parameters:
+        - $ref: "#/components/parameters/DraftID"
+      responses:
+        "204":
+          description: Draft discarded (idempotent — also 204 if it never existed)
+
+  /api/planned-workouts/drafts/{id}/commit:
+    post:
+      summary: Commit a schedule draft to the calendar
+      description: |
+        Persists every workout in the draft (as `source: coach`) and removes the
+        draft, atomically: if any item fails validation or any insert fails, the
+        whole batch rolls back and the draft survives for retry — a retry can
+        never duplicate workouts.
+      parameters:
+        - $ref: "#/components/parameters/DraftID"
+      responses:
+        "201":
+          description: All workouts created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:  { type: array, items: { $ref: "#/components/schemas/PlannedWorkout" } }
+                  error: { type: string, nullable: true }
+        "400":
+          description: Draft contains an invalid item (nothing persisted)
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/workouts/{id}/analysis:
     get:
       summary: Get workout analysis
@@ -355,6 +411,129 @@ paths:
                   error: { type: string, nullable: true }
         "404":
           $ref: "#/components/responses/NotFound"
+
+  /api/coach/insights:
+    get:
+      summary: Get cached coaching insights
+      description: |
+        Returns the most recently generated coaching response without calling
+        the LLM. Content is a Markdown blob.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:  { $ref: "#/components/schemas/CachedInsights" }
+                  error: { type: string, nullable: true }
+        "204":
+          description: Nothing has been generated yet
+    post:
+      summary: Generate coaching insights (SSE)
+      description: |
+        Streams a full training review from the configured LLM provider as
+        Server-Sent Events, then caches the response. POST because it mutates
+        the cache and is rate-limit-worthy.
+        SSE event types: `chunk` (`{"text": "..."}` Markdown delta),
+        `done` (`{"provider", "model", "generated_at"}`),
+        `error` (`{"error": "..."}`, fatal; stream ends).
+      responses:
+        "200":
+          description: SSE stream of the generated insights
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "400":
+          description: Unknown provider configured
+        "503":
+          description: AI coach not configured (no provider or API key saved)
+
+  /api/coach/chat:
+    post:
+      summary: Chat with the AI coach (tool-augmented, SSE)
+      description: |
+        Runs one conversational turn with the coach. The browser owns the
+        conversation and posts the full history every turn — the server is
+        stateless. The model pulls data via server-executed tools (readiness,
+        recent workouts, power curve, …) and can propose a training schedule,
+        which is stored as a draft for the rider to review
+        (see `/api/planned-workouts/drafts/{id}`). Only the most recent 40
+        messages are considered.
+        SSE event types: `tool` (`{"name", "label", "status": "running"|"done"|"error"}`),
+        `chunk` (`{"text": "..."}` answer delta),
+        `preview` (`{"id", "count"}` — a schedule draft was created),
+        `done` (`{"provider", "model", "generated_at"}`),
+        `error` (`{"error": "..."}`, fatal; stream ends).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [messages]
+              properties:
+                messages:
+                  type: array
+                  description: Full conversation so far; must end with a user message.
+                  items:
+                    type: object
+                    required: [role, content]
+                    properties:
+                      role:    { type: string, enum: [user, assistant] }
+                      content: { type: string }
+      responses:
+        "200":
+          description: SSE stream of tool progress and the answer
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "400":
+          description: Invalid history, or the configured provider does not support tool use
+        "503":
+          description: AI coach not configured (no provider or API key saved)
+
+  /api/coach/models:
+    post:
+      summary: List available models for a provider
+      description: |
+        Fetches the provider's live model catalog so the settings page can
+        refresh its dropdown. The API key is taken from the request body (the
+        value just typed) and falls back to the saved key when it belongs to
+        the same provider. Providers without live listing return their curated
+        fallback. POST (not GET) because the key travels in the body.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [provider]
+              properties:
+                provider: { type: string, example: "anthropic" }
+                api_key:  { type: string, description: "Optional; falls back to the saved key for this provider." }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      models:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            value: { type: string, example: "claude-sonnet-4-6" }
+                            label: { type: string, example: "Claude Sonnet 4.6" }
+                  error: { type: string, nullable: true }
+        "400":
+          description: Missing provider or invalid request body
+        "502":
+          description: Provider API could not be reached or rejected the key
 
   /api/integrations/dropbox/sync:
     get:
@@ -564,7 +743,22 @@ components:
       schema: { type: integer, enum: [0, 1], default: 0 }
       description: Set to 1 to receive a Server-Sent Events progress stream instead of a background response.
 
+    DraftID:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+      description: Schedule draft ID (from the chat `preview` SSE event)
+
   schemas:
+    CachedInsights:
+      type: object
+      properties:
+        content:      { type: string, description: "Full coaching response as Markdown" }
+        provider:     { type: string, example: "anthropic" }
+        model:        { type: string, example: "claude-sonnet-4-6" }
+        generated_at: { type: string, format: date-time }
+
     Workout:
       type: object
       properties:
