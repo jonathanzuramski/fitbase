@@ -48,6 +48,6 @@ func TestTemplatesNoMangledActions(t *testing.T) {
 					e.Name(), n, sc.Text())
 			}
 		}
-		f.Close()
+		_ = f.Close() // read-only embedded file; Close cannot fail meaningfully
 	}
 }
