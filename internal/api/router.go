@@ -54,6 +54,7 @@ func NewRouter(h *Handler, dropbox *DropboxHandler, intervalsH *IntervalsHandler
 		r.Route("/planned-workouts", func(r chi.Router) {
 			r.Get("/", planned.List)
 			r.Post("/", planned.Create)
+			r.Get("/{id}", planned.Get)
 			r.Delete("/{id}", planned.Delete)
 			r.Get("/drafts/{id}", planned.GetDraft)
 			r.Post("/drafts/{id}/commit", planned.CommitDraft)

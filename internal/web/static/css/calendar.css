@@ -172,8 +172,22 @@
   border-radius: 3px;
   color: var(--text-muted);
   position: relative;
+  cursor: pointer;
+  transition: border-color .15s ease, background .15s ease;
 }
+.cal-planned:hover { border-color: var(--text-muted); background: var(--bg-hover, rgba(148, 163, 184, 0.08)); }
 .cal-planned-coach { border-color: var(--accent); }
+
+/* Planned-workout detail modal */
+.plan-detail-sub { font-size: 12px; color: var(--text-muted); margin: 0 0 4px; }
+.plan-detail-meta { font-size: 13px; color: var(--text); margin: 0 0 8px; }
+.plan-detail-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0 0 10px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
 .cal-dot-planned { box-shadow: 0 0 0 1px var(--bg-card) inset; opacity: 0.6; }
 .cal-planned-info {
   display: flex;
