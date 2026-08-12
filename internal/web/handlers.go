@@ -30,6 +30,8 @@ type pageTemplates struct {
 	importing *template.Template
 }
 
+// fsys is used just so that updates in local dev are picked up
+// and rendered without restarting the go binary every time.
 func loadTemplatesFrom(fsys fs.FS) *pageTemplates {
 	parse := func(files ...string) *template.Template {
 		return template.Must(
