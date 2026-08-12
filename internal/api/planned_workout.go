@@ -234,7 +234,8 @@ func (h *PlannedHandler) CommitDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if payload == "" {
-		writeError(w, http.StatusNotFound, "draft not found")
+		writeError(w, http.StatusNotFound,
+			"this proposal is no longer available — it was superseded by a newer one, already added, or discarded")
 		return
 	}
 	var d draftPayload
