@@ -2,43 +2,43 @@
 
 {{define "content"}}
 <div class="page-header">
-  <h1>dashboard</h1>
-  <div class="upload-group" id="upload-group">
-    <label class="upload-btn" id="upload-single-label">
-      upload .fit / .fit.gz
-      <input type="file" id="upload-input" accept=".fit,.fit.gz,.gz" hidden>
-    </label>
-    <button class="upload-more" id="upload-more" aria-label="more upload options">▾</button>
-    <div class="upload-dropdown" id="upload-dropdown">
-      <label class="upload-option" id="upload-bulk-label">
-        bulk upload
-        <input type="file" id="upload-bulk-input" accept=".fit,.fit.gz,.gz" multiple hidden>
-      </label>
-    </div>
-  </div>
+	<h1>dashboard</h1>
+	<div class="upload-group" id="upload-group">
+		<label class="upload-btn" id="upload-single-label">
+			upload .fit / .fit.gz
+			<input type="file" id="upload-input" accept=".fit,.fit.gz,.gz" hidden>
+		</label>
+		<button class="upload-more" id="upload-more" aria-label="more upload options">▾</button>
+		<div class="upload-dropdown" id="upload-dropdown">
+			<label class="upload-option" id="upload-bulk-label">
+				bulk upload
+				<input type="file" id="upload-bulk-input" accept=".fit,.fit.gz,.gz" multiple hidden>
+			</label>
+		</div>
+	</div>
 </div>
 
 <!-- Bulk upload progress overlay -->
 <div class="bulk-overlay" id="bulk-overlay" hidden>
-  <div class="bulk-modal">
-    <div class="bulk-title">importing files</div>
-    <div class="bulk-filename" id="bulk-filename"></div>
-    <div class="bulk-progress-track">
-      <div class="bulk-progress-bar" id="bulk-progress-bar"></div>
-    </div>
-    <div class="bulk-counts">
-      <span id="bulk-counter">0 / 0</span>
-      <span class="bulk-results" id="bulk-results"></span>
-    </div>
-    <button class="bulk-done" id="bulk-done" hidden>done</button>
-  </div>
+	<div class="bulk-modal">
+		<div class="bulk-title">importing files</div>
+		<div class="bulk-filename" id="bulk-filename"></div>
+		<div class="bulk-progress-track">
+			<div class="bulk-progress-bar" id="bulk-progress-bar"></div>
+		</div>
+		<div class="bulk-counts">
+			<span id="bulk-counter">0 / 0</span>
+			<span class="bulk-results" id="bulk-results"></span>
+		</div>
+		<button class="bulk-done" id="bulk-done" hidden>done</button>
+	</div>
 </div>
 
 {{if .FTPIsDefault}}
 <div class="alert-banner">
-  <span class="alert-icon">&#9888;</span>
-  FTP is set to the default of {{.FTPWatts}}W — your power zones and TSS may be inaccurate.
-  <a href="/settings" class="alert-link">update in settings →</a>
+	<span class="alert-icon">&#9888;</span>
+	FTP is set to the default of {{.FTPWatts}}W — your power zones and TSS may be inaccurate.
+	<a href="/settings" class="alert-link">update in settings →</a>
 </div>
 {{end}}
 
@@ -46,304 +46,349 @@
 
 <div class="home-layout">
 
-<aside class="home-sidebar">
+	<aside class="home-sidebar">
 
-<!-- ── This Week / Streak ────────────────────────────────────────────────── -->
-<section class="card streak-card">
-  <div class="streak-header">
-    <h3 class="streak-title">this week</h3>
-    <span class="streak-count">{{.StreakActive}} / 7</span>
-  </div>
-  <div class="streak-grid">
-    {{range .StreakDays}}
-    <div class="streak-day{{if .IsToday}} today{{end}}{{if .Active}} active{{end}}">
-      <div class="streak-dot"></div>
-      <div class="streak-lbl">{{.Label}}</div>
-    </div>
-    {{end}}
-  </div>
-</section>
+		<!-- ── This Week / Streak ────────────────────────────────────────────────── -->
+		<section class="card streak-card">
+			<div class="streak-header">
+				<h3 class="streak-title">this week</h3>
+				<span class="streak-count">{{.StreakActive}} / 7</span>
+			</div>
+			<div class="streak-grid">
+				{{range .StreakDays}}
+				<div class="streak-day{{if .IsToday}} today{{end}}{{if .Active}} active{{end}}">
+					<div class="streak-dot"></div>
+					<div class="streak-lbl">{{.Label}}</div>
+				</div>
+				{{end}}
+			</div>
+		</section>
 
-<!-- ── Mileage Goals ─────────────────────────────────────────────────────── -->
-<section class="card goal-card">
-  <h2 class="card-title">mileage goals</h2>
-  <div class="filter-tabs goal-sport-tabs">
-    {{range .GoalViews}}
-    <button class="filter-tab goal-sport-tab{{if .Active}} active{{end}}" data-sport="{{.Sport}}">{{.Sport}}</button>
-    {{end}}
-  </div>
+		<!-- ── Mileage Goals ─────────────────────────────────────────────────────── -->
+		<section class="card goal-card">
+			<h2 class="card-title">mileage goals</h2>
+			<div class="filter-tabs goal-sport-tabs">
+				{{range .GoalViews}}
+				<button class="filter-tab goal-sport-tab{{if .Active}} active{{end}}"
+					data-sport="{{.Sport}}">{{.Sport}}</button>
+				{{end}}
+			</div>
 
-  {{range .GoalViews}}
-  <div class="goal-sport-panel{{if .Active}} active{{end}}" data-sport="{{.Sport}}">
-    <div class="goal-circles">
-      <div class="goal-circle goal-circle-sport-{{.Sport}}" style="--pct:{{formatFloat1 .WeekPct}}">
-        <div class="goal-circle-content">
-          <span class="goal-circle-val">{{formatDistance .WeekMeters $imperial}}</span>
-          {{if gt .WeeklyGoalMeters 0.0}}<span class="goal-circle-target">/ {{formatDistance .WeeklyGoalMeters $imperial}}</span>{{end}}
-          <span class="goal-circle-lbl">week</span>
-        </div>
-      </div>
-      <div class="goal-circle goal-circle-sport-{{.Sport}}" style="--pct:{{formatFloat1 .YearPct}}">
-        <div class="goal-circle-content">
-          <span class="goal-circle-val">{{formatDistance .YearMeters $imperial}}</span>
-          {{if gt .YearlyGoalMeters 0.0}}<span class="goal-circle-target">/ {{formatDistance .YearlyGoalMeters $imperial}}</span>{{end}}
-          <span class="goal-circle-lbl">year</span>
-        </div>
-      </div>
-    </div>
-    <div class="goal-section">
-      <div class="goal-section-label">this week</div>
-      <div class="goal-distance-row">
-        <span class="goal-distance-val">{{formatDistance .WeekMeters $imperial}}</span>
-        {{if gt .WeeklyGoalMeters 0.0}}<span class="goal-distance-sep"> / </span><span class="goal-distance-target">{{formatDistance .WeeklyGoalMeters $imperial}}</span>{{end}}
-      </div>
-      <div class="goal-week-chart">
-        {{range .WeekDays}}
-        <div class="goal-day-col{{if .IsToday}} today{{end}}">
-          <div class="goal-bar-wrap"><div class="goal-bar" style="height:{{formatFloat1 .HeightPct}}%"></div></div>
-          <div class="goal-day-label">{{.Label}}</div>
-        </div>
-        {{end}}
-      </div>
-    </div>
-    <div class="goal-divider"></div>
-    <div class="goal-section">
-      <div class="goal-section-label">this year</div>
-      <div class="goal-distance-row">
-        <span class="goal-distance-val">{{formatDistance .YearMeters $imperial}}</span>
-        {{if gt .YearlyGoalMeters 0.0}}<span class="goal-distance-sep"> / </span><span class="goal-distance-target">{{formatDistance .YearlyGoalMeters $imperial}}</span>{{end}}
-      </div>
-      {{if gt .YearlyGoalMeters 0.0}}
-      <div class="goal-year-track-wrap">
-        <div class="goal-year-track"><div class="goal-year-bar sport-{{.Sport}}" style="width:{{formatFloat1 .YearPct}}%"></div></div>
-        <div class="goal-pace-anchor" style="left:{{formatFloat1 .YearPacePct}}%">
-          <div class="goal-pace-tick"></div>
-          <div class="goal-pace-today-label">today</div>
-        </div>
-      </div>
-      <div class="goal-pace-diff{{if .AheadOfPace}} ahead{{end}}">{{formatDistance .PaceDiffMeters $imperial}} {{if .AheadOfPace}}ahead of{{else}}behind{{end}} pace</div>
-      {{end}}
-    </div>
-    <button class="goal-manage-btn" data-sport="{{.Sport}}">manage goals →</button>
-  </div>
-  {{end}}
+			{{range .GoalViews}}
+			<div class="goal-sport-panel{{if .Active}} active{{end}}" data-sport="{{.Sport}}">
+				<div class="goal-circles">
+					<div class="goal-circle goal-circle-sport-{{.Sport}}" style="--pct:{{formatFloat1 .WeekPct}}">
+						<div class="goal-circle-content">
+							<span class="goal-circle-val">{{formatDistance .WeekMeters $imperial}}</span>
+							{{if gt .WeeklyGoalMeters 0.0}}<span class="goal-circle-target">/ {{formatDistance
+								.WeeklyGoalMeters $imperial}}</span>{{end}}
+							<span class="goal-circle-lbl">week</span>
+						</div>
+					</div>
+					<div class="goal-circle goal-circle-sport-{{.Sport}}" style="--pct:{{formatFloat1 .YearPct}}">
+						<div class="goal-circle-content">
+							<span class="goal-circle-val">{{formatDistance .YearMeters $imperial}}</span>
+							{{if gt .YearlyGoalMeters 0.0}}<span class="goal-circle-target">/ {{formatDistance
+								.YearlyGoalMeters $imperial}}</span>{{end}}
+							<span class="goal-circle-lbl">year</span>
+						</div>
+					</div>
+				</div>
+				<div class="goal-section">
+					<div class="goal-section-label">this week</div>
+					<div class="goal-distance-row">
+						<span class="goal-distance-val">{{formatDistance .WeekMeters $imperial}}</span>
+						{{if gt .WeeklyGoalMeters 0.0}}<span class="goal-distance-sep"> / </span><span
+							class="goal-distance-target">{{formatDistance .WeeklyGoalMeters $imperial}}</span>{{end}}
+					</div>
+					<div class="goal-week-chart">
+						{{range .WeekDays}}
+						<div class="goal-day-col{{if .IsToday}} today{{end}}">
+							<div class="goal-bar-wrap">
+								<div class="goal-bar" style="height:{{formatFloat1 .HeightPct}}%"></div>
+							</div>
+							<div class="goal-day-label">{{.Label}}</div>
+						</div>
+						{{end}}
+					</div>
+				</div>
+				<div class="goal-divider"></div>
+				<div class="goal-section">
+					<div class="goal-section-label">this year</div>
+					<div class="goal-distance-row">
+						<span class="goal-distance-val">{{formatDistance .YearMeters $imperial}}</span>
+						{{if gt .YearlyGoalMeters 0.0}}<span class="goal-distance-sep"> / </span><span
+							class="goal-distance-target">{{formatDistance .YearlyGoalMeters $imperial}}</span>{{end}}
+					</div>
+					{{if gt .YearlyGoalMeters 0.0}}
+					<div class="goal-year-track-wrap">
+						<div class="goal-year-track">
+							<div class="goal-year-bar sport-{{.Sport}}" style="width:{{formatFloat1 .YearPct}}%"></div>
+						</div>
+						<div class="goal-pace-anchor" style="left:{{formatFloat1 .YearPacePct}}%">
+							<div class="goal-pace-tick"></div>
+							<div class="goal-pace-today-label">today</div>
+						</div>
+					</div>
+					<div class="goal-pace-diff{{if .AheadOfPace}} ahead{{end}}">{{formatDistance .PaceDiffMeters
+						$imperial}} {{if .AheadOfPace}}ahead of{{else}}behind{{end}} pace</div>
+					{{end}}
+				</div>
+				<button class="goal-manage-btn" data-sport="{{.Sport}}">manage goals →</button>
+			</div>
+			{{end}}
 
-  {{range .GoalViews}}
-  <form class="goal-edit-form" action="/goals/mileage" method="POST" data-sport="{{.Sport}}" hidden>
-    <p class="goal-edit-title">goals — {{.Sport}}</p>
-    <input type="hidden" name="sport" value="{{.Sport}}">
-    <div class="goal-inputs">
-      <label class="goal-input-label">
-        weekly ({{if $imperial}}mi{{else}}km{{end}})
-        <input type="number" name="weekly" step="0.1" min="0" value="{{goalDisplayDist .WeeklyGoalMeters $imperial}}">
-      </label>
-      <label class="goal-input-label">
-        yearly ({{if $imperial}}mi{{else}}km{{end}})
-        <input type="number" name="yearly" step="1" min="0" value="{{goalDisplayDist .YearlyGoalMeters $imperial}}">
-      </label>
-    </div>
-    <div class="goal-form-actions">
-      <button type="submit" class="goal-save-btn">save</button>
-      <button type="button" class="goal-cancel-btn">cancel</button>
-    </div>
-  </form>
-  {{end}}
-</section>
+			{{range .GoalViews}}
+			<form class="goal-edit-form" action="/goals/mileage" method="POST" data-sport="{{.Sport}}" hidden>
+				<p class="goal-edit-title">goals — {{.Sport}}</p>
+				<input type="hidden" name="sport" value="{{.Sport}}">
+				<div class="goal-inputs">
+					<label class="goal-input-label">
+						weekly ({{if $imperial}}mi{{else}}km{{end}})
+						<input type="number" name="weekly" step="0.1" min="0"
+							value="{{goalDisplayDist .WeeklyGoalMeters $imperial}}">
+					</label>
+					<label class="goal-input-label">
+						yearly ({{if $imperial}}mi{{else}}km{{end}})
+						<input type="number" name="yearly" step="1" min="0"
+							value="{{goalDisplayDist .YearlyGoalMeters $imperial}}">
+					</label>
+				</div>
+				<div class="goal-form-actions">
+					<button type="submit" class="goal-save-btn">save</button>
+					<button type="button" class="goal-cancel-btn">cancel</button>
+				</div>
+			</form>
+			{{end}}
+		</section>
 
-<!-- ── Training Load (compact, sidebar) ──────────────────────────────────── -->
-<section class="card" id="card-training-load">
-  <h3 class="card-title">training load</h3>
-  {{if .TodayFitness}}
-  <div class="load-ctf-row">
-    <div class="load-ctf-item"><div class="load-ctf-val ctl-color">{{formatFloat1 .TodayFitness.Fitness}}</div><div class="load-ctf-lbl">fitness</div></div>
-    <div class="load-ctf-item"><div class="load-ctf-val atl-color">{{formatFloat1 .TodayFitness.Fatigue}}</div><div class="load-ctf-lbl">fatigue</div></div>
-    <div class="load-ctf-item"><div class="load-ctf-val {{tsbClass .TodayFitness.Form}}">{{formatFloat1 .TodayFitness.Form}}</div><div class="load-ctf-lbl">form</div></div>
-  </div>
-  <div class="goal-divider"></div>
-  {{end}}
-  <div class="stat-blocks">
-    <div class="stat-block">
-      <div class="stat-block-hdr">week</div>
-      <div class="stat-block-row"><span class="stat-td">{{formatFloat1 .WeekSummary.TSS}}</span><span class="stat-lbl">tss</span></div>
-      <div class="stat-block-row"><span class="stat-td">{{formatDuration .WeekSummary.DurationSecs}}</span><span class="stat-lbl">time</span></div>
-    </div>
-    <div class="stat-block">
-      <div class="stat-block-hdr">year</div>
-      <div class="stat-block-row"><span class="stat-td">{{formatFloat1 .YearSummary.TSS}}</span><span class="stat-lbl">tss</span></div>
-      <div class="stat-block-row"><span class="stat-td">{{formatDuration .YearSummary.DurationSecs}}</span><span class="stat-lbl">time</span></div>
-    </div>
-  </div>
-</section>
+		<!-- ── Training Load (compact, sidebar) ──────────────────────────────────── -->
+		<section class="card" id="card-training-load">
+			<h3 class="card-title">training load</h3>
+			{{if .TodayFitness}}
+			<div class="load-ctf-row">
+				<div class="load-ctf-item">
+					<div class="load-ctf-val ctl-color">{{formatFloat1 .TodayFitness.Fitness}}</div>
+					<div class="load-ctf-lbl">fitness</div>
+				</div>
+				<div class="load-ctf-item">
+					<div class="load-ctf-val atl-color">{{formatFloat1 .TodayFitness.Fatigue}}</div>
+					<div class="load-ctf-lbl">fatigue</div>
+				</div>
+				<div class="load-ctf-item">
+					<div class="load-ctf-val {{tsbClass .TodayFitness.Form}}">{{formatFloat1 .TodayFitness.Form}}</div>
+					<div class="load-ctf-lbl">form</div>
+				</div>
+			</div>
+			<div class="goal-divider"></div>
+			{{end}}
+			<div class="stat-blocks">
+				<div class="stat-block">
+					<div class="stat-block-hdr">week</div>
+					<div class="stat-block-row"><span class="stat-td">{{formatFloat1 .WeekSummary.TSS}}</span><span
+							class="stat-lbl">tss</span></div>
+					<div class="stat-block-row"><span class="stat-td">{{formatDuration
+							.WeekSummary.DurationSecs}}</span><span class="stat-lbl">time</span></div>
+				</div>
+				<div class="stat-block">
+					<div class="stat-block-hdr">year</div>
+					<div class="stat-block-row"><span class="stat-td">{{formatFloat1 .YearSummary.TSS}}</span><span
+							class="stat-lbl">tss</span></div>
+					<div class="stat-block-row"><span class="stat-td">{{formatDuration
+							.YearSummary.DurationSecs}}</span><span class="stat-lbl">time</span></div>
+				</div>
+			</div>
+		</section>
 
-</aside>{{/* end .home-sidebar */}}
+	</aside>{{/* end .home-sidebar */}}
 
-<main class="home-main">
+	<main class="home-main">
 
-<!-- ── Fitness chart ─────────────────────────────────────────────────────── -->
-{{if .Fitness}}
-<section class="card">
-  <h2 class="card-title">fitness <span class="muted">fitness / fatigue / form — 90 days</span></h2>
-  <div id="fitness-chart"></div>
-  <div class="tsb-legend-row">
-    <div class="tsb-legend">
-      <div class="tsb-legend-item">
-        <span class="tsb-swatch tsb-swatch-fresh"></span>
-        <span class="tsb-legend-label">form &gt; +5</span>
-        <span class="tsb-legend-desc">Fresh — race ready</span>
-      </div>
-      <div class="tsb-legend-item">
-        <span class="tsb-swatch tsb-swatch-optimal"></span>
-        <span class="tsb-legend-label">−10 to +5</span>
-        <span class="tsb-legend-desc">Optimal form</span>
-      </div>
-      <div class="tsb-legend-item">
-        <span class="tsb-swatch tsb-swatch-productive"></span>
-        <span class="tsb-legend-label">−30 to −10</span>
-        <span class="tsb-legend-desc">Productive training</span>
-      </div>
-      <div class="tsb-legend-item">
-        <span class="tsb-swatch tsb-swatch-overreach"></span>
-        <span class="tsb-legend-label">−50 to −30</span>
-        <span class="tsb-legend-desc">Overreaching — recover</span>
-      </div>
-    </div>
-    <div id="fitness-recommendation"></div>
-  </div>
-</section>
-{{end}}
+		<!-- ── Fitness chart ─────────────────────────────────────────────────────── -->
+		{{if .Fitness}}
+		<section class="card">
+			<h2 class="card-title">fitness <span class="muted">fitness / fatigue / form — 90 days</span></h2>
+			<div id="fitness-chart"></div>
+			<div class="tsb-legend-row">
+				<div class="tsb-legend">
+					<div class="tsb-legend-item">
+						<span class="tsb-swatch tsb-swatch-fresh"></span>
+						<span class="tsb-legend-label">form &gt; +5</span>
+						<span class="tsb-legend-desc">Fresh — race ready</span>
+					</div>
+					<div class="tsb-legend-item">
+						<span class="tsb-swatch tsb-swatch-optimal"></span>
+						<span class="tsb-legend-label">−10 to +5</span>
+						<span class="tsb-legend-desc">Optimal form</span>
+					</div>
+					<div class="tsb-legend-item">
+						<span class="tsb-swatch tsb-swatch-productive"></span>
+						<span class="tsb-legend-label">−30 to −10</span>
+						<span class="tsb-legend-desc">Productive training</span>
+					</div>
+					<div class="tsb-legend-item">
+						<span class="tsb-swatch tsb-swatch-overreach"></span>
+						<span class="tsb-legend-label">−50 to −30</span>
+						<span class="tsb-legend-desc">Overreaching — recover</span>
+					</div>
+				</div>
+				<div id="fitness-recommendation"></div>
+			</div>
+		</section>
+		{{end}}
 
-<div id="mobile-card-inject"></div>
+		<div id="mobile-card-inject"></div>
 
-<section class="card" id="ai-coach-card">
-  <div class="card-header-row">
-    <h2 class="card-title">AI coach{{if .AIProviderLabel}} <span class="muted">powered by {{.AIProviderLabel}}</span>{{end}}</h2>
-    <div class="ai-coach-header-actions">
-      {{if .AIConfigured}}
-      <div class="ai-coach-actions">
-        <span id="ai-generated-at" class="muted" style="font-size:12px" hidden></span>
-        <button class="btn-secondary" id="ai-generate-btn" onclick="generateInsights()">generate insights</button>
-      </div>
-      {{end}}
-      <button type="button" class="ai-collapse-btn" id="ai-collapse-btn"
-              aria-controls="ai-body" aria-expanded="true" aria-label="Collapse AI coach" title="Hide AI coach">▾</button>
-    </div>
-  </div>
-  <div id="ai-body">
-  {{if .AIConfigured}}
-  <div id="ai-empty" class="muted" style="font-size:13px" hidden>No insights yet — click generate to analyze your training.</div>
-  <div id="ai-insights" class="ai-insights markdown-body" hidden></div>
-  <div id="ai-error" class="ai-error" hidden></div>
+		<section class="card" id="ai-coach-card">
+			<div class="card-header-row">
+				<h2 class="card-title">AI coach{{if .AIProviderLabel}} <span class="muted">powered by
+						{{.AIProviderLabel}}</span>{{end}}</h2>
+				<div class="ai-coach-header-actions">
+					{{if .AIConfigured}}
+					<div class="ai-coach-actions">
+						<span id="ai-generated-at" class="muted" style="font-size:12px" hidden></span>
+						<button class="btn-secondary" id="ai-generate-btn" onclick="generateInsights()">generate
+							insights</button>
+					</div>
+					{{end}}
+					<button type="button" class="ai-collapse-btn" id="ai-collapse-btn" aria-controls="ai-body"
+						aria-expanded="true" aria-label="Collapse AI coach" title="Hide AI coach">▾</button>
+				</div>
+			</div>
+			<div id="ai-body">
+				{{if .AIConfigured}}
+				<div id="ai-empty" class="muted" style="font-size:13px" hidden>No insights yet — click generate to
+					analyze your training.</div>
+				<div id="ai-insights" class="ai-insights markdown-body" hidden></div>
+				<div id="ai-error" class="ai-error" hidden></div>
 
-  {{if .AIChatCapable}}
-  <div class="coach-chat">
-    <div class="coach-chat-header">
-      <span class="coach-chat-title">Ask the coach</span>
-      <button type="button" class="coach-chat-clear" id="chat-clear" hidden>clear</button>
-    </div>
-    <div id="chat-log" class="coach-chat-log" hidden></div>
-    <p id="chat-hint" class="muted coach-chat-hint">
-      Ask anything about your training — the coach pulls your real data to answer.
-      Try “how did my last block go?” or “am I fresh enough to race Saturday?”
-    </p>
-    <form id="chat-form" class="coach-chat-form" autocomplete="off">
-      <textarea id="chat-input" class="coach-chat-input" rows="1"
-                placeholder="Ask about your training…" required></textarea>
-      <button type="submit" class="btn-secondary" id="chat-send">send</button>
-    </form>
-  </div>
-  {{else}}
-  <p class="muted coach-chat-hint">
-    Chat with the coach needs {{.AIChatLabels}} — switch the provider in <a href="/settings">settings</a>.
-    Generate insights still works with your current provider.
-  </p>
-  {{end}}
-  {{else}}
-  <p class="muted" style="font-size:13px">Configure an AI provider in <a href="/settings">settings</a> to get personalized coaching insights.</p>
-  {{end}}
-  </div>
-</section>
+				{{if .AIChatCapable}}
+				<div class="coach-chat">
+					<div class="coach-chat-header">
+						<span class="coach-chat-title">Ask the coach</span>
+						<button type="button" class="coach-chat-clear" id="chat-clear" hidden>clear</button>
+					</div>
+					<div id="chat-log" class="coach-chat-log" hidden></div>
+					<p id="chat-hint" class="muted coach-chat-hint">
+						Ask anything about your training — the coach pulls your real data to answer.
+						Try “how did my last block go?” or “am I fresh enough to race Saturday?”
+					</p>
+					<form id="chat-form" class="coach-chat-form" autocomplete="off">
+						<textarea id="chat-input" class="coach-chat-input" rows="1"
+							placeholder="Ask about your training…" required></textarea>
+						<button type="submit" class="btn-secondary" id="chat-send">send</button>
+					</form>
+				</div>
+				{{else}}
+				<p class="muted coach-chat-hint">
+					Chat with the coach needs {{.AIChatLabels}} — switch the provider in <a
+						href="/settings">settings</a>.
+					Generate insights still works with your current provider.
+				</p>
+				{{end}}
+				{{else}}
+				<p class="muted" style="font-size:13px">Configure an AI provider in <a href="/settings">settings</a> to
+					get personalized coaching insights.</p>
+				{{end}}
+			</div>
+		</section>
 
-<section class="card">
-  <div class="card-header-row">
-    <h2 class="card-title">
-      recent activities
-      {{if .ShowPagination}}
-      <span class="muted" style="font-size:12px;font-weight:400">page {{.Page}} of {{.TotalPages}}</span>
-      {{end}}
-    </h2>
-    <div class="filter-tabs">
-      <a href="{{filterURL .Sort .Dir ""}}" class="filter-tab{{if eq .TypeFilter ""}} active{{end}}">all</a>
-      <a href="{{filterURL .Sort .Dir "outdoor"}}" class="filter-tab{{if eq .TypeFilter "outdoor"}} active{{end}}">outdoor</a>
-      <a href="{{filterURL .Sort .Dir "indoor"}}" class="filter-tab{{if eq .TypeFilter "indoor"}} active{{end}}">indoor</a>
-    </div>
-    <div class="view-toggle">
-      <button class="view-btn" id="view-list-btn" title="List view">☰</button>
-      <button class="view-btn" id="view-map-btn" title="Map view">◎</button>
-    </div>
-  </div>
-  {{if .Workouts}}
-  <div id="activities-list">
-  <table class="workout-table">
-    <thead>
-      <tr>
-        <th><a href="{{sortURL .Sort .Dir "date" .TypeFilter}}" class="sort-link">date {{sortArrow .Sort .Dir "date"}}</a></th>
-        <th><a href="{{sortURL .Sort .Dir "sport" .TypeFilter}}" class="sort-link">sport {{sortArrow .Sort .Dir "sport"}}</a></th>
-        <th><a href="{{sortURL .Sort .Dir "duration" .TypeFilter}}" class="sort-link">duration {{sortArrow .Sort .Dir "duration"}}</a></th>
-        <th><a href="{{sortURL .Sort .Dir "distance" .TypeFilter}}" class="sort-link">distance {{sortArrow .Sort .Dir "distance"}}</a></th>
-        <th><a href="{{sortURL .Sort .Dir "power" .TypeFilter}}" class="sort-link">power / pace {{sortArrow .Sort .Dir "power"}}</a></th>
-        <th><a href="{{sortURL .Sort .Dir "np" .TypeFilter}}" class="sort-link">NP {{sortArrow .Sort .Dir "np"}}</a></th>
-        <th><a href="{{sortURL .Sort .Dir "tss" .TypeFilter}}" class="sort-link">TSS {{sortArrow .Sort .Dir "tss"}}</a></th>
-        <th><a href="{{sortURL .Sort .Dir "hr" .TypeFilter}}" class="sort-link">avg hr {{sortArrow .Sort .Dir "hr"}}</a></th>
-        <th><a href="{{sortURL .Sort .Dir "elev" .TypeFilter}}" class="sort-link">elev {{sortArrow .Sort .Dir "elev"}}</a></th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {{$imperial := .Imperial}}
-      {{range .Workouts}}
-      <tr class="workout-row" onclick="location.href='/workouts/{{.ID}}'">
-        <td class="date">{{.RecordedAt.Format "Jan 02 2006"}}</td>
-        <td><span class="sport-badge sport-{{.Sport}}">{{.Sport}}</span></td>
-        <td>{{formatDuration .DurationSecs}}</td>
-        <td>{{formatDistance .DistanceMeters $imperial}}</td>
-        <td>{{if .AvgPowerWatts}}{{formatOptFloat .AvgPowerWatts "W"}}{{else}}{{formatPace .AvgSpeedMPS $imperial}}{{end}}</td>
-        <td>{{formatOptFloat .NormalizedPower "W"}}</td>
-        <td class="tss">{{formatOptFloat .TSS ""}}</td>
-        <td>{{formatOptInt .AvgHeartRate "bpm"}}</td>
-        <td>{{formatElevation .ElevationGainMeters $imperial}}</td>
-        <td class="row-actions">
-          <button class="delete-btn" onclick="deleteWorkout(event,'{{.ID}}')" title="delete">✕</button>
-        </td>
-      </tr>
-      {{end}}
-    </tbody>
-  </table>
-  </div>{{/* end #activities-list */}}
-  <div id="activities-map" class="activities-map" hidden></div>
-  {{if .ShowPagination}}
-  <div class="pagination">
-    {{if .HasPrev}}
-      <a href="{{paginationURL .PrevPage .Sort .Dir .TypeFilter}}" class="page-btn">← prev</a>
-    {{else}}
-      <span class="page-btn disabled">← prev</span>
-    {{end}}
-    <span class="page-info">{{.Page}} / {{.TotalPages}}</span>
-    {{if .HasNext}}
-      <a href="{{paginationURL .NextPage .Sort .Dir .TypeFilter}}" class="page-btn">next →</a>
-    {{else}}
-      <span class="page-btn disabled">next →</span>
-    {{end}}
-  </div>
-  {{end}}
-  {{else}}
-  <div class="empty-state">
-    <p>no workouts yet.</p>
-    <p class="muted">drop a <code>.fit</code> or <code>.fit.gz</code> file into your watch directory, or use the upload button.</p>
-  </div>
-  {{end}}
-</section>
+		<section class="card">
+			<div class="card-header-row">
+				<h2 class="card-title">
+					recent activities
+					{{if .ShowPagination}}
+					<span class="muted" style="font-size:12px;font-weight:400">page {{.Page}} of {{.TotalPages}}</span>
+					{{end}}
+				</h2>
+				<div class="filter-tabs">
+					<a href="{{filterURL .Sort .Dir ""}}"
+						class="filter-tab{{if eq .TypeFilter ""}} active{{end}}">all</a>
+					<a href="{{filterURL .Sort .Dir " outdoor"}}" class="filter-tab{{if eq .TypeFilter " outdoor"}}
+						active{{end}}">outdoor</a>
+					<a href="{{filterURL .Sort .Dir " indoor"}}" class="filter-tab{{if eq .TypeFilter " indoor"}}
+						active{{end}}">indoor</a>
+				</div>
+				<div class="view-toggle">
+					<button class="view-btn" id="view-list-btn" title="List view">☰</button>
+					<button class="view-btn" id="view-map-btn" title="Map view">◎</button>
+				</div>
+			</div>
+			{{if .Workouts}}
+			<div id="activities-list">
+				<table class="workout-table">
+					<thead>
+						<tr>
+							<th><a href="{{sortURL .Sort .Dir " date" .TypeFilter}}" class="sort-link">date {{sortArrow
+									.Sort .Dir "date"}}</a></th>
+							<th><a href="{{sortURL .Sort .Dir " sport" .TypeFilter}}" class="sort-link">sport
+									{{sortArrow .Sort .Dir "sport"}}</a></th>
+							<th><a href="{{sortURL .Sort .Dir " duration" .TypeFilter}}" class="sort-link">duration
+									{{sortArrow .Sort .Dir "duration"}}</a></th>
+							<th><a href="{{sortURL .Sort .Dir " distance" .TypeFilter}}" class="sort-link">distance
+									{{sortArrow .Sort .Dir "distance"}}</a></th>
+							<th><a href="{{sortURL .Sort .Dir " power" .TypeFilter}}" class="sort-link">power / pace
+									{{sortArrow .Sort .Dir "power"}}</a></th>
+							<th><a href="{{sortURL .Sort .Dir " np" .TypeFilter}}" class="sort-link">NP {{sortArrow
+									.Sort .Dir "np"}}</a></th>
+							<th><a href="{{sortURL .Sort .Dir " tss" .TypeFilter}}" class="sort-link">TSS {{sortArrow
+									.Sort .Dir "tss"}}</a></th>
+							<th><a href="{{sortURL .Sort .Dir " hr" .TypeFilter}}" class="sort-link">avg hr {{sortArrow
+									.Sort .Dir "hr"}}</a></th>
+							<th><a href="{{sortURL .Sort .Dir " elev" .TypeFilter}}" class="sort-link">elev {{sortArrow
+									.Sort .Dir "elev"}}</a></th>
+							<th></th>
+						</tr>
+					</thead>
+					<tbody>
+						{{$imperial := .Imperial}}
+						{{range .Workouts}}
+						<tr class="workout-row" onclick="location.href='/workouts/{{.ID}}'">
+							<td class="date">{{.RecordedAt.Format "Jan 02 2006"}}</td>
+							<td><span class="sport-badge sport-{{.Sport}}">{{.Sport}}</span></td>
+							<td>{{formatDuration .DurationSecs}}</td>
+							<td>{{formatDistance .DistanceMeters $imperial}}</td>
+							<td>{{if .AvgPowerWatts}}{{formatOptFloat .AvgPowerWatts "W"}}{{else}}{{formatPace
+								.AvgSpeedMPS $imperial}}{{end}}</td>
+							<td>{{formatOptFloat .NormalizedPower "W"}}</td>
+							<td class="tss">{{formatOptFloat .TSS ""}}</td>
+							<td>{{formatOptInt .AvgHeartRate "bpm"}}</td>
+							<td>{{formatElevation .ElevationGainMeters $imperial}}</td>
+							<td class="row-actions">
+								<button class="delete-btn" onclick="deleteWorkout(event,'{{.ID}}')"
+									title="delete">✕</button>
+							</td>
+						</tr>
+						{{end}}
+					</tbody>
+				</table>
+			</div>{{/* end #activities-list */}}
+			<div id="activities-map" class="activities-map" hidden></div>
+			{{if .ShowPagination}}
+			<div class="pagination">
+				{{if .HasPrev}}
+				<a href="{{paginationURL .PrevPage .Sort .Dir .TypeFilter}}" class="page-btn">← prev</a>
+				{{else}}
+				<span class="page-btn disabled">← prev</span>
+				{{end}}
+				<span class="page-info">{{.Page}} / {{.TotalPages}}</span>
+				{{if .HasNext}}
+				<a href="{{paginationURL .NextPage .Sort .Dir .TypeFilter}}" class="page-btn">next →</a>
+				{{else}}
+				<span class="page-btn disabled">next →</span>
+				{{end}}
+			</div>
+			{{end}}
+			{{else}}
+			<div class="empty-state">
+				<p>no workouts yet.</p>
+				<p class="muted">drop a <code>.fit</code> or <code>.fit.gz</code> file into your watch directory, or use
+					the upload button.</p>
+			</div>
+			{{end}}
+		</section>
 
-</main>{{/* end .home-main */}}
+	</main>{{/* end .home-main */}}
 
 </div>{{/* end .home-layout */}}
 {{end}}
@@ -352,669 +397,774 @@
 <script src="/static/js/marked.min.js"></script>
 <script src="/static/js/purify.min.js"></script>
 <script>
-  // renderSafeMarkdown converts untrusted LLM output (markdown) to HTML and
-  // sanitizes it: marked builds the HTML, DOMPurify strips any embedded
-  // <script>, event-handler attributes, and javascript: URIs so a crafted coach
-  // reply — or attacker-influenced workout text echoed back by the model —
-  // cannot execute in the page. Falls back to escaped plain text if either
-  // library fails to load, so output is never rendered unsanitized.
-  function renderSafeMarkdown(md) {
-    if (window.marked && window.DOMPurify) {
-      return window.DOMPurify.sanitize(window.marked.parse(md));
-    }
-    return escapeHTML(md);
-  }
-  // ── Upload dropdown ─────────────────────────────────────────────────────────
-  (function() {
-    const more     = document.getElementById('upload-more');
-    const dropdown = document.getElementById('upload-dropdown');
-    let hideTimer  = null;
-
-    function show() { dropdown.classList.add('open'); }
-    function hide() { dropdown.classList.remove('open'); }
-    function scheduleHide() { hideTimer = setTimeout(hide, 150); }
-    function cancelHide()   { clearTimeout(hideTimer); }
-
-    // Desktop: hover over the chevron or open dropdown keeps it visible.
-    more.addEventListener('mouseenter', () => { cancelHide(); show(); });
-    more.addEventListener('mouseleave', scheduleHide);
-    dropdown.addEventListener('mouseenter', cancelHide);
-    dropdown.addEventListener('mouseleave', scheduleHide);
-
-    // Mobile / click: toggle on tap.
-    more.addEventListener('click', (e) => {
-      e.stopPropagation();
-      dropdown.classList.toggle('open');
-    });
-
-    // Close when tapping anywhere else.
-    document.addEventListener('click', (e) => {
-      if (!e.target.closest('#upload-group')) hide();
-    });
-  })();
-
-  // ── Single upload ───────────────────────────────────────────────────────────
-  document.getElementById('upload-input').addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const fd = new FormData();
-    fd.append('file', file);
-    const res = await fetch('/api/upload', { method: 'POST', body: fd });
-    const json = await res.json();
-    if (res.ok) { window.location.reload(); }
-    else { alert('Upload failed: ' + (json.error || 'unknown error')); }
-  });
-
-  // ── Bulk upload with progress overlay ──────────────────────────────────────
-  document.getElementById('upload-bulk-input').addEventListener('change', async (e) => {
-    const files = Array.from(e.target.files);
-    if (!files.length) return;
-
-    const overlay  = document.getElementById('bulk-overlay');
-    const fname    = document.getElementById('bulk-filename');
-    const bar      = document.getElementById('bulk-progress-bar');
-    const counter  = document.getElementById('bulk-counter');
-    const results  = document.getElementById('bulk-results');
-    const doneBtn  = document.getElementById('bulk-done');
-
-    overlay.hidden = false;
-    doneBtn.hidden = true;
-    results.textContent = '';
-
-    let ok = 0, fail = 0, dupes = 0;
-    for (let i = 0; i < files.length; i++) {
-      fname.textContent = files[i].name;
-      counter.textContent = (i + 1) + ' / ' + files.length;
-      bar.style.width = ((i + 1) / files.length * 100) + '%';
-
-      const fd = new FormData();
-      fd.append('file', files[i]);
-      try {
-        const res = await fetch('/api/upload', { method: 'POST', body: fd });
-        if (res.ok) {
-          const json = await res.json();
-          json.status === 'already_exists' ? dupes++ : ok++;
-        } else { fail++; }
-      } catch { fail++; }
-    }
-
-    bar.style.width = '100%';
-    fname.textContent = '';
-    counter.textContent = files.length + ' / ' + files.length;
-
-    const parts = [];
-    if (ok > 0)    parts.push(ok + ' imported');
-    if (dupes > 0) parts.push(dupes + ' already existed');
-    if (fail > 0)  parts.push(fail + ' failed');
-    results.textContent = parts.join(' · ');
-
-    doneBtn.hidden = false;
-    doneBtn.onclick = () => window.location.reload();
-  });
-
-  // ── Delete workout ──────────────────────────────────────────────────────────
-  async function deleteWorkout(e, id) {
-    e.stopPropagation();
-    if (!confirm('Delete this workout? This cannot be undone.')) return;
-    const res = await fetch('/api/workouts/' + id, { method: 'DELETE' });
-    if (res.ok || res.status === 204) {
-      e.target.closest('tr').remove();
-    } else {
-      alert('Delete failed.');
-    }
-  }
-
-  // ── Mileage goals card ──────────────────────────────────────────────────────
-  (function() {
-    const tabs       = document.querySelectorAll('.goal-sport-tab');
-    const panels     = document.querySelectorAll('.goal-sport-panel');
-    const editForms  = document.querySelectorAll('.goal-edit-form');
-    const manageBtns = document.querySelectorAll('.goal-manage-btn');
-
-    let activeSport = document.querySelector('.goal-sport-tab.active')?.dataset.sport || 'cycling';
-    let editing = false;
-
-    function showSport(sport) {
-      activeSport = sport;
-      tabs.forEach(t => t.classList.toggle('active', t.dataset.sport === sport));
-      panels.forEach(p => p.classList.toggle('active', p.dataset.sport === sport));
-    }
-
-    function enterEdit(sport) {
-      editing = true;
-      activeSport = sport;
-      panels.forEach(p => { p.classList.remove('active'); });
-      editForms.forEach(f => { f.hidden = f.dataset.sport !== sport; });
-    }
-
-    function exitEdit() {
-      editing = false;
-      editForms.forEach(f => { f.hidden = true; });
-      panels.forEach(p => { p.classList.toggle('active', p.dataset.sport === activeSport); });
-    }
-
-    tabs.forEach(t => t.addEventListener('click', () => {
-      if (!editing) showSport(t.dataset.sport);
-    }));
-    manageBtns.forEach(b => b.addEventListener('click', () => enterEdit(b.dataset.sport)));
-    document.querySelectorAll('.goal-cancel-btn').forEach(b => b.addEventListener('click', exitEdit));
-  })();
-
-  // ── Fitness chart ───────────────────────────────────────────────────────────
-  const fitnessData = {{.Fitness | toJSON}};
-  if (fitnessData && fitnessData.length > 0) {
-    renderFitnessChart('fitness-chart', fitnessData);
-  }
-
-  // ── Activities view toggle (list ↔ map) ─────────────────────────────────────
-  (function () {
-    const listEl = document.getElementById('activities-list');
-    const mapEl  = document.getElementById('activities-map');
-    const listBtn = document.getElementById('view-list-btn');
-    const mapBtn  = document.getElementById('view-map-btn');
-    if (!listEl || !mapEl) return;
-
-    const workoutIds   = [{{range .Workouts}}'{{.ID}}',{{end}}];
-    const workoutsData = {{.Workouts | toJSON}};
-    let mapReady = false;
-
-    function setView(v) {
-      const isMap = v === 'map';
-      listEl.hidden = isMap;
-      mapEl.hidden  = !isMap;
-      listBtn.classList.toggle('active', !isMap);
-      mapBtn.classList.toggle('active', isMap);
-      localStorage.setItem('activities-view', v);
-      if (isMap && !mapReady) {
-        mapReady = true;
-        if (!workoutIds.length) return;
-        fetch('/api/workouts/routes?ids=' + workoutIds.join(','))
-          .then(r => r.json())
-          .then(j => renderActivityCards('activities-map', j.data || [], workoutsData));
-      }
-    }
-
-    listBtn.addEventListener('click', () => setView('list'));
-    mapBtn.addEventListener('click',  () => setView('map'));
-
-    // Restore saved preference; default to list.
-    setView(localStorage.getItem('activities-view') === 'map' ? 'map' : 'list');
-  })();
-
-  // ── AI coach collapse (persisted) ───────────────────────────────────────────
-  // Outside the AIConfigured guards on purpose: anyone can hide the card,
-  // configured or not. The preference sticks across reloads.
-  (function () {
-    const card = document.getElementById('ai-coach-card');
-    const btn  = document.getElementById('ai-collapse-btn');
-    if (!card || !btn) return;
-    const KEY = 'ai-coach-collapsed';
-
-    function apply(collapsed) {
-      card.classList.toggle('ai-collapsed', collapsed);
-      btn.setAttribute('aria-expanded', String(!collapsed));
-      btn.title = collapsed ? 'Show AI coach' : 'Hide AI coach';
-    }
-
-    btn.addEventListener('click', () => {
-      const collapsed = !card.classList.contains('ai-collapsed');
-      apply(collapsed);
-      try { localStorage.setItem(KEY, collapsed ? '1' : '0'); } catch (_) {}
-    });
-
-    apply(localStorage.getItem(KEY) === '1');
-  })();
-
-  // ── Mobile layout: pull training load + goals under fitness chart ───────────
-  (function () {
-    const inject      = document.getElementById('mobile-card-inject');
-    const trainingLoad = document.getElementById('card-training-load');
-    const goalCard    = document.querySelector('.goal-card');
-    const sidebar     = document.querySelector('.home-sidebar');
-    if (!inject || !trainingLoad || !goalCard) return;
-
-    let mobileState = null;
-
-    function applyLayout() {
-      const mobile = window.innerWidth <= 640;
-      if (mobile === mobileState) return;
-      mobileState = mobile;
-      if (mobile) {
-        inject.appendChild(trainingLoad);
-        inject.appendChild(goalCard);
-      } else {
-        sidebar.appendChild(goalCard);
-        sidebar.appendChild(trainingLoad);
-      }
-    }
-
-    applyLayout();
-    window.addEventListener('resize', applyLayout);
-  })();
-
-  // ── AI coach ────────────────────────────────────────────────────────────────
-  // GET returns cached markdown; POST streams fresh markdown via SSE.
-  {{if .AIConfigured}}
-  (function () {
-    const btn   = document.getElementById('ai-generate-btn');
-    const body  = document.getElementById('ai-insights');
-    const empty = document.getElementById('ai-empty');
-    const errEl = document.getElementById('ai-error');
-    const tsEl  = document.getElementById('ai-generated-at');
-
-    // marked.parse handles incomplete markdown gracefully (unclosed **, partial
-    // headings, etc.), so we can re-render on every chunk and get live preview.
-    function renderMarkdown(md) {
-      body.innerHTML = renderSafeMarkdown(md);
-    }
-
-    function showCached(data) {
-      renderMarkdown(data.content || '');
-      body.hidden  = false;
-      empty.hidden = true;
-      if (data.generated_at) {
-        tsEl.textContent = 'generated ' + relativeTime(data.generated_at);
-        tsEl.hidden = false;
-      }
-      btn.textContent = 'regenerate';
-    }
-
-    function showError(msg) {
-      errEl.textContent = 'Error: ' + msg;
-      errEl.hidden      = false;
-    }
-
-    async function loadCached() {
-      try {
-        const res = await fetch('/api/coach/insights');
-        if (res.status === 204) {
-          empty.hidden = false;
-          return;
-        }
-        if (!res.ok) throw new Error('load failed');
-        const env = await res.json();
-        // writeJSON wraps the payload in { data: ... }
-        showCached(env.data || env);
-      } catch (e) {
-        empty.hidden = false;
-      }
-    }
-
-    window.generateInsights = async function () {
-      btn.disabled    = true;
-      btn.textContent = 'generating…';
-      errEl.hidden    = true;
-      empty.hidden    = true;
-      body.hidden     = false;
-      tsEl.hidden     = true;
-
-      let md = '';
-      const streamer = markdownStreamer(body);
-      renderMarkdown('_analyzing your training…_');
-
-      try {
-        const res = await fetch('/api/coach/insights', {
-          method:  'POST',
-          headers: { 'Accept': 'text/event-stream' },
-        });
-        if (!res.ok || !res.body) {
-          const j = await res.json().catch(() => ({}));
-          throw new Error(j.error || 'request failed');
-        }
-
-        const reader  = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buf = '';
-        let streamErr = null;
-        let doneMeta  = null;
-
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buf += decoder.decode(value, { stream: true });
-          buf = parseSSE(buf, (event, data) => {
-            if (event === 'chunk' && data.text) {
-              md += data.text; // the first paint replaces the placeholder
-              streamer.update(md);
-            } else if (event === 'done') {
-              doneMeta = data;
-            } else if (event === 'error') {
-              streamErr = data.error || 'stream error';
-            }
-          });
-        }
-        if (streamErr) throw new Error(streamErr);
-
-        if (doneMeta && doneMeta.generated_at) {
-          tsEl.textContent = 'generated ' + relativeTime(doneMeta.generated_at);
-          tsEl.hidden = false;
-        }
-        btn.textContent = 'regenerate';
-      } catch (e) {
-        if (!md) { streamer.stop(); body.hidden = true; }
-        showError(e.message);
-        btn.textContent = 'generate insights';
-      } finally {
-        btn.disabled = false;
-      }
-    };
-
-    loadCached();
-  })();
-  {{end}}
-
-  // ── Ask the coach (tool-augmented chat) ─────────────────────────────────────
-  // Stateless server: the browser holds the whole conversation and posts it
-  // every turn. The model pulls data via tools; we show that as it happens,
-  // then stream the answer in.
-  {{if .AIChatCapable}}
-  (function () {
-    const form   = document.getElementById('chat-form');
-    const input  = document.getElementById('chat-input');
-    const send   = document.getElementById('chat-send');
-    const log    = document.getElementById('chat-log');
-    const hint   = document.getElementById('chat-hint');
-    const clear  = document.getElementById('chat-clear');
-
-    // Conversation history sent verbatim each turn (user/assistant text only).
-    let history = [];
-    let busy    = false;
-
-    // The server sends each tool's user-facing label with the SSE event (the
-    // Go tool catalog owns them); fall back to a humanized name.
-    const toolLabel = (d) => d.label || (d.name || '').replace(/_/g, ' ');
-
-    // Add a message row. For the assistant we return the inner element so the
-    // streaming loop can keep re-rendering it as markdown arrives.
-    function addRow(role) {
-      const row = document.createElement('div');
-      row.className = 'chat-msg chat-' + role;
-      const bubble = document.createElement('div');
-      bubble.className = 'chat-bubble' + (role === 'coach' ? ' markdown-body' : '');
-      row.appendChild(bubble);
-      log.appendChild(row);
-      log.scrollTop = log.scrollHeight;
-      return bubble;
-    }
-
-    // running maps tool name → display label while a tool executes.
-    function setStatus(el, running) {
-      const labels = Object.values(running);
-      if (labels.length === 0) { el.textContent = 'thinking…'; return; }
-      el.textContent = 'looking up ' + labels.join(', ') + '…';
-    }
-
-    // Render a preview card for a coach-proposed draft schedule. The card
-    // lets the rider accept the whole batch onto their calendar, or discard.
-    async function renderPreviewCard(id) {
-      const row = document.createElement('div');
-      row.className = 'chat-msg chat-coach';
-      const card = document.createElement('div');
-      card.className = 'coach-preview-card';
-      card.textContent = 'Loading proposed schedule…';
-      row.appendChild(card);
-      log.appendChild(row);
-      log.scrollTop = log.scrollHeight;
-
-      let items;
-      try {
-        const res = await fetch('/api/planned-workouts/drafts/' + encodeURIComponent(id));
-        if (!res.ok) throw new Error('failed to load preview');
-        const env = await res.json();
-        items = env.data || env;
-      } catch (_) {
-        card.innerHTML = '<span class="chat-err">Could not load proposed schedule.</span>';
-        return;
-      }
-
-      card.innerHTML = '';
-      const title = document.createElement('div');
-      title.className = 'coach-preview-title';
-      title.textContent = 'Proposed schedule (' + items.length + ' workout' + (items.length === 1 ? '' : 's') + ')';
-      card.appendChild(title);
-
-      const list = document.createElement('div');
-      list.className = 'coach-preview-list';
-      items.forEach((p) => {
-        const item = document.createElement('div');
-        item.className = 'coach-preview-item';
-        const date = (p.planned_date || '').slice(0, 10);
-        const dur  = Math.round((p.duration_secs || 0) / 60);
-        const tss  = p.tss ? ' · ' + Math.round(p.tss) + ' TSS' : '';
-        const ivl  = (p.intervals && p.intervals.length) ? ' · ' + p.intervals.length + ' steps' : '';
-        item.innerHTML =
-          '<div class="coach-preview-date">' + escapeHTML(date) + ' · ' + escapeHTML(p.sport || 'cycling') + '</div>' +
-          '<div class="coach-preview-main">' +
-            '<span class="coach-preview-title-line">' + escapeHTML(p.title || '(untitled)') + '</span>' +
-            '<span class="coach-preview-meta">' + dur + ' min' + tss + ivl + '</span>' +
-          '</div>' +
-          (p.description ? '<div class="coach-preview-desc">' + escapeHTML(p.description) + '</div>' : '');
-        list.appendChild(item);
-      });
-      card.appendChild(list);
-
-      const actions = document.createElement('div');
-      actions.className = 'coach-preview-actions';
-      const addBtn = document.createElement('button');
-      addBtn.type = 'button';
-      addBtn.className = 'btn-primary';
-      addBtn.textContent = 'add to calendar';
-      const discardBtn = document.createElement('button');
-      discardBtn.type = 'button';
-      discardBtn.className = 'btn-secondary';
-      discardBtn.textContent = 'discard';
-      actions.appendChild(addBtn);
-      actions.appendChild(discardBtn);
-      card.appendChild(actions);
-      log.scrollTop = log.scrollHeight;
-
-      addBtn.addEventListener('click', async () => {
-        addBtn.disabled = discardBtn.disabled = true;
-        try {
-          const res = await fetch('/api/planned-workouts/drafts/' + encodeURIComponent(id) + '/commit', {
-            method:  'POST',
-            headers: { 'Accept': 'application/json' },
-          });
-          if (!res.ok) {
-            // Surface the server's actual reason so the user (and any future
-            // dev poking at this) can see the failure mode, not a generic
-            // "didn't work" message.
-            let detail = '';
-            try {
-              const j = await res.json();
-              detail = j.error || JSON.stringify(j);
-            } catch (_) {
-              detail = await res.text().catch(() => '');
-            }
-            throw new Error('HTTP ' + res.status + (detail ? ': ' + detail : ''));
-          }
-          card.innerHTML = '<div class="coach-preview-done">Added to <a href="/calendar">calendar</a>.</div>';
-        } catch (err) {
-          const errEl = document.createElement('div');
-          errEl.className = 'chat-err';
-          errEl.textContent = 'Could not add to calendar — ' + (err && err.message ? err.message : err);
-          card.appendChild(errEl);
-          addBtn.disabled = discardBtn.disabled = false;
-        }
-      });
-      discardBtn.addEventListener('click', async () => {
-        addBtn.disabled = discardBtn.disabled = true;
-        try { await fetch('/api/planned-workouts/drafts/' + encodeURIComponent(id), { method: 'DELETE' }); } catch (_) {}
-        card.innerHTML = '<div class="coach-preview-discarded">Discarded.</div>';
-      });
-    }
-
-    async function ask(text) {
-      busy = true;
-      send.disabled = input.disabled = true;
-      hint.hidden = true;
-      log.hidden = false;
-      clear.hidden = false;
-
-      history.push({ role: 'user', content: text });
-      addRow('user').textContent = text;
-
-      const coachEl  = addRow('coach');
-      const statusEl = document.createElement('div');
-      statusEl.className = 'chat-status';
-      coachEl.appendChild(statusEl);
-
-      const running = {};
-      setStatus(statusEl, running);
-
-      let md = '', streamErr = null;
-      const streamer = markdownStreamer(coachEl, () => { log.scrollTop = log.scrollHeight; });
-      try {
-        const res = await fetch('/api/coach/chat', {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
-          body:    JSON.stringify({ messages: history }),
-        });
-        if (!res.ok || !res.body) {
-          const j = await res.json().catch(() => ({}));
-          throw new Error(j.error || 'request failed');
-        }
-
-        const reader  = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buf = '';
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buf += decoder.decode(value, { stream: true });
-          buf = parseSSE(buf, (event, data) => {
-            if (event === 'tool') {
-              if (data.status === 'running') running[data.name] = toolLabel(data);
-              else delete running[data.name];
-              if (md === '') setStatus(statusEl, running);
-            } else if (event === 'chunk' && data.text) {
-              if (md === '') statusEl.remove();
-              md += data.text;
-              streamer.update(md);
-            } else if (event === 'preview' && data.id) {
-              // Coach proposed a schedule — fetch the draft and render a
-              // preview card the rider can accept or discard.
-              renderPreviewCard(data.id);
-            } else if (event === 'error') {
-              streamErr = data.error || 'stream error';
-            }
-          });
-        }
-        if (streamErr) throw new Error(streamErr);
-
-        const answer = md.trim();
-        if (answer) {
-          history.push({ role: 'assistant', content: answer });
-        } else {
-          streamer.stop(); // abandon any pending paint before replacing content
-          coachEl.innerHTML = '<span class="chat-err">No answer returned.</span>';
-        }
-      } catch (e) {
-        streamer.stop(); // abandon any pending paint before replacing content
-        statusEl.remove();
-        coachEl.innerHTML = '<span class="chat-err">Error: ' + escapeHTML(e.message) + '</span>';
-        // Drop the failed user turn so a retry doesn't double it up.
-        if (history.length && history[history.length - 1].role === 'user') history.pop();
-      } finally {
-        busy = false;
-        send.disabled = input.disabled = false;
-        input.focus();
-        log.scrollTop = log.scrollHeight;
-      }
-    }
-
-    function autoGrow() {
-      input.style.height = 'auto';
-      input.style.height = Math.min(input.scrollHeight, 140) + 'px';
-    }
-
-    form.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const text = input.value.trim();
-      if (!text || busy) return;
-      input.value = '';
-      autoGrow();
-      ask(text);
-    });
-
-    input.addEventListener('input', autoGrow);
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        form.requestSubmit();
-      }
-    });
-
-    clear.addEventListener('click', () => {
-      if (busy) return;
-      history = [];
-      log.innerHTML = '';
-      log.hidden = true;
-      clear.hidden = true;
-      hint.hidden = false;
-      input.focus();
-    });
-  })();
-  {{end}}
-
-  // Parse a chunk of SSE text. Events in the buffer are separated by blank
-  // lines; return the unconsumed tail for the next read. Shared by the
-  // insights and chat streams.
-  function parseSSE(buf, onEvent) {
-    const events = buf.split(/\n\n/);
-    const tail   = events.pop();
-    for (const raw of events) {
-      let event = 'message', data = '';
-      for (const line of raw.split('\n')) {
-        if (line.startsWith('event:')) event = line.slice(6).trim();
-        else if (line.startsWith('data:')) data += line.slice(5).trim();
-      }
-      if (data) {
-        try { onEvent(event, JSON.parse(data)); } catch (_) {}
-      }
-    }
-    return tail;
-  }
-
-  // markdownStreamer coalesces streamed-markdown re-renders into el: chunks
-  // arrive far faster than the display paints, and re-parsing the whole
-  // accumulated markdown per chunk is O(n²). update() renders the latest text
-  // at most once per animation frame; stop() abandons any pending paint (for
-  // error paths that replace el's content). onPaint, if given, runs after each
-  // paint (e.g. to keep a log scrolled to the bottom).
-  function markdownStreamer(el, onPaint) {
-    let latest = '', scheduled = false, stopped = false;
-    return {
-      update(md) {
-        latest = md;
-        if (scheduled || stopped) return;
-        scheduled = true;
-        requestAnimationFrame(() => {
-          scheduled = false;
-          if (stopped) return;
-          el.innerHTML = renderSafeMarkdown(latest);
-          if (onPaint) onPaint();
-        });
-      },
-      stop() { stopped = true; },
-    };
-  }
-
-  function escapeHTML(s) {
-    const d = document.createElement('div');
-    d.textContent = s;
-    return d.innerHTML;
-  }
-
-  function relativeTime(iso) {
-    const then = new Date(iso);
-    const mins = Math.round((Date.now() - then.getTime()) / 60000);
-    if (mins < 1)    return 'just now';
-    if (mins < 60)   return mins + 'm ago';
-    const hrs = Math.round(mins / 60);
-    if (hrs < 24)    return hrs + 'h ago';
-    const days = Math.round(hrs / 24);
-    return days + 'd ago';
-  }
+	// renderSafeMarkdown converts untrusted LLM output (markdown) to HTML and
+	// sanitizes it: marked builds the HTML, DOMPurify strips any embedded
+	// <script>, event-handler attributes, and javascript: URIs so a crafted coach
+	// reply — or attacker-influenced workout text echoed back by the model —
+	// cannot execute in the page. Falls back to escaped plain text if either
+	// library fails to load, so output is never rendered unsanitized.
+	function renderSafeMarkdown(md) {
+		if (window.marked && window.DOMPurify) {
+			return window.DOMPurify.sanitize(window.marked.parse(md));
+		}
+		return escapeHTML(md);
+	}
+	// ── Upload dropdown ─────────────────────────────────────────────────────────
+	(function () {
+		const more = document.getElementById('upload-more');
+		const dropdown = document.getElementById('upload-dropdown');
+		let hideTimer = null;
+
+		function show() { dropdown.classList.add('open'); }
+		function hide() { dropdown.classList.remove('open'); }
+		function scheduleHide() { hideTimer = setTimeout(hide, 150); }
+		function cancelHide() { clearTimeout(hideTimer); }
+
+		// Desktop: hover over the chevron or open dropdown keeps it visible.
+		more.addEventListener('mouseenter', () => { cancelHide(); show(); });
+		more.addEventListener('mouseleave', scheduleHide);
+		dropdown.addEventListener('mouseenter', cancelHide);
+		dropdown.addEventListener('mouseleave', scheduleHide);
+
+		// Mobile / click: toggle on tap.
+		more.addEventListener('click', (e) => {
+			e.stopPropagation();
+			dropdown.classList.toggle('open');
+		});
+
+		// Close when tapping anywhere else.
+		document.addEventListener('click', (e) => {
+			if (!e.target.closest('#upload-group')) hide();
+		});
+	})();
+
+	// ── Single upload ───────────────────────────────────────────────────────────
+	document.getElementById('upload-input').addEventListener('change', async (e) => {
+		const file = e.target.files[0];
+		if (!file) return;
+		const fd = new FormData();
+		fd.append('file', file);
+		const res = await fetch('/api/upload', { method: 'POST', body: fd });
+		const json = await res.json();
+		if (res.ok) { window.location.reload(); }
+		else { alert('Upload failed: ' + (json.error || 'unknown error')); }
+	});
+
+	// ── Bulk upload with progress overlay ──────────────────────────────────────
+	document.getElementById('upload-bulk-input').addEventListener('change', async (e) => {
+		const files = Array.from(e.target.files);
+		if (!files.length) return;
+
+		const overlay = document.getElementById('bulk-overlay');
+		const fname = document.getElementById('bulk-filename');
+		const bar = document.getElementById('bulk-progress-bar');
+		const counter = document.getElementById('bulk-counter');
+		const results = document.getElementById('bulk-results');
+		const doneBtn = document.getElementById('bulk-done');
+
+		overlay.hidden = false;
+		doneBtn.hidden = true;
+		results.textContent = '';
+
+		let ok = 0, fail = 0, dupes = 0;
+		for (let i = 0; i < files.length; i++) {
+			fname.textContent = files[i].name;
+			counter.textContent = (i + 1) + ' / ' + files.length;
+			bar.style.width = ((i + 1) / files.length * 100) + '%';
+
+			const fd = new FormData();
+			fd.append('file', files[i]);
+			try {
+				const res = await fetch('/api/upload', { method: 'POST', body: fd });
+				if (res.ok) {
+					const json = await res.json();
+					json.status === 'already_exists' ? dupes++ : ok++;
+				} else { fail++; }
+			} catch { fail++; }
+		}
+
+		bar.style.width = '100%';
+		fname.textContent = '';
+		counter.textContent = files.length + ' / ' + files.length;
+
+		const parts = [];
+		if (ok > 0) parts.push(ok + ' imported');
+		if (dupes > 0) parts.push(dupes + ' already existed');
+		if (fail > 0) parts.push(fail + ' failed');
+		results.textContent = parts.join(' · ');
+
+		doneBtn.hidden = false;
+		doneBtn.onclick = () => window.location.reload();
+	});
+
+	// ── Delete workout ──────────────────────────────────────────────────────────
+	async function deleteWorkout(e, id) {
+		e.stopPropagation();
+		if (!confirm('Delete this workout? This cannot be undone.')) return;
+		const res = await fetch('/api/workouts/' + id, { method: 'DELETE' });
+		if (res.ok || res.status === 204) {
+			e.target.closest('tr').remove();
+		} else {
+			alert('Delete failed.');
+		}
+	}
+
+	// ── Mileage goals card ──────────────────────────────────────────────────────
+	(function () {
+		const tabs = document.querySelectorAll('.goal-sport-tab');
+		const panels = document.querySelectorAll('.goal-sport-panel');
+		const editForms = document.querySelectorAll('.goal-edit-form');
+		const manageBtns = document.querySelectorAll('.goal-manage-btn');
+
+		let activeSport = document.querySelector('.goal-sport-tab.active')?.dataset.sport || 'cycling';
+		let editing = false;
+
+		function showSport(sport) {
+			activeSport = sport;
+			tabs.forEach(t => t.classList.toggle('active', t.dataset.sport === sport));
+			panels.forEach(p => p.classList.toggle('active', p.dataset.sport === sport));
+		}
+
+		function enterEdit(sport) {
+			editing = true;
+			activeSport = sport;
+			panels.forEach(p => { p.classList.remove('active'); });
+			editForms.forEach(f => { f.hidden = f.dataset.sport !== sport; });
+		}
+
+		function exitEdit() {
+			editing = false;
+			editForms.forEach(f => { f.hidden = true; });
+			panels.forEach(p => { p.classList.toggle('active', p.dataset.sport === activeSport); });
+		}
+
+		tabs.forEach(t => t.addEventListener('click', () => {
+			if (!editing) showSport(t.dataset.sport);
+		}));
+		manageBtns.forEach(b => b.addEventListener('click', () => enterEdit(b.dataset.sport)));
+		document.querySelectorAll('.goal-cancel-btn').forEach(b => b.addEventListener('click', exitEdit));
+	})();
+
+	// ── Fitness chart ───────────────────────────────────────────────────────────
+	const fitnessData = {{.Fitness | toJSON}};
+	if (fitnessData && fitnessData.length > 0) {
+		renderFitnessChart('fitness-chart', fitnessData);
+	}
+
+	// ── Activities view toggle (list ↔ map) ─────────────────────────────────────
+	(function () {
+		const listEl = document.getElementById('activities-list');
+		const mapEl = document.getElementById('activities-map');
+		const listBtn = document.getElementById('view-list-btn');
+		const mapBtn = document.getElementById('view-map-btn');
+		if (!listEl || !mapEl) return;
+
+		const workoutIds = [{{ range .Workouts }}'{{.ID}}', {{ end }}];
+	const workoutsData = {{.Workouts | toJSON}};
+	let mapReady = false;
+
+	function setView(v) {
+		const isMap = v === 'map';
+		listEl.hidden = isMap;
+		mapEl.hidden = !isMap;
+		listBtn.classList.toggle('active', !isMap);
+		mapBtn.classList.toggle('active', isMap);
+		localStorage.setItem('activities-view', v);
+		if (isMap && !mapReady) {
+			mapReady = true;
+			if (!workoutIds.length) return;
+			fetch('/api/workouts/routes?ids=' + workoutIds.join(','))
+				.then(r => r.json())
+				.then(j => renderActivityCards('activities-map', j.data || [], workoutsData));
+		}
+	}
+
+	listBtn.addEventListener('click', () => setView('list'));
+	mapBtn.addEventListener('click', () => setView('map'));
+
+	// Restore saved preference; default to list.
+	setView(localStorage.getItem('activities-view') === 'map' ? 'map' : 'list');
+  }) ();
+
+	// ── AI coach collapse (persisted) ───────────────────────────────────────────
+	// Outside the AIConfigured guards on purpose: anyone can hide the card,
+	// configured or not. The preference sticks across reloads.
+	(function () {
+		const card = document.getElementById('ai-coach-card');
+		const btn = document.getElementById('ai-collapse-btn');
+		if (!card || !btn) return;
+		const KEY = 'ai-coach-collapsed';
+
+		function apply(collapsed) {
+			card.classList.toggle('ai-collapsed', collapsed);
+			btn.setAttribute('aria-expanded', String(!collapsed));
+			btn.title = collapsed ? 'Show AI coach' : 'Hide AI coach';
+		}
+
+		btn.addEventListener('click', () => {
+			const collapsed = !card.classList.contains('ai-collapsed');
+			apply(collapsed);
+			try { localStorage.setItem(KEY, collapsed ? '1' : '0'); } catch (_) { }
+		});
+
+		apply(localStorage.getItem(KEY) === '1');
+	})();
+
+	// ── Mobile layout: pull training load + goals under fitness chart ───────────
+	(function () {
+		const inject = document.getElementById('mobile-card-inject');
+		const trainingLoad = document.getElementById('card-training-load');
+		const goalCard = document.querySelector('.goal-card');
+		const sidebar = document.querySelector('.home-sidebar');
+		if (!inject || !trainingLoad || !goalCard) return;
+
+		let mobileState = null;
+
+		function applyLayout() {
+			const mobile = window.innerWidth <= 640;
+			if (mobile === mobileState) return;
+			mobileState = mobile;
+			if (mobile) {
+				inject.appendChild(trainingLoad);
+				inject.appendChild(goalCard);
+			} else {
+				sidebar.appendChild(goalCard);
+				sidebar.appendChild(trainingLoad);
+			}
+		}
+
+		applyLayout();
+		window.addEventListener('resize', applyLayout);
+	})();
+
+	// ── AI coach ────────────────────────────────────────────────────────────────
+	// GET returns cached markdown; POST streams fresh markdown via SSE.
+	{{if .AIConfigured}}
+	(function () {
+		const btn = document.getElementById('ai-generate-btn');
+		const body = document.getElementById('ai-insights');
+		const empty = document.getElementById('ai-empty');
+		const errEl = document.getElementById('ai-error');
+		const tsEl = document.getElementById('ai-generated-at');
+
+		// marked.parse handles incomplete markdown gracefully (unclosed **, partial
+		// headings, etc.), so we can re-render on every chunk and get live preview.
+		function renderMarkdown(md) {
+			body.innerHTML = renderSafeMarkdown(md);
+		}
+
+		function showCached(data) {
+			renderMarkdown(data.content || '');
+			body.hidden = false;
+			empty.hidden = true;
+			if (data.generated_at) {
+				tsEl.textContent = 'generated ' + relativeTime(data.generated_at);
+				tsEl.hidden = false;
+			}
+			btn.textContent = 'regenerate';
+		}
+
+		function showError(msg) {
+			errEl.textContent = 'Error: ' + msg;
+			errEl.hidden = false;
+		}
+
+		async function loadCached() {
+			try {
+				const res = await fetch('/api/coach/insights');
+				if (res.status === 204) {
+					empty.hidden = false;
+					return;
+				}
+				if (!res.ok) throw new Error('load failed');
+				const env = await res.json();
+				// writeJSON wraps the payload in { data: ... }
+				showCached(env.data || env);
+			} catch (e) {
+				empty.hidden = false;
+			}
+		}
+
+		// streamInsights consumes a generation's SSE stream — a fresh POST or a
+		// re-attach to one that kept running while we were on another page
+		// (generations run detached server-side and replay identically).
+		async function streamInsights(fetcher) {
+			btn.disabled = true;
+			btn.textContent = 'generating…';
+			errEl.hidden = true;
+			empty.hidden = true;
+			body.hidden = false;
+			tsEl.hidden = true;
+
+			let md = '';
+			const streamer = markdownStreamer(body);
+			renderMarkdown('_analyzing your training…_');
+
+			try {
+				const res = await fetcher();
+				if (!res.ok || !res.body) {
+					const j = await res.json().catch(() => ({}));
+					throw new Error(j.error || 'request failed');
+				}
+
+				const reader = res.body.getReader();
+				const decoder = new TextDecoder();
+				let buf = '';
+				let streamErr = null;
+				let doneMeta = null;
+
+				while (true) {
+					const { value, done } = await reader.read();
+					if (done) break;
+					buf += decoder.decode(value, { stream: true });
+					buf = parseSSE(buf, (event, data) => {
+						if (event === 'chunk' && data.text) {
+							md += data.text; // the first paint replaces the placeholder
+							streamer.update(md);
+						} else if (event === 'done') {
+							doneMeta = data;
+						} else if (event === 'error') {
+							streamErr = data.error || 'stream error';
+						}
+					});
+				}
+				if (streamErr) throw new Error(streamErr);
+
+				if (doneMeta && doneMeta.generated_at) {
+					tsEl.textContent = 'generated ' + relativeTime(doneMeta.generated_at);
+					tsEl.hidden = false;
+				}
+				btn.textContent = 'regenerate';
+			} catch (e) {
+				if (!md) { streamer.stop(); body.hidden = true; }
+				showError(e.message);
+				btn.textContent = 'generate insights';
+			} finally {
+				btn.disabled = false;
+			}
+		}
+
+		window.generateInsights = function () {
+			return streamInsights(() => fetch('/api/coach/insights', {
+				method: 'POST',
+				headers: { 'Accept': 'text/event-stream' },
+			}));
+		};
+
+		// On load: show the cache, then re-attach if a generation is still running
+		// (it kept going when the page was left mid-stream). A finished run needs
+		// no re-attach — its result is already in the cache loadCached shows.
+		loadCached().then(async () => {
+			try {
+				const res = await fetch('/api/coach/insights/active');
+				if (!res.ok || res.status === 204) return;
+				const env = await res.json();
+				const j = env.data || env;
+				if (!j || !j.id || j.done) return;
+				streamInsights(() => fetch('/api/coach/insights/' + encodeURIComponent(j.id) + '/events', {
+					headers: { 'Accept': 'text/event-stream' },
+				}));
+			} catch (_) { }
+		});
+	})();
+	{{end}}
+
+	// ── Ask the coach (tool-augmented chat) ─────────────────────────────────────
+	// Stateless server: the browser holds the whole conversation and posts it
+	// every turn. The model pulls data via tools; we show that as it happens,
+	// then stream the answer in.
+	{{if .AIChatCapable}}
+	(function () {
+		const form = document.getElementById('chat-form');
+		const input = document.getElementById('chat-input');
+		const send = document.getElementById('chat-send');
+		const log = document.getElementById('chat-log');
+		const hint = document.getElementById('chat-hint');
+		const clear = document.getElementById('chat-clear');
+
+		// Conversation history sent verbatim each turn (user/assistant text only).
+		// Persisted to localStorage so navigating to another page doesn't lose the
+		// conversation; JOB_KEY holds the id of a turn still running server-side
+		// (turns run detached — see coach_job.go) so we can re-attach on return.
+		const HIST_KEY = 'coach-chat-history';
+		const JOB_KEY = 'coach-chat-job';
+		let history = [];
+		let busy = false;
+
+		function saveHistory() {
+			try { localStorage.setItem(HIST_KEY, JSON.stringify(history)); } catch (_) { }
+		}
+
+		function loadHistory() {
+			try { history = JSON.parse(localStorage.getItem(HIST_KEY)) || []; } catch (_) { history = []; }
+			if (!Array.isArray(history)) history = [];
+		}
+
+		// renderHistory rebuilds the transcript from history (page load / restore).
+		function renderHistory() {
+			log.innerHTML = '';
+			for (const m of history) {
+				if (m.role === 'user') addRow('user').textContent = m.content;
+				else addRow('coach').innerHTML = renderSafeMarkdown(m.content);
+			}
+			const has = history.length > 0;
+			log.hidden = !has;
+			hint.hidden = has;
+			clear.hidden = !has;
+			log.scrollTop = log.scrollHeight;
+		}
+
+		// The server sends each tool's user-facing label with the SSE event (the
+		// Go tool catalog owns them); fall back to a humanized name.
+		const toolLabel = (d) => d.label || (d.name || '').replace(/_/g, ' ');
+
+		// Add a message row. For the assistant we return the inner element so the
+		// streaming loop can keep re-rendering it as markdown arrives.
+		function addRow(role) {
+			const row = document.createElement('div');
+			row.className = 'chat-msg chat-' + role;
+			const bubble = document.createElement('div');
+			bubble.className = 'chat-bubble' + (role === 'coach' ? ' markdown-body' : '');
+			row.appendChild(bubble);
+			log.appendChild(row);
+			log.scrollTop = log.scrollHeight;
+			return bubble;
+		}
+
+		// running maps tool name → display label while a tool executes.
+		function setStatus(el, running) {
+			const labels = Object.values(running);
+			if (labels.length === 0) { el.textContent = 'thinking…'; return; }
+			el.textContent = 'looking up ' + labels.join(', ') + '…';
+		}
+
+		// Render a preview card for a coach-proposed draft schedule. The card
+		// lets the rider accept the whole batch onto their calendar, or discard.
+		async function renderPreviewCard(id) {
+			const row = document.createElement('div');
+			row.className = 'chat-msg chat-coach';
+			const card = document.createElement('div');
+			card.className = 'coach-preview-card';
+			card.textContent = 'Loading proposed schedule…';
+			row.appendChild(card);
+			log.appendChild(row);
+			log.scrollTop = log.scrollHeight;
+
+			let items;
+			try {
+				const res = await fetch('/api/planned-workouts/drafts/' + encodeURIComponent(id));
+				if (!res.ok) throw new Error('failed to load preview');
+				const env = await res.json();
+				items = env.data || env;
+			} catch (_) {
+				card.innerHTML = '<span class="chat-err">Could not load proposed schedule.</span>';
+				return;
+			}
+
+			card.innerHTML = '';
+			const title = document.createElement('div');
+			title.className = 'coach-preview-title';
+			title.textContent = 'Proposed schedule (' + items.length + ' workout' + (items.length === 1 ? '' : 's') + ')';
+			card.appendChild(title);
+
+			const list = document.createElement('div');
+			list.className = 'coach-preview-list';
+			items.forEach((p) => {
+				const item = document.createElement('div');
+				item.className = 'coach-preview-item';
+				const date = (p.planned_date || '').slice(0, 10);
+				const dur = Math.round((p.duration_secs || 0) / 60);
+				const tss = p.tss ? ' · ' + Math.round(p.tss) + ' TSS' : '';
+				const ivl = (p.intervals && p.intervals.length) ? ' · ' + p.intervals.length + ' steps' : '';
+				item.innerHTML =
+					'<div class="coach-preview-date">' + escapeHTML(date) + ' · ' + escapeHTML(p.sport || 'cycling') + '</div>' +
+					'<div class="coach-preview-main">' +
+					'<span class="coach-preview-title-line">' + escapeHTML(p.title || '(untitled)') + '</span>' +
+					'<span class="coach-preview-meta">' + dur + ' min' + tss + ivl + '</span>' +
+					'</div>' +
+					(p.description ? '<div class="coach-preview-desc">' + escapeHTML(p.description) + '</div>' : '');
+				list.appendChild(item);
+			});
+			card.appendChild(list);
+
+			const actions = document.createElement('div');
+			actions.className = 'coach-preview-actions';
+			const addBtn = document.createElement('button');
+			addBtn.type = 'button';
+			addBtn.className = 'btn-primary';
+			addBtn.textContent = 'add to calendar';
+			const discardBtn = document.createElement('button');
+			discardBtn.type = 'button';
+			discardBtn.className = 'btn-secondary';
+			discardBtn.textContent = 'discard';
+			actions.appendChild(addBtn);
+			actions.appendChild(discardBtn);
+			card.appendChild(actions);
+			log.scrollTop = log.scrollHeight;
+
+			addBtn.addEventListener('click', async () => {
+				addBtn.disabled = discardBtn.disabled = true;
+				try {
+					const res = await fetch('/api/planned-workouts/drafts/' + encodeURIComponent(id) + '/commit', {
+						method: 'POST',
+						headers: { 'Accept': 'application/json' },
+					});
+					if (!res.ok) {
+						// Surface the server's actual reason so the user (and any future
+						// dev poking at this) can see the failure mode, not a generic
+						// "didn't work" message.
+						let detail = '';
+						try {
+							const j = await res.json();
+							detail = j.error || JSON.stringify(j);
+						} catch (_) {
+							detail = await res.text().catch(() => '');
+						}
+						throw new Error('HTTP ' + res.status + (detail ? ': ' + detail : ''));
+					}
+					card.innerHTML = '<div class="coach-preview-done">Added to <a href="/calendar">calendar</a>.</div>';
+				} catch (err) {
+					const errEl = document.createElement('div');
+					errEl.className = 'chat-err';
+					errEl.textContent = 'Could not add to calendar — ' + (err && err.message ? err.message : err);
+					card.appendChild(errEl);
+					addBtn.disabled = discardBtn.disabled = false;
+				}
+			});
+			discardBtn.addEventListener('click', async () => {
+				addBtn.disabled = discardBtn.disabled = true;
+				try { await fetch('/api/planned-workouts/drafts/' + encodeURIComponent(id), { method: 'DELETE' }); } catch (_) { }
+				card.innerHTML = '<div class="coach-preview-discarded">Discarded.</div>';
+			});
+		}
+
+		// runTurn consumes one coach turn's SSE stream into a fresh coach bubble —
+		// either a new POST or a re-attach to a turn that kept running while we
+		// were on another page (the event stream replays identically either way).
+		async function runTurn(fetcher) {
+			busy = true;
+			send.disabled = input.disabled = true;
+			hint.hidden = true;
+			log.hidden = false;
+			clear.hidden = false;
+
+			const coachEl = addRow('coach');
+			const statusEl = document.createElement('div');
+			statusEl.className = 'chat-status';
+			coachEl.appendChild(statusEl);
+
+			const running = {};
+			setStatus(statusEl, running);
+
+			let md = '', streamErr = null;
+			const streamer = markdownStreamer(coachEl, () => { log.scrollTop = log.scrollHeight; });
+			try {
+				const res = await fetcher();
+				if (!res.ok || !res.body) {
+					const j = await res.json().catch(() => ({}));
+					throw new Error(j.error || 'request failed');
+				}
+
+				const reader = res.body.getReader();
+				const decoder = new TextDecoder();
+				let buf = '';
+				while (true) {
+					const { value, done } = await reader.read();
+					if (done) break;
+					buf += decoder.decode(value, { stream: true });
+					buf = parseSSE(buf, (event, data) => {
+						if (event === 'job' && data.id) {
+							// The turn survives navigation server-side; remember its id so
+							// a return to this page can re-attach.
+							try { localStorage.setItem(JOB_KEY, data.id); } catch (_) { }
+						} else if (event === 'tool') {
+							if (data.status === 'running') running[data.name] = toolLabel(data);
+							else delete running[data.name];
+							if (md === '') setStatus(statusEl, running);
+						} else if (event === 'chunk' && data.text) {
+							if (md === '') statusEl.remove();
+							md += data.text;
+							streamer.update(md);
+						} else if (event === 'preview' && data.id) {
+							// Coach proposed a schedule — fetch the draft and render a
+							// preview card the rider can accept or discard.
+							renderPreviewCard(data.id);
+						} else if (event === 'error') {
+							streamErr = data.error || 'stream error';
+						}
+					});
+				}
+				if (streamErr) throw new Error(streamErr);
+
+				const answer = md.trim();
+				if (answer) {
+					history.push({ role: 'assistant', content: answer });
+					saveHistory();
+				} else {
+					streamer.stop(); // abandon any pending paint before replacing content
+					coachEl.innerHTML = '<span class="chat-err">No answer returned.</span>';
+				}
+				try { localStorage.removeItem(JOB_KEY); } catch (_) { }
+			} catch (e) {
+				streamer.stop(); // abandon any pending paint before replacing content
+				statusEl.remove();
+				coachEl.innerHTML = '<span class="chat-err">Error: ' + escapeHTML(e.message) + '</span>';
+				try { localStorage.removeItem(JOB_KEY); } catch (_) { }
+				// Drop the failed user turn so a retry doesn't double it up.
+				if (history.length && history[history.length - 1].role === 'user') history.pop();
+				saveHistory();
+			} finally {
+				busy = false;
+				send.disabled = input.disabled = false;
+				input.focus();
+				log.scrollTop = log.scrollHeight;
+			}
+		}
+
+		function ask(text) {
+			history.push({ role: 'user', content: text });
+			saveHistory();
+			addRow('user').textContent = text;
+			return runTurn(() => fetch('/api/coach/chat', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+				body: JSON.stringify({ messages: history }),
+			}));
+		}
+
+		// resumeIfActive re-attaches to a turn that was in flight when this page
+		// was last unloaded. If the turn is gone (superseded, or the server
+		// restarted), the unanswered question goes back into the input box.
+		async function resumeIfActive() {
+			let id = null;
+			try { id = localStorage.getItem(JOB_KEY); } catch (_) { }
+			if (!id) return;
+			let alive = false;
+			try {
+				const res = await fetch('/api/coach/chat/active');
+				if (res.ok && res.status !== 204) {
+					const env = await res.json();
+					const j = env.data || env;
+					alive = j && j.id === id;
+				}
+			} catch (_) { }
+			if (!alive) {
+				try { localStorage.removeItem(JOB_KEY); } catch (_) { }
+				if (history.length && history[history.length - 1].role === 'user') {
+					input.value = history.pop().content;
+					saveHistory();
+					renderHistory();
+					autoGrow();
+				}
+				return;
+			}
+			runTurn(() => fetch('/api/coach/chat/' + encodeURIComponent(id) + '/events', {
+				headers: { 'Accept': 'text/event-stream' },
+			}));
+		}
+
+		function autoGrow() {
+			input.style.height = 'auto';
+			input.style.height = Math.min(input.scrollHeight, 140) + 'px';
+		}
+
+		form.addEventListener('submit', (e) => {
+			e.preventDefault();
+			const text = input.value.trim();
+			if (!text || busy) return;
+			input.value = '';
+			autoGrow();
+			ask(text);
+		});
+
+		input.addEventListener('input', autoGrow);
+		input.addEventListener('keydown', (e) => {
+			if (e.key === 'Enter' && !e.shiftKey) {
+				e.preventDefault();
+				form.requestSubmit();
+			}
+		});
+
+		clear.addEventListener('click', () => {
+			if (busy) return;
+			history = [];
+			try {
+				localStorage.removeItem(HIST_KEY);
+				localStorage.removeItem(JOB_KEY);
+			} catch (_) { }
+			log.innerHTML = '';
+			log.hidden = true;
+			clear.hidden = true;
+			hint.hidden = false;
+			input.focus();
+		});
+
+		// Restore the saved conversation, then re-attach to any turn still
+		// running server-side (or recover its finished answer).
+		loadHistory();
+		renderHistory();
+		resumeIfActive();
+	})();
+	{{end}}
+
+	// Parse a chunk of SSE text. Events in the buffer are separated by blank
+	// lines; return the unconsumed tail for the next read. Shared by the
+	// insights and chat streams.
+	function parseSSE(buf, onEvent) {
+		const events = buf.split(/\n\n/);
+		const tail = events.pop();
+		for (const raw of events) {
+			let event = 'message', data = '';
+			for (const line of raw.split('\n')) {
+				if (line.startsWith('event:')) event = line.slice(6).trim();
+				else if (line.startsWith('data:')) data += line.slice(5).trim();
+			}
+			if (data) {
+				try { onEvent(event, JSON.parse(data)); } catch (_) { }
+			}
+		}
+		return tail;
+	}
+
+	// markdownStreamer coalesces streamed-markdown re-renders into el: chunks
+	// arrive far faster than the display paints, and re-parsing the whole
+	// accumulated markdown per chunk is O(n²). update() renders the latest text
+	// at most once per animation frame; stop() abandons any pending paint (for
+	// error paths that replace el's content). onPaint, if given, runs after each
+	// paint (e.g. to keep a log scrolled to the bottom).
+	function markdownStreamer(el, onPaint) {
+		let latest = '', scheduled = false, stopped = false;
+		return {
+			update(md) {
+				latest = md;
+				if (scheduled || stopped) return;
+				scheduled = true;
+				requestAnimationFrame(() => {
+					scheduled = false;
+					if (stopped) return;
+					el.innerHTML = renderSafeMarkdown(latest);
+					if (onPaint) onPaint();
+				});
+			},
+			stop() { stopped = true; },
+		};
+	}
+
+	function escapeHTML(s) {
+		const d = document.createElement('div');
+		d.textContent = s;
+		return d.innerHTML;
+	}
+
+	function relativeTime(iso) {
+		const then = new Date(iso);
+		const mins = Math.round((Date.now() - then.getTime()) / 60000);
+		if (mins < 1) return 'just now';
+		if (mins < 60) return mins + 'm ago';
+		const hrs = Math.round(mins / 60);
+		if (hrs < 24) return hrs + 'h ago';
+		const days = Math.round(hrs / 24);
+		return days + 'd ago';
+	}
 </script>
 {{end}}
