@@ -1,20 +1,89 @@
 name: Release
 
+# Every merge to main ships a full, versioned release — the GitHub release and
+# the Docker image can never drift apart:
+#   1. version is bumped automatically (patch by default; put #minor or #major
+#      in the merge commit message to bump those instead)
+#   2. the merge commit is tagged vX.Y.Z
+#   3. a GitHub release is created with cross-platform binaries
+#   4. the same version's images are pushed to ghcr.io
+#      (X.Y.Z, X.Y, latest, sha-<commit>)
+#
+# Everything runs in this single workflow on purpose: the tag is pushed with
+# the default GITHUB_TOKEN, and events created with that token never trigger
+# other workflows (GitHub's recursion guard) — a separate on-tag workflow
+# would silently never run.
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+
+# Two quick merges must not race the version bump; queue them.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  packages: write
 
 jobs:
-  release:
-    name: Build & Release
+  # Releasing waits on the same checks as CI. CI also runs on main pushes but
+  # in parallel — without this gate a broken merge would still ship.
+  test:
+    name: Build & Test
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+  release:
+    name: Tag, Release & Push Image
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # full history + tags for the version bump and release notes
+
+      - name: Compute next version
+        id: ver
+        run: |
+          LAST=$(git tag -l 'v*' --sort=-v:refname | head -n1)
+          LAST=${LAST:-v0.0.0}
+          IFS=. read -r MA MI PA <<< "${LAST#v}"
+          MSG=$(git log -1 --pretty=%B)
+          if echo "$MSG" | grep -qiw '#major'; then MA=$((MA+1)); MI=0; PA=0
+          elif echo "$MSG" | grep -qiw '#minor'; then MI=$((MI+1)); PA=0
+          else PA=$((PA+1)); fi
+          VERSION="v$MA.$MI.$PA"
+          {
+            echo "version=$VERSION"
+            echo "bare=${VERSION#v}"
+            echo "majmin=$MA.$MI"
+          } >> "$GITHUB_OUTPUT"
+          echo "Releasing $VERSION (previous: $LAST)"
+
+      - name: Tag the release commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "${{ steps.ver.outputs.version }}"
+          git push origin "${{ steps.ver.outputs.version }}"
+
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -27,11 +96,28 @@ jobs:
             GOARCH=${PLATFORM#*/}
             OUTPUT="fitbase-${GOOS}-${GOARCH}"
             if [ "$GOOS" = "windows" ]; then OUTPUT="${OUTPUT}.exe"; fi
-            GOOS=$GOOS GOARCH=$GOARCH go build -trimpath -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o "dist/${OUTPUT}" ./cmd/fitbase
+            GOOS=$GOOS GOARCH=$GOARCH go build -trimpath -ldflags="-s -w -X main.version=${{ steps.ver.outputs.version }}" -o "dist/${OUTPUT}" ./cmd/fitbase
           done
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.ver.outputs.version }}
           files: dist/*
           generate_release_notes: true
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ steps.ver.outputs.bare }}
+            ghcr.io/${{ github.repository }}:${{ steps.ver.outputs.majmin }}
+            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
