@@ -148,6 +148,24 @@ func (h *PlannedHandler) Create(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, saved)
 }
 
+// Get returns one planned workout by id — the calendar's detail modal fetches
+// this for the fields the grid doesn't carry (description, intervals, IF).
+//
+// GET /api/planned-workouts/{id}
+func (h *PlannedHandler) Get(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	p, err := h.db.GetPlannedWorkout(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "database error")
+		return
+	}
+	if p == nil {
+		writeError(w, http.StatusNotFound, "planned workout not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
+}
+
 // Delete removes a planned workout by id.
 //
 // DELETE /api/planned-workouts/{id}
@@ -216,7 +234,8 @@ func (h *PlannedHandler) CommitDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if payload == "" {
-		writeError(w, http.StatusNotFound, "draft not found")
+		writeError(w, http.StatusNotFound,
+			"this proposal is no longer available — it was superseded by a newer one, already added, or discarded")
 		return
 	}
 	var d draftPayload

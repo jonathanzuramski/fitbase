@@ -35,16 +35,6 @@
       {{if $day.InMonth}}
       <button type="button" class="cal-add-btn" data-date="{{$day.DateISO}}" title="Plan a workout">+</button>
       {{end}}
-      {{range $p := $day.Planned}}
-      <div class="cal-planned{{if eq $p.Source "coach"}} cal-planned-coach{{end}}" title="{{if $p.Title}}{{$p.Title}}{{else}}planned{{end}}{{if eq $p.Source "coach"}} · proposed by coach{{end}}">
-        <span class="cal-dot cal-dot-{{$p.Sport | lower}} cal-dot-planned"></span>
-        <span class="cal-planned-info">
-          <span class="cal-planned-target">{{formatDuration $p.DurationSecs}}{{if $p.TSS}} · {{formatOptFloat $p.TSS "T"}}{{end}}</span>
-          {{if $p.Title}}<span class="cal-planned-title">{{$p.Title}}</span>{{end}}
-        </span>
-        <button type="button" class="cal-planned-del" data-id="{{$p.ID}}" title="Remove planned workout">×</button>
-      </div>
-      {{end}}
     </div>
     {{range $w := $day.Workouts}}
     <a href="/workouts/{{$w.ID}}" class="cal-workout" title="{{$w.Sport}}">
@@ -54,8 +44,9 @@
     </a>
     {{end}}
     {{range $p := $day.Planned}}
-    <div class="cal-planned{{if eq $p.Source " coach"}} cal-planned-coach{{end}}"
-      title="{{if $p.Title}}{{$p.Title}}{{else}}planned{{end}}{{if eq $p.Source " coach"}} · proposed by coach{{end}}">
+    <div class="cal-planned{{if eq $p.Source "coach"}} cal-planned-coach{{end}}" data-id="{{$p.ID}}" role="button"
+      tabindex="0"
+      title="{{if $p.Title}}{{$p.Title}}{{else}}planned{{end}}{{if eq $p.Source "coach"}} · proposed by coach{{end}}">
       <span class="cal-dot cal-dot-{{$p.Sport | lower}} cal-dot-planned"></span>
       <span class="cal-planned-info">
         {{if $p.Title}}<span class="cal-planned-title">{{$p.Title}}</span>{{end}}
@@ -139,24 +130,24 @@
 </dialog>
 
 
-<dialog id="plan-overview-dialog" class="modal">
+<dialog id="plan-detail-dialog" class="modal">
   <div class="modal-body">
     <div class="modal-header">
-      <h3 class="modal-title">Planned workouts</h3>
-      <button type="button" class="modal-close" id="plan-overview-close" aria-label="Close">×</button>
+      <h3 class="modal-title" id="plan-detail-title">Planned workout</h3>
+      <button type="button" class="modal-close" id="plan-detail-close" aria-label="Close">×</button>
     </div>
-    {{range $p := .PlannedWorkouts}}
-    <div class="plan-overview-item">
-      <div class="plan-overview-dot cal-dot-{{$p.Sport | lower}}"></div>
-      <div class="plan-overview-info">
-        <div class="plan-overview-item-title">{{if $p.Title}}{{$p.Title}}{{else}}planned{{end}}</div>
-        <div class="plan-overview-details">{{formatDuration $p.DurationSecs}}{{if $p.TSS}} · {{formatOptFloat $p.TSS
-          "T"}}{{end}}</div>
-      </div>
+    <p class="plan-detail-sub" id="plan-detail-sub"></p>
+    <p class="plan-detail-meta" id="plan-detail-meta"></p>
+    <p class="plan-detail-desc" id="plan-detail-desc" hidden></p>
+    <div class="plan-profile-wrap" id="plan-detail-profile-wrap" hidden>
+      <canvas id="plan-detail-profile" class="plan-profile" data-ftp="{{.FTP}}"></canvas>
+      <div class="plan-profile-meta" id="plan-detail-profile-meta"></div>
     </div>
-    {{else}}
-    <p>No planned workouts for this day.</p>
-    {{end}}
+    <p class="modal-error" id="plan-detail-error" hidden></p>
+    <div class="modal-actions">
+      <button type="button" class="btn-secondary" id="plan-detail-delete">remove from calendar</button>
+      <button type="button" class="btn-primary" id="plan-detail-done">close</button>
+    </div>
   </div>
 </dialog>
 {{end}}

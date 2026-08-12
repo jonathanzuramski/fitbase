@@ -212,20 +212,134 @@
 
   // ---- delete ----
 
-  // Delete a planned workout in place.
+  // deletePlanned removes a planned workout server-side and drops its calendar
+  // entry from the DOM. Returns true on success.
+  async function deletePlanned(id) {
+    try {
+      const res = await fetch("/api/planned-workouts/" + encodeURIComponent(id), { method: "DELETE" });
+      if (!res.ok && res.status !== 204) throw new Error("delete failed");
+      document.querySelectorAll('.cal-planned[data-id="' + CSS.escape(id) + '"]').forEach((el) => el.remove());
+      return true;
+    } catch (_) {
+      alert("Could not remove the planned workout.");
+      return false;
+    }
+  }
+
+  // Delete a planned workout in place from the grid's × button.
   document.querySelectorAll(".cal-planned-del").forEach((btn) => {
-    btn.addEventListener("click", async (e) => {
+    btn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
       if (!confirm("Remove this planned workout?")) return;
-      const id = btn.dataset.id;
-      try {
-        const res = await fetch("/api/planned-workouts/" + encodeURIComponent(id), { method: "DELETE" });
-        if (!res.ok && res.status !== 204) throw new Error("delete failed");
-        btn.closest(".cal-planned").remove();
-      } catch (_) {
-        alert("Could not remove the planned workout.");
+      deletePlanned(btn.dataset.id);
+    });
+  });
+
+  // ---- planned-workout detail modal ----
+
+  const detailDialog = document.getElementById("plan-detail-dialog");
+  const detailTitle = document.getElementById("plan-detail-title");
+  const detailSub = document.getElementById("plan-detail-sub");
+  const detailMeta = document.getElementById("plan-detail-meta");
+  const detailDesc = document.getElementById("plan-detail-desc");
+  const detailProfileWrap = document.getElementById("plan-detail-profile-wrap");
+  const detailProfile = document.getElementById("plan-detail-profile");
+  const detailProfileMeta = document.getElementById("plan-detail-profile-meta");
+  const detailError = document.getElementById("plan-detail-error");
+  const detailDelete = document.getElementById("plan-detail-delete");
+
+  let detailId = null; // id of the planned workout currently shown
+  let detailIntervals = null; // intervals of the shown workout, for redraw on resize
+
+  function openDetailDialog() {
+    if (typeof detailDialog.showModal === "function") detailDialog.showModal();
+    else detailDialog.setAttribute("open", "");
+  }
+
+  function closeDetailDialog() {
+    if (typeof detailDialog.close === "function") detailDialog.close();
+    else detailDialog.removeAttribute("open");
+  }
+
+  function drawDetailProfile() {
+    const segments = [];
+    const total = planFlatten(detailIntervals, segments, 0);
+    planDrawProfile(detailProfile, segments, total);
+    detailProfileMeta.textContent =
+      `Total ${planFormatDuration(total)} · ${segments.length} segment${segments.length === 1 ? "" : "s"}`;
+  }
+
+  async function openDetail(id) {
+    detailId = id;
+    detailIntervals = null;
+    detailError.hidden = true;
+    detailTitle.textContent = "Planned workout";
+    detailSub.textContent = "";
+    detailMeta.textContent = "";
+    detailDesc.hidden = true;
+    detailProfileWrap.hidden = true;
+    openDetailDialog();
+
+    let p;
+    try {
+      const res = await fetch("/api/planned-workouts/" + encodeURIComponent(id));
+      if (!res.ok) throw new Error();
+      const env = await res.json();
+      p = env.data || env; // API responses are wrapped in a {data: …} envelope
+    } catch (_) {
+      detailError.textContent = "Could not load this planned workout.";
+      detailError.hidden = false;
+      return;
+    }
+
+    detailTitle.textContent = p.title || "Planned workout";
+    const date = new Date((p.planned_date || "").slice(0, 10) + "T00:00:00");
+    const dateLabel = isNaN(date)
+      ? ""
+      : date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+    detailSub.textContent = [dateLabel, p.sport || "cycling", p.source === "coach" ? "proposed by coach" : "added manually"]
+      .filter(Boolean).join(" · ");
+
+    const meta = [planFormatDuration(p.duration_secs || 0)];
+    if (p.tss) meta.push(Math.round(p.tss) + " TSS");
+    if (p.intensity_factor) meta.push("IF " + p.intensity_factor.toFixed(2));
+    detailMeta.textContent = meta.join(" · ");
+
+    if (p.description) {
+      detailDesc.textContent = p.description;
+      detailDesc.hidden = false;
+    }
+
+    if (Array.isArray(p.intervals) && p.intervals.length) {
+      detailIntervals = p.intervals;
+      detailProfileWrap.hidden = false;
+      // Draw after unhiding so the canvas has a measurable width.
+      requestAnimationFrame(drawDetailProfile);
+    }
+  }
+
+  // A planned entry opens the detail modal; the × inside it stops propagation
+  // so delete still works without opening the dialog.
+  document.querySelectorAll(".cal-planned").forEach((el) => {
+    el.addEventListener("click", () => openDetail(el.dataset.id));
+    el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        openDetail(el.dataset.id);
       }
     });
+  });
+
+  document.getElementById("plan-detail-close").addEventListener("click", closeDetailDialog);
+  document.getElementById("plan-detail-done").addEventListener("click", closeDetailDialog);
+
+  detailDelete.addEventListener("click", async () => {
+    if (!detailId || !confirm("Remove this planned workout?")) return;
+    if (await deletePlanned(detailId)) closeDetailDialog();
+  });
+
+  window.addEventListener("resize", () => {
+    if (detailDialog.open && detailIntervals) drawDetailProfile();
   });
 })();
