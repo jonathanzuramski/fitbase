@@ -84,6 +84,24 @@ func (db *DB) CommitPlannedDraft(draftID string, ps []models.PlannedWorkout) ([]
 	}
 	defer tx.Rollback() //nolint:errcheck
 
+	// A new coach plan supersedes the old one: coach-sourced workouts already on
+	// the dates this draft covers are replaced, so accepting a re-proposed week
+	// (fixed titles, rescheduled sessions, …) can never duplicate entries.
+	// Manual entries are the rider's own and are left untouched.
+	seen := map[string]bool{}
+	for _, p := range ps {
+		date := p.PlannedDate.UTC().Format("2006-01-02")
+		if seen[date] {
+			continue
+		}
+		seen[date] = true
+		if _, err := tx.Exec(
+			`DELETE FROM planned_workouts WHERE source = 'coach' AND planned_date = ?`, date,
+		); err != nil {
+			return nil, err
+		}
+	}
+
 	saved := make([]models.PlannedWorkout, 0, len(ps))
 	for _, p := range ps {
 		s, err := createPlannedWorkout(tx, p)
@@ -165,11 +183,11 @@ func (db *DB) DeletePlannedWorkout(id string) error {
 // The payload is opaque JSON — typically a {"workouts":[…]} object the coach
 // tool built.
 func (db *DB) SavePlannedDraft(payloadJSON string) (string, error) {
-	// Opportunistically sweep abandoned drafts (rider ignored the preview card,
-	// closed the tab, …) so they don't accumulate forever. Best-effort; the
-	// cutoff matches the stored strftime format so string comparison is exact.
-	_, _ = db.Exec(`DELETE FROM planned_workout_drafts
-		WHERE created_at < strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-7 days')`)
+	// Only one draft is live at a time: a new proposal supersedes any earlier
+	// undecided one, so the rider never sees two accept buttons for the same
+	// week (accepting both used to double-book the calendar). This also sweeps
+	// abandoned drafts (rider ignored the preview card, closed the tab, …).
+	_, _ = db.Exec(`DELETE FROM planned_workout_drafts`)
 
 	id := uuid.NewString()
 	_, err := db.Exec(`
