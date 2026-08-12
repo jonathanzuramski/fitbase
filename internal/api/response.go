@@ -50,7 +50,11 @@ func writeSSE(w http.ResponseWriter, event string, data any) {
 	if err != nil {
 		b = []byte(`{"error":"marshal failed"}`)
 	}
-	_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, b)
+	writeSSERaw(w, event, b)
+}
+
+func writeSSERaw(w http.ResponseWriter, event string, data []byte) {
+	_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}

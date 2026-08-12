@@ -7,7 +7,10 @@ import (
 	"math"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 
 	"github.com/fitbase/fitbase/internal/aicoach"
 	"github.com/fitbase/fitbase/internal/db"
@@ -18,11 +21,21 @@ import (
 // CoachHandler serves AI coaching insight requests.
 type CoachHandler struct {
 	db *db.DB
+
+	// jobs holds the current detached LLM run per kind ("chat", "insights") so
+	// a browser that navigates away can re-attach instead of the run dying with
+	// the connection. See coach_job.go.
+	jobsMu sync.Mutex
+	jobs   map[string]*sseJob
 }
 
 func NewCoachHandler(database *db.DB) *CoachHandler {
-	return &CoachHandler{db: database}
+	return &CoachHandler{db: database, jobs: map[string]*sseJob{}}
 }
+
+// llmRunTimeout bounds a detached chat/insights run — without a client
+// connection to cancel it, this is what stops a hung provider call.
+const llmRunTimeout = 10 * time.Minute
 
 // cachedInsightsResponse is the shape returned by GET /api/coach/insights.
 // Content is a Markdown blob that the browser renders.
@@ -128,34 +141,66 @@ func (h *CoachHandler) GenerateInsights(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	job, ok := h.startJob("insights")
+	if !ok {
+		writeError(w, http.StatusConflict, "insights generation is already in progress")
+		return
+	}
+	job.emit("job", map[string]string{"id": job.ID})
+
+	// Detached from the request context: navigating away doesn't cancel the
+	// generation — it finishes, lands in the cache, and the browser re-attaches
+	// (or just loads the cache) when it comes back.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), llmRunTimeout)
+		defer cancel()
+
+		full, genErr := coach.StreamInsights(ctx, data, func(chunk string) error {
+			job.emit("chunk", map[string]string{"text": chunk})
+			return nil
+		})
+		if genErr != nil {
+			job.emit("error", map[string]string{"error": genErr.Error()})
+			job.finish()
+			return
+		}
+
+		// Non-fatal if the cache write fails — the user still got their insights.
+		_ = h.db.SaveCachedInsights(db.CachedInsights{
+			Provider: settings.Provider,
+			Model:    settings.Model,
+			Content:  full,
+		})
+
+		job.emit("done", map[string]string{
+			"provider":     settings.Provider,
+			"model":        settings.Model,
+			"generated_at": time.Now().UTC().Format(time.RFC3339),
+		})
+		job.finish()
+	}()
+
 	setupSSE(w)
 	// Some proxies hold the response until Content-Length is known; flush so the
 	// browser sees headers immediately and begins streaming.
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}
+	job.streamTo(w, r.Context())
+}
 
-	full, err := coach.StreamInsights(r.Context(), data, func(chunk string) error {
-		writeSSE(w, "chunk", map[string]string{"text": chunk})
-		return nil
-	})
-	if err != nil {
-		writeSSE(w, "error", map[string]string{"error": err.Error()})
-		return
-	}
+// InsightsActive reports the current insights run's {id, done}, or 204.
+//
+// GET /api/coach/insights/active
+func (h *CoachHandler) InsightsActive(w http.ResponseWriter, r *http.Request) {
+	h.jobStatus(w, "insights")
+}
 
-	// Non-fatal if the cache write fails — the user still got their insights.
-	_ = h.db.SaveCachedInsights(db.CachedInsights{
-		Provider: settings.Provider,
-		Model:    settings.Model,
-		Content:  full,
-	})
-
-	writeSSE(w, "done", map[string]string{
-		"provider":     settings.Provider,
-		"model":        settings.Model,
-		"generated_at": time.Now().UTC().Format(time.RFC3339),
-	})
+// InsightsEvents re-attaches to an insights run's SSE stream.
+//
+// GET /api/coach/insights/{id}/events
+func (h *CoachHandler) InsightsEvents(w http.ResponseWriter, r *http.Request) {
+	h.attachJob(w, r, "insights", chi.URLParam(r, "id"))
 }
 
 // chatRequest is the body of POST /api/coach/chat. The browser owns the
@@ -174,10 +219,15 @@ const maxChatMessages = 40
 //
 // Events:
 //
+//	job    {"id":"..."}                                       // detached-turn id, always first
 //	tool   {"name":"...","status":"running"|"done"|"error"}  // data fetch progress
 //	chunk  {"text":"..."}                                     // final answer delta
 //	done   {"provider":"...","model":"...","generated_at":""} // finished
 //	error  {"error":"..."}                                    // fatal; stream ends
+//
+// The turn itself runs detached (see coach_job.go): closing this response —
+// navigating to another page — does not cancel it. The browser stores the job
+// id and re-attaches via GET /api/coach/chat/{id}/events for a full replay.
 //
 // POST /api/coach/chat
 func (h *CoachHandler) Chat(w http.ResponseWriter, r *http.Request) {
@@ -261,10 +311,16 @@ func (h *CoachHandler) Chat(w http.ResponseWriter, r *http.Request) {
 		systemContext += "\n\n" + profileBlock
 	}
 
-	setupSSE(w)
-	if f, ok := w.(http.Flusher); ok {
-		f.Flush()
+	// One chat turn at a time: the browser re-attaches to the running turn
+	// rather than racing a second one against it.
+	job, ok := h.startJob("chat")
+	if !ok {
+		writeError(w, http.StatusConflict, "a coach reply is already in progress")
+		return
 	}
+	// First event carries the job id so the browser can persist it and
+	// re-attach via GET /api/coach/chat/{id}/events after navigating away.
+	job.emit("job", map[string]string{"id": job.ID})
 
 	// Tool side effects reach the browser through a typed callback instead of
 	// the HTTP layer re-parsing model-facing tool JSON: when propose_schedule
@@ -273,7 +329,7 @@ func (h *CoachHandler) Chat(w http.ResponseWriter, r *http.Request) {
 	// draft and render the "review and add to calendar" card.
 	ev := toolEvents{
 		OnPreview: func(id string, count int) {
-			writeSSE(w, "preview", map[string]any{"id": id, "count": count})
+			job.emit("preview", map[string]any{"id": id, "count": count})
 		},
 	}
 	exec := func(ctx context.Context, name string, input json.RawMessage) (string, error) {
@@ -288,32 +344,64 @@ func (h *CoachHandler) Chat(w http.ResponseWriter, r *http.Request) {
 		toolLabels[t.Name] = t.Label
 	}
 
-	_, err = coach.Chat(r.Context(), req.Messages, systemContext, tools, exec, aicoach.ChatCallbacks{
-		OnToolStart: func(name string) {
-			writeSSE(w, "tool", map[string]string{"name": name, "label": toolLabels[name], "status": "running"})
-		},
-		OnToolEnd: func(name string, ok bool) {
-			status := "done"
-			if !ok {
-				status = "error"
-			}
-			writeSSE(w, "tool", map[string]string{"name": name, "label": toolLabels[name], "status": status})
-		},
-		OnText: func(chunk string) error {
-			writeSSE(w, "chunk", map[string]string{"text": chunk})
-			return nil
-		},
-	})
-	if err != nil {
-		writeSSE(w, "error", map[string]string{"error": err.Error()})
-		return
-	}
+	// The turn runs detached from the request context: navigating away closes
+	// the SSE stream but the model keeps working, buffering into the job for
+	// the browser to replay when it comes back.
+	messages := req.Messages
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), llmRunTimeout)
+		defer cancel()
 
-	writeSSE(w, "done", map[string]string{
-		"provider":     settings.Provider,
-		"model":        settings.Model,
-		"generated_at": time.Now().UTC().Format(time.RFC3339),
-	})
+		_, chatErr := coach.Chat(ctx, messages, systemContext, tools, exec, aicoach.ChatCallbacks{
+			OnToolStart: func(name string) {
+				job.emit("tool", map[string]string{"name": name, "label": toolLabels[name], "status": "running"})
+			},
+			OnToolEnd: func(name string, ok bool) {
+				status := "done"
+				if !ok {
+					status = "error"
+				}
+				job.emit("tool", map[string]string{"name": name, "label": toolLabels[name], "status": status})
+			},
+			OnText: func(chunk string) error {
+				job.emit("chunk", map[string]string{"text": chunk})
+				return nil
+			},
+		})
+		if chatErr != nil {
+			job.emit("error", map[string]string{"error": chatErr.Error()})
+		} else {
+			job.emit("done", map[string]string{
+				"provider":     settings.Provider,
+				"model":        settings.Model,
+				"generated_at": time.Now().UTC().Format(time.RFC3339),
+			})
+		}
+		job.finish()
+	}()
+
+	setupSSE(w)
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+	job.streamTo(w, r.Context())
+}
+
+// ChatActive reports the current chat turn's {id, done}, or 204 when none has
+// run since startup. The dashboard calls this on load to decide whether a
+// stored turn id can be re-attached.
+//
+// GET /api/coach/chat/active
+func (h *CoachHandler) ChatActive(w http.ResponseWriter, r *http.Request) {
+	h.jobStatus(w, "chat")
+}
+
+// ChatEvents re-attaches to a chat turn's SSE stream, replaying everything
+// buffered so far and tailing until the turn completes.
+//
+// GET /api/coach/chat/{id}/events
+func (h *CoachHandler) ChatEvents(w http.ResponseWriter, r *http.Request) {
+	h.attachJob(w, r, "chat", chi.URLParam(r, "id"))
 }
 
 // collectCoachingData gathers all the raw training data the LLM needs: athlete
