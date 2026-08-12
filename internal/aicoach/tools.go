@@ -7,6 +7,7 @@ const (
 	ToolGetReadiness        = "get_readiness"
 	ToolGetFitnessTrend     = "get_fitness_trend"
 	ToolProposeSchedule     = "propose_schedule"
+	ToolListPlannedWorkouts = "list_planned_workouts"
 	ToolListRecentWorkouts  = "list_recent_workouts"
 	ToolGetWorkoutDetail    = "get_workout_detail"
 	ToolGetWeeklyBreakdown  = "get_weekly_breakdown"
@@ -143,9 +144,17 @@ func CoachTools() []ToolSpec {
 			}),
 		},
 		{
+			Name:        ToolListPlannedWorkouts,
+			Label:       "your planned workouts",
+			Description: "Workouts already planned on the rider's calendar (both coach-proposed and manually added), soonest first, with id, date, title, sport, duration, TSS, and source. ALWAYS call this before propose_schedule so a new plan works around what's already scheduled — accepting a proposal replaces coach-planned workouts on the same dates but leaves manual entries alone, so overlap with manual entries must be avoided by choosing different dates. Also the right call for 'what's on my calendar' or 'what's my next workout' questions.",
+			InputSchema: objSchema(map[string]any{
+				"days": intProp("How many days ahead to look (default 28, max 90). Also includes the past 7 days so a just-started week is visible."),
+			}),
+		},
+		{
 			Name:        ToolProposeSchedule,
 			Label:       "a schedule draft",
-			Description: "Draft a training schedule for the rider to review — call this whenever the rider asks for a plan, a week, or 'what should I do next'; a plan described only in prose never reaches their calendar. The server stores the batch as a DRAFT and returns a preview id; the rider sees a preview card and clicks 'Add to calendar' to accept, or discards. Pass one entry per training day (max 21) with dates today or later; skip rest days rather than sending empty workouts. Every workout needs a title — it's the session's name on the rider's preview card and calendar. Gather context first (readiness and weekly load at minimum) so the plan fits current form. Give key sessions structured intervals — warmup, work set with recoveries, cooldown — and use a repeat group (steps + repeat) for patterns like 4x(8min sweet spot + 3min recovery).",
+			Description: "Draft a training schedule for the rider to review — call this whenever the rider asks for a plan, a week, or 'what should I do next'; a plan described only in prose never reaches their calendar. The server stores the batch as a DRAFT and returns a preview id; the rider sees a preview card and clicks 'Add to calendar' to accept, or discards. Pass one entry per training day (max 21) with dates today or later; skip rest days rather than sending empty workouts. Every workout needs a title — it's the session's name on the rider's preview card and calendar. Gather context first (readiness, weekly load, and list_planned_workouts at minimum) so the plan fits current form and works around what's already scheduled. Accepting a proposal REPLACES coach-planned workouts on the same dates (manual entries are kept) — so to fix or reschedule an already-accepted coach plan, simply re-propose those dates; nothing is ever duplicated. Each new proposal also supersedes any earlier undecided draft. Give key sessions structured intervals — warmup, work set with recoveries, cooldown — and use a repeat group (steps + repeat) for patterns like 4x(8min sweet spot + 3min recovery).",
 			InputSchema: objSchema(map[string]any{
 				"workouts": arrayProp(
 					objSchema(map[string]any{

@@ -111,6 +111,8 @@ func (h *CoachHandler) execTool(_ context.Context, name string, input json.RawMe
 		return h.toolGoalProgress()
 	case aicoach.ToolProposeSchedule:
 		return h.toolProposeSchedule(input, ev)
+	case aicoach.ToolListPlannedWorkouts:
+		return h.toolListPlannedWorkouts(input)
 	default:
 		return "", fmt.Errorf("unknown tool %q", name)
 	}
@@ -363,7 +365,53 @@ func (h *CoachHandler) toolProposeSchedule(input json.RawMessage, ev toolEvents)
 	return jsonResult(map[string]any{
 		"preview_id": id,
 		"count":      len(args.Workouts),
-		"message":    "Saved as a draft. The rider sees a preview card; tell them to review it and click 'Add to calendar' to accept.",
+		"message":    "Saved as a draft, superseding any earlier undecided draft. The rider sees a preview card; tell them to review it and click 'Add to calendar' to accept. Accepting replaces coach-planned workouts already on these dates, so nothing gets double-booked.",
+	})
+}
+
+// toolListPlannedWorkouts returns what's already on the rider's planning
+// calendar so the coach can propose around it (and answer "what's next").
+// Includes the recent past week so a mid-week conversation sees the whole week.
+func (h *CoachHandler) toolListPlannedWorkouts(input json.RawMessage) (string, error) {
+	var args struct {
+		Days int `json:"days"`
+	}
+	_ = json.Unmarshal(input, &args)
+	days := clampInt(args.Days, 28, 1, 90)
+
+	now := time.Now().UTC()
+	rows, err := h.db.ListPlannedWorkoutsBetween(now.AddDate(0, 0, -7), now.AddDate(0, 0, days))
+	if err != nil {
+		return "", err
+	}
+
+	type plannedBrief struct {
+		ID           string   `json:"id"`
+		Date         string   `json:"date"`
+		Sport        string   `json:"sport"`
+		Title        string   `json:"title"`
+		DurationMins int      `json:"duration_mins"`
+		TSS          *float64 `json:"tss,omitempty"`
+		Source       string   `json:"source"`
+	}
+	out := make([]plannedBrief, 0, len(rows))
+	for _, p := range rows {
+		out = append(out, plannedBrief{
+			ID:           p.ID,
+			Date:         p.PlannedDate.Format("2006-01-02"),
+			Sport:        p.Sport,
+			Title:        p.Title,
+			DurationMins: p.DurationSecs / 60,
+			TSS:          p.TSS,
+			Source:       p.Source,
+		})
+	}
+	return jsonResult(map[string]any{
+		"count":    len(out),
+		"planned":  out,
+		"note":     "source 'coach' entries on a date are replaced when the rider accepts a new proposal covering that date; 'manual' entries are never touched — avoid double-booking those days.",
+		"today":    now.Format("2006-01-02"),
+		"window":   fmt.Sprintf("%s to %s", now.AddDate(0, 0, -7).Format("2006-01-02"), now.AddDate(0, 0, days).Format("2006-01-02")),
 	})
 }
 
