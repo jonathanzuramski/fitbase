@@ -1848,3 +1848,42 @@ func TestResetDerivedData_PreservesProfile(t *testing.T) {
 		t.Error("FTP history wiped by reset; should be preserved")
 	}
 }
+
+// ── GetWeeklyBreakdown ────────────────────────────────────────────────────────
+
+// Regression: the weekly query labels rows with strftime('%G-W%V', ...), which
+// requires SQLite >= 3.46. On older builds strftime returned NULL and the
+// HAVING clause silently dropped every row, so the endpoint always came back empty.
+func TestGetWeeklyBreakdown(t *testing.T) {
+	d := newTestDB(t)
+
+	recorded := time.Now().UTC().Add(-48 * time.Hour)
+	w := sampleWorkout("weeklybreakdown1")
+	w.RecordedAt = recorded
+	if err := d.InsertWorkout(w, nil); err != nil {
+		t.Fatalf("InsertWorkout: %v", err)
+	}
+
+	rows, err := d.GetWeeklyBreakdown(12)
+	if err != nil {
+		t.Fatalf("GetWeeklyBreakdown: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("rows: got %d want 1", len(rows))
+	}
+
+	isoYear, isoWeek := recorded.ISOWeek()
+	wantWeek := fmt.Sprintf("%04d-W%02d", isoYear, isoWeek)
+	if rows[0].Week != wantWeek {
+		t.Errorf("Week: got %q want %q", rows[0].Week, wantWeek)
+	}
+	if rows[0].WorkoutCount != 1 {
+		t.Errorf("WorkoutCount: got %d want 1", rows[0].WorkoutCount)
+	}
+	if rows[0].TSS != *w.TSS {
+		t.Errorf("TSS: got %.1f want %.1f", rows[0].TSS, *w.TSS)
+	}
+	if rows[0].LoadType == "" {
+		t.Error("LoadType is empty")
+	}
+}
