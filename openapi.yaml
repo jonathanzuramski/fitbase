@@ -943,6 +943,16 @@ components:
         ftp_watts: { type: integer }
         weight_kg: { type: number }
 
+    WorkoutRef:
+      type: object
+      properties:
+        id:                    { type: string }
+        training_day:          { type: string, format: date, example: "2025-03-24", description: "Ride-local calendar day." }
+        tss:                   { type: number }
+        duration_secs:         { type: integer }
+        distance_meters:       { type: number }
+        elevation_gain_meters: { type: number }
+
     WeeklyLoad:
       type: object
       properties:
@@ -953,6 +963,7 @@ components:
         elevation_gain_meters: { type: number }
         workout_count:         { type: integer }
         load_type:             { type: string, enum: [Low, Medium, High, "Very High"] }
+        workout_refs:          { type: array, items: { $ref: "#/components/schemas/WorkoutRef" }, description: "Per-workout drill-down references, in training-day order." }
 
     ZoneBreakdown:
       type: object

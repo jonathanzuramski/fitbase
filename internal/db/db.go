@@ -1177,10 +1177,10 @@ func (db *DB) GetWeeklyBreakdown(weeks int) ([]models.WeeklyLoad, error) {
 	start := timeutil.MondayOf(time.Now().In(tz)).AddDate(0, 0, -((weeks - 1) * 7))
 
 	rows, err := db.Query(`
-		SELECT training_day, COALESCE(tss, 0), duration_secs, distance_meters, elevation_gain_meters
+		SELECT id, training_day, COALESCE(tss, 0), duration_secs, distance_meters, elevation_gain_meters
 		FROM workouts
 		WHERE training_day >= ? AND training_day IS NOT NULL
-		ORDER BY training_day ASC`,
+		ORDER BY training_day ASC, recorded_at ASC`,
 		start.Format("2006-01-02"),
 	)
 	if err != nil {
@@ -1192,13 +1192,11 @@ func (db *DB) GetWeeklyBreakdown(weeks int) ([]models.WeeklyLoad, error) {
 	// week's workouts are contiguous and a label change opens a new bucket.
 	var result []models.WeeklyLoad
 	for rows.Next() {
-		var trainingDay string
-		var tss, dist, elev float64
-		var dur int
-		if err := rows.Scan(&trainingDay, &tss, &dur, &dist, &elev); err != nil {
+		var ref models.WorkoutRef
+		if err := rows.Scan(&ref.ID, &ref.TrainingDay, &ref.TSS, &ref.DurationSecs, &ref.DistanceMeters, &ref.ElevationGainMeters); err != nil {
 			return nil, err
 		}
-		day, err := time.ParseInLocation("2006-01-02", trainingDay, tz)
+		day, err := time.ParseInLocation("2006-01-02", ref.TrainingDay, tz)
 		if err != nil {
 			continue // malformed training_day: skip rather than fail the report
 		}
@@ -1207,11 +1205,12 @@ func (db *DB) GetWeeklyBreakdown(weeks int) ([]models.WeeklyLoad, error) {
 			result = append(result, models.WeeklyLoad{Week: week})
 		}
 		wl := &result[len(result)-1]
-		wl.TSS += tss
-		wl.DurationSecs += dur
-		wl.DistanceMeters += dist
-		wl.ElevationGainMeters += elev
+		wl.TSS += ref.TSS
+		wl.DurationSecs += ref.DurationSecs
+		wl.DistanceMeters += ref.DistanceMeters
+		wl.ElevationGainMeters += ref.ElevationGainMeters
 		wl.WorkoutCount++
+		wl.WorkoutRefs = append(wl.WorkoutRefs, ref)
 	}
 	for i := range result {
 		result[i].LoadType = fitness.ClassifyWeeklyLoad(result[i].TSS)
