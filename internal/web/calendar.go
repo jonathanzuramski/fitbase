@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/fitbase/fitbase/internal/models"
+	"github.com/fitbase/fitbase/internal/timeutil"
 )
 
 // CalendarWorkout is a compact representation of a workout for the calendar grid.
@@ -65,12 +66,15 @@ func buildCalendarData(year int, month time.Month, workouts []models.Workout, pl
 	now := time.Now().In(tz)
 	todayY, todayM, todayD := now.Date()
 
-	// Index workouts by day-of-month.
-	byDay := map[int][]CalendarWorkout{}
+	// Index workouts by their ride-local calendar day (training_day) — the
+	// day the athlete experienced, regardless of viewer or profile timezone.
+	byDay := map[string][]CalendarWorkout{}
 	for _, w := range workouts {
-		local := w.RecordedAt.In(tz)
-		d := local.Day()
-		byDay[d] = append(byDay[d], CalendarWorkout{
+		day := w.TrainingDay
+		if day == "" {
+			day = w.RecordedAt.In(tz).Format("2006-01-02")
+		}
+		byDay[day] = append(byDay[day], CalendarWorkout{
 			ID:           w.ID,
 			Sport:        w.Sport,
 			DurationSecs: w.DurationSecs,
@@ -98,11 +102,7 @@ func buildCalendarData(year int, month time.Month, workouts []models.Workout, pl
 
 	// Find the Monday on or before the 1st of the month.
 	first := time.Date(year, month, 1, 0, 0, 0, 0, tz)
-	wd := first.Weekday()
-	if wd == time.Sunday {
-		wd = 7
-	}
-	gridStart := first.AddDate(0, 0, -(int(wd) - 1)) // back to Monday
+	gridStart := timeutil.MondayOf(first)
 
 	// Build weeks until we pass the last day of the month.
 	last := first.AddDate(0, 1, -1) // last day of month
@@ -120,7 +120,7 @@ func buildCalendarData(year int, month time.Month, workouts []models.Workout, pl
 				IsToday: cy == todayY && cm == todayM && cd == todayD,
 			}
 			if inMonth {
-				day.Workouts = byDay[cd]
+				day.Workouts = byDay[day.DateISO]
 				day.Planned = plannedByDay[cd]
 			}
 			// Accumulate weekly totals for all days (including padding).

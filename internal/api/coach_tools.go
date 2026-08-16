@@ -11,6 +11,7 @@ import (
 	"github.com/fitbase/fitbase/internal/aicoach"
 	"github.com/fitbase/fitbase/internal/fitness"
 	"github.com/fitbase/fitbase/internal/models"
+	"github.com/fitbase/fitbase/internal/timeutil"
 )
 
 // Execution side of the conversational coach's tools. Schemas live in
@@ -28,8 +29,12 @@ import (
 // The chat list tool deliberately uses the cheaper ToSummary() instead and
 // only computes decoupling for a single workout in get_workout_detail.
 func (h *CoachHandler) briefFromWorkout(w models.Workout) aicoach.WorkoutBrief {
+	day := w.TrainingDay
+	if day == "" {
+		day = w.RecordedAt.Format("2006-01-02")
+	}
 	brief := aicoach.WorkoutBrief{
-		Date:            w.RecordedAt.Format("2006-01-02"),
+		Date:            day,
 		Sport:           w.Sport,
 		DurationMins:    float64(w.DurationSecs) / 60,
 		DistanceKM:      w.DistanceMeters / 1000,
@@ -194,7 +199,7 @@ func (h *CoachHandler) toolListRecentWorkouts(input json.RawMessage) (string, er
 	limit := clampInt(args.Limit, 40, 1, 100)
 	sport := strings.ToLower(strings.TrimSpace(args.Sport))
 
-	since := time.Now().UTC().AddDate(0, 0, -days)
+	since := time.Now().In(h.db.AthleteLocation()).AddDate(0, 0, -days)
 	// Sport filter and limit run in SQL so the DB never hydrates rows this
 	// tool would discard.
 	rows, err := h.db.ListWorkoutsSince(since, sport, limit)
@@ -286,7 +291,7 @@ func (h *CoachHandler) toolPowerCurve(input json.RawMessage) (string, error) {
 	}
 
 	days := clampInt(args.Days, 90, 7, 365)
-	since := time.Now().UTC().AddDate(0, 0, -days)
+	since := time.Now().In(h.db.AthleteLocation()).AddDate(0, 0, -days)
 	recent, err := h.db.GetPowerCurveSince(since)
 	if err != nil {
 		return "", err
@@ -379,7 +384,7 @@ func (h *CoachHandler) toolListPlannedWorkouts(input json.RawMessage) (string, e
 	_ = json.Unmarshal(input, &args)
 	days := clampInt(args.Days, 28, 1, 90)
 
-	now := time.Now().UTC()
+	now := time.Now().In(h.db.AthleteLocation())
 	rows, err := h.db.ListPlannedWorkoutsBetween(now.AddDate(0, 0, -7), now.AddDate(0, 0, days))
 	if err != nil {
 		return "", err
@@ -455,7 +460,8 @@ func (h *CoachHandler) toolPerformanceTrend(input json.RawMessage) (string, erro
 	}
 	_ = json.Unmarshal(input, &args)
 	days := clampInt(args.Days, 90, 14, 365)
-	since := time.Now().UTC().AddDate(0, 0, -days)
+	tz := h.db.AthleteLocation()
+	since := time.Now().In(tz).AddDate(0, 0, -days)
 
 	rows, err := h.db.ListWorkoutsSince(since, "", 0)
 	if err != nil {
@@ -470,10 +476,9 @@ func (h *CoachHandler) toolPerformanceTrend(input json.RawMessage) (string, erro
 	weeks := map[string]*weekAgg{}
 	for i := range rows {
 		w := rows[i]
-		// Label by the Monday of the recorded week (UTC) — consistent bucketing
-		// is what matters for a trend, not calendar-perfect local weeks.
-		wd := (int(w.RecordedAt.UTC().Weekday()) + 6) % 7
-		monday := w.RecordedAt.UTC().AddDate(0, 0, -wd).Format("2006-01-02")
+		// Label by the Monday of the recorded week in the athlete's timezone, so
+		// this trend buckets rides the same way training_day and the dashboard do.
+		monday := timeutil.MondayOf(w.RecordedAt.In(tz)).Format("2006-01-02")
 		agg := weeks[monday]
 		if agg == nil {
 			agg = &weekAgg{}

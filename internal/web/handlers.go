@@ -18,6 +18,7 @@ import (
 	"github.com/fitbase/fitbase/internal/fitness"
 	"github.com/fitbase/fitbase/internal/intervals"
 	"github.com/fitbase/fitbase/internal/models"
+	"github.com/fitbase/fitbase/internal/timeutil"
 )
 
 type pageTemplates struct {
@@ -258,14 +259,8 @@ func (th *templateHandler) index(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now().In(tz)
-	weekday := int(now.Weekday())
-	if weekday == 0 {
-		weekday = 7
-	}
-	todayIdx := weekday - 1 // Mon=0 … Sun=6
-
-	todayDate := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, tz)
-	weekStart := todayDate.AddDate(0, 0, -todayIdx)
+	todayIdx := timeutil.DaysSinceMonday(now) // Mon=0 … Sun=6
+	weekStart := timeutil.MondayOf(now)
 	yearStart := time.Date(now.Year(), 1, 1, 0, 0, 0, 0, tz)
 
 	weekSummary, _ := th.db.GetPeriodSummary(weekStart)
@@ -894,7 +889,7 @@ func (th *templateHandler) calendar(w http.ResponseWriter, r *http.Request) {
 		month = time.Month(m)
 	}
 
-	workouts, err := th.db.GetWorkoutsForMonth(year, month, tz)
+	workouts, err := th.db.GetWorkoutsForMonth(year, month)
 	if err != nil {
 		http.Error(w, "database error", http.StatusInternalServerError)
 		return

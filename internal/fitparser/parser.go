@@ -70,8 +70,26 @@ func Parse(r io.Reader, filename string, ftpWatts, thresholdHR, restingHR int) (
 		CreatedAt: time.Now().UTC(),
 	}
 
-	// StartTime is already time.Time
+	// StartTime is already time.Time (UTC — FIT timestamps are UTC by spec).
 	workout.RecordedAt = session.StartTime
+
+	// Device-declared local time: the activity message's optional
+	// local_timestamp is the same epoch expressed in device-local time, so the
+	// difference to the UTC timestamp is the UTC offset the device's clock was
+	// set to — ground truth for what the athlete's screen showed, even for
+	// virtual rides while traveling. Guarded against junk: real offsets are
+	// 15-minute multiples within ±14h. A zero offset is treated as absent —
+	// devices that never learned their timezone write local == UTC, and the
+	// GPS/profile fallbacks resolve genuine UTC+0 correctly anyway.
+	if activity.Activity != nil {
+		lt, ts := activity.Activity.LocalTimestamp, activity.Activity.Timestamp
+		if !lt.IsZero() && !ts.IsZero() {
+			off := int(lt.Sub(ts).Seconds())
+			if off != 0 && off%900 == 0 && off >= -14*3600 && off <= 14*3600 {
+				workout.UTCOffsetSecs = &off
+			}
+		}
+	}
 
 	// TotalTimerTime: active (moving) time, excludes auto-pause periods.
 	if t := session.TotalTimerTimeScaled(); !math.IsNaN(t) {
@@ -166,6 +184,19 @@ func Parse(r io.Reader, filename string, ftpWatts, thresholdHR, restingHR int) (
 		}
 
 		streams = append(streams, s)
+	}
+
+	// First valid GPS fix, for timezone/place resolution downstream. Indoor
+	// rides are excluded: virtual platforms record in-game coordinates (Zwift's
+	// Watopia is in the Solomon Islands), which describe nowhere the athlete was.
+	if !workout.IsIndoor {
+		for i := range streams {
+			s := &streams[i]
+			if s.Lat != nil && s.Lng != nil && !(*s.Lat == 0 && *s.Lng == 0) {
+				workout.StartLat, workout.StartLng = s.Lat, s.Lng
+				break
+			}
+		}
 	}
 
 	// Distance fallback 1: some devices omit TotalDistance in the session record

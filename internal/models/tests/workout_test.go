@@ -35,8 +35,10 @@ func TestToSummary(t *testing.T) {
 	if s.ID != "abc123" {
 		t.Errorf("ID: got %q want %q", s.ID, "abc123")
 	}
-	if s.Date != "2024-03-15" {
-		t.Errorf("Date: got %q want %q", s.Date, "2024-03-15")
+	// No TrainingDay set on the workout: summary falls back to the recorded
+	// instant's calendar day.
+	if s.TrainingDay != "2024-03-15" {
+		t.Errorf("TrainingDay: got %q want %q", s.TrainingDay, "2024-03-15")
 	}
 	if s.Sport != "cycling" {
 		t.Errorf("Sport: got %q", s.Sport)

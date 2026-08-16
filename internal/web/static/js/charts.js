@@ -1274,7 +1274,11 @@ function renderActivityCards(containerId, tracks, workouts) {
       : (w.distance_meters / 1000).toFixed(1) + " km";
     const dur = fmtDurJS(w.duration_secs);
     const power = w.avg_power_watts ? Math.round(w.avg_power_watts) + " W" : "";
-    const date = new Date(w.recorded_at).toLocaleDateString("en-US", {
+    // training_day is the ride-local calendar day. Parse the parts manually:
+    // new Date("YYYY-MM-DD") would interpret it as UTC midnight and shift the
+    // displayed day for viewers west of Greenwich.
+    const [dy, dm, dd] = (w.training_day || w.recorded_at.slice(0, 10)).split("-").map(Number);
+    const date = new Date(dy, dm - 1, dd).toLocaleDateString("en-US", {
       month: "short", day: "numeric", year: "numeric",
     });
     const thumb = track

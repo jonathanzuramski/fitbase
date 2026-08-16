@@ -105,10 +105,7 @@ func (db *DB) GetRecentZoneTotals(days int) ([7]int, [5]int, int, error) {
 // caller would discard.
 func (db *DB) ListWorkoutsSince(since time.Time, sport string, limit int) ([]models.Workout, error) {
 	q := `
-		SELECT id, filename, recorded_at, sport, duration_secs, elapsed_secs, distance_meters,
-		       elevation_gain_meters, avg_power_watts, max_power_watts, normalized_power,
-		       avg_heart_rate, max_heart_rate, avg_cadence, avg_speed_mps,
-		       tss, intensity_factor, is_indoor, route_id, created_at
+		SELECT ` + workoutCols + `
 		FROM workouts
 		WHERE recorded_at >= ?`
 	args := []any{since.UTC().Format(time.RFC3339)}

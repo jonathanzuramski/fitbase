@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/fitbase/fitbase/internal/geo"
 )
 
 // Meta keys: one-shot flags handed from a migration to the boot path, stored
@@ -76,6 +78,7 @@ var migrations = []func(*sql.Tx) error{
 	migrateBaseline,            // v2 — reconcile pre-user_version schema drift
 	migrateConvergeDerivedData, // v3 — rederive legacy derived data in place
 	migrateAICoach,             // v4 — AI coach settings/cache, schedule drafts, decoupling cache
+	migrateRideLocalTime,       // v5 — per-ride UTC offset, start coords, county/state + backfill
 }
 
 // migrate replays every migration the database hasn't run yet.
@@ -343,6 +346,137 @@ func migrateAICoach(tx *sql.Tx) error {
 		return fmt.Errorf("create ai coach tables: %w", err)
 	}
 	return nil
+}
+
+// migrateRideLocalTime (v5) makes each workout self-describing in time and
+// place: it adds utc_offset_secs (the UTC offset where/when the ride started),
+// start_lat/start_lng (first GPS fix), county/state (US Census lookup), and
+// geo_v (lookup-data version stamp), then backfills them all in place from
+// data already in the database.
+//
+// Offsets are resolved from the ride's own GPS position, so historical travel
+// rides and DST both come out correct; rides without GPS (indoor) fall back to
+// the athlete profile timezone evaluated at the ride's date. training_day is
+// then re-derived from the per-ride offset, converging rows that were stamped
+// with whatever the profile timezone happened to be at insert time.
+//
+// Calling the live geo package from a migration is deliberate — the v3 /
+// simplifyCoords precedent: a future dataset or lookup change ships its own
+// migration that re-converges rows whose geo_v is below the new version. The
+// "not yet converged" predicate here is geo_v IS NULL, never the live const.
+func migrateRideLocalTime(tx *sql.Tx) error {
+	addColumn := func(col, def string) error {
+		_, err := tx.Exec(fmt.Sprintf("ALTER TABLE workouts ADD COLUMN %s %s", col, def))
+		if err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+			return fmt.Errorf("add workouts.%s: %w", col, err)
+		}
+		return nil
+	}
+	for _, c := range []struct{ col, def string }{
+		{"utc_offset_secs", "INTEGER"},
+		{"start_lat", "REAL"},
+		{"start_lng", "REAL"},
+		{"county", "TEXT"},
+		{"state", "TEXT"},
+		{"geo_v", "INTEGER"},
+	} {
+		if err := addColumn(c.col, c.def); err != nil {
+			return err
+		}
+	}
+
+	// Fallback timezone for GPS-less rides: the athlete profile, same policy
+	// InsertWorkout used when these rows were written.
+	tz := time.UTC
+	var tzName string
+	switch err := tx.QueryRow(`SELECT timezone FROM athlete WHERE id = 1`).Scan(&tzName); {
+	case err == sql.ErrNoRows:
+		// no profile yet — UTC default
+	case err != nil:
+		return fmt.Errorf("read athlete timezone: %w", err)
+	default:
+		if loc, err := time.LoadLocation(tzName); err == nil {
+			tz = loc
+		}
+	}
+
+	type wrow struct {
+		id, rec string
+		indoor  bool
+	}
+	var work []wrow
+	rows, err := tx.Query(`SELECT id, recorded_at, is_indoor FROM workouts WHERE geo_v IS NULL`)
+	if err != nil {
+		return fmt.Errorf("scan for unconverged workouts: %w", err)
+	}
+	for rows.Next() {
+		var r wrow
+		if err := rows.Scan(&r.id, &r.rec, &r.indoor); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		work = append(work, r)
+	}
+	_ = rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, r := range work {
+		rec, err := time.Parse(time.RFC3339, r.rec)
+		if err != nil {
+			continue // unparseable timestamp: leave untouched rather than fail the ladder
+		}
+
+		var startLat, startLng any
+		var county, state any
+		offset, haveOffset := 0, false
+
+		// Indoor rides are excluded from GPS resolution entirely: virtual
+		// platforms record in-game coordinates (Zwift's Watopia sits in the
+		// Solomon Islands), which would yield an absurd timezone and place.
+		if !r.indoor {
+			if lat, lng, ok := firstGPSFixTx(tx, r.id); ok {
+				startLat, startLng = lat, lng
+				if secs, ok := geo.UTCOffsetAt(lat, lng, rec); ok {
+					offset, haveOffset = secs, true
+				}
+				if c, s, ok := geo.CountyState(lat, lng); ok {
+					county, state = c, s
+				}
+			}
+		}
+		if !haveOffset {
+			_, offset = rec.In(tz).Zone()
+		}
+
+		trainingDay := rec.In(time.FixedZone("", offset)).Format("2006-01-02")
+		if _, err := tx.Exec(`
+			UPDATE workouts
+			SET utc_offset_secs = ?, start_lat = ?, start_lng = ?,
+			    county = ?, state = ?, training_day = ?, geo_v = 1
+			WHERE id = ?`,
+			offset, startLat, startLng, county, state, trainingDay, r.id); err != nil {
+			return fmt.Errorf("backfill ride-local time for %s: %w", r.id, err)
+		}
+	}
+	return nil
+}
+
+// firstGPSFixTx returns a workout's first valid GPS coordinate, or ok=false
+// if it has none. Migration-local by design — see the "migration owns its
+// code" rule on migrations.
+func firstGPSFixTx(tx *sql.Tx, workoutID string) (lat, lng float64, ok bool) {
+	err := tx.QueryRow(`
+		SELECT lat, lng FROM workout_streams
+		WHERE workout_id = ?
+		  AND lat IS NOT NULL AND lng IS NOT NULL
+		  AND NOT (lat = 0 AND lng = 0)
+		ORDER BY timestamp LIMIT 1`, workoutID).Scan(&lat, &lng)
+	if err != nil {
+		return 0, 0, false
+	}
+	return lat, lng, true
 }
 
 // gpsPointsTx reads a workout's ordered GPS track. Migration-local by design —
