@@ -1067,15 +1067,15 @@ func (db *DB) athleteLocation() *time.Location {
 // GetFitnessOnDate returns the Fitness/Fatigue/Form values as of a specific date.
 // Uses the same 270-day lookback as the dashboard chart (90-day display + 180-day
 // warmup) so the EMA starting conditions are identical and the values match.
-// "Today" and the target are interpreted in the athlete's timezone.
-func (db *DB) GetFitnessOnDate(date time.Time) (models.FitnessPoint, error) {
-	tz := db.athleteLocation()
+// "Today" and the target are interpreted in tz — the viewer's timezone for web
+// requests (see timeutil.ViewerLocation), the profile timezone for AI paths.
+func (db *DB) GetFitnessOnDate(date time.Time, tz *time.Location) (models.FitnessPoint, error) {
 	target := timeutil.LocalMidnight(date.In(tz))
 	today := timeutil.LocalMidnight(time.Now().In(tz))
 	daysAgo := max(int(today.Sub(target).Hours()/24), 0)
 	// Request daysAgo+90 days so the total lookback matches the chart (270 days).
 	// The target date lands at index 90 from the oldest point returned.
-	points, err := db.getFitnessHistory(daysAgo+90, 0)
+	points, err := db.getFitnessHistory(daysAgo+90, 0, tz)
 	if err != nil {
 		return models.FitnessPoint{}, err
 	}
@@ -1090,28 +1090,29 @@ func (db *DB) GetFitnessOnDate(date time.Time) (models.FitnessPoint, error) {
 }
 
 // GetFitnessHistory returns daily Fitness/Fatigue/Form for the last n days.
-func (db *DB) GetFitnessHistory(days int) ([]models.FitnessPoint, error) {
-	return db.getFitnessHistory(days, 0)
+// tz anchors "today" — the last day of the walk.
+func (db *DB) GetFitnessHistory(days int, tz *time.Location) ([]models.FitnessPoint, error) {
+	return db.getFitnessHistory(days, 0, tz)
 }
 
 // GetFitnessHistoryForChart returns fitness history plus projected days assuming zero TSS.
-func (db *DB) GetFitnessHistoryForChart(days, projection int) ([]models.FitnessPoint, error) {
-	return db.getFitnessHistory(days, projection)
+// tz anchors "today" — the boundary between history and projection.
+func (db *DB) GetFitnessHistoryForChart(days, projection int, tz *time.Location) ([]models.FitnessPoint, error) {
+	return db.getFitnessHistory(days, projection, tz)
 }
 
-func (db *DB) getFitnessHistory(days, projection int) ([]models.FitnessPoint, error) {
+func (db *DB) getFitnessHistory(days, projection int, tz *time.Location) ([]models.FitnessPoint, error) {
 	// Warm up the EMA with 180 days of history before the display window.
 	// Fitness has a 42-day constant; starting from 0 at day -90 causes ~12% error
 	// and visible ramp-up distortion for the first several weeks of the chart.
 	const warmup = 180
 	totalDays := days + warmup
 
-	tz := db.athleteLocation()
 	today := timeutil.LocalMidnight(time.Now().In(tz))
 	start := today.AddDate(0, 0, -totalDays)
 
-	// training_day was computed at insert time using the athlete's local
-	// timezone, so we can group/filter by it directly without per-query math.
+	// training_day was stamped at insert time from the ride's own UTC offset,
+	// so we can group/filter by it directly without per-query timezone math.
 	rows, err := db.Query(`
 		SELECT training_day AS day, COALESCE(SUM(tss), 0) AS daily_tss
 		FROM workouts
@@ -1172,15 +1173,16 @@ func (db *DB) GetLastWorkoutDate() (*time.Time, error) {
 // including the current (partial) week. Weeks with no workouts are omitted.
 // Results are ordered oldest first. Weeks are reckoned from training_day, so a
 // ride belongs to the week the athlete experienced it in, not the UTC week.
-func (db *DB) GetWeeklyBreakdown(weeks int) ([]models.WeeklyLoad, error) {
-	tz := db.athleteLocation()
+// tz anchors the window's start — the Monday of "this week" as the viewer
+// (or, for AI paths, the profile timezone) reckons it.
+func (db *DB) GetWeeklyBreakdown(weeks int, tz *time.Location) ([]models.WeeklyLoad, error) {
 	start := timeutil.MondayOf(time.Now().In(tz)).AddDate(0, 0, -((weeks - 1) * 7))
 
 	rows, err := db.Query(`
-		SELECT training_day, COALESCE(tss, 0), duration_secs, distance_meters, elevation_gain_meters
+		SELECT id, training_day, COALESCE(tss, 0), duration_secs, distance_meters, elevation_gain_meters
 		FROM workouts
 		WHERE training_day >= ? AND training_day IS NOT NULL
-		ORDER BY training_day ASC`,
+		ORDER BY training_day ASC, recorded_at ASC`,
 		start.Format("2006-01-02"),
 	)
 	if err != nil {
@@ -1192,13 +1194,11 @@ func (db *DB) GetWeeklyBreakdown(weeks int) ([]models.WeeklyLoad, error) {
 	// week's workouts are contiguous and a label change opens a new bucket.
 	var result []models.WeeklyLoad
 	for rows.Next() {
-		var trainingDay string
-		var tss, dist, elev float64
-		var dur int
-		if err := rows.Scan(&trainingDay, &tss, &dur, &dist, &elev); err != nil {
+		var ref models.WorkoutRef
+		if err := rows.Scan(&ref.ID, &ref.TrainingDay, &ref.TSS, &ref.DurationSecs, &ref.DistanceMeters, &ref.ElevationGainMeters); err != nil {
 			return nil, err
 		}
-		day, err := time.ParseInLocation("2006-01-02", trainingDay, tz)
+		day, err := time.ParseInLocation("2006-01-02", ref.TrainingDay, tz)
 		if err != nil {
 			continue // malformed training_day: skip rather than fail the report
 		}
@@ -1207,11 +1207,12 @@ func (db *DB) GetWeeklyBreakdown(weeks int) ([]models.WeeklyLoad, error) {
 			result = append(result, models.WeeklyLoad{Week: week})
 		}
 		wl := &result[len(result)-1]
-		wl.TSS += tss
-		wl.DurationSecs += dur
-		wl.DistanceMeters += dist
-		wl.ElevationGainMeters += elev
+		wl.TSS += ref.TSS
+		wl.DurationSecs += ref.DurationSecs
+		wl.DistanceMeters += ref.DistanceMeters
+		wl.ElevationGainMeters += ref.ElevationGainMeters
 		wl.WorkoutCount++
+		wl.WorkoutRefs = append(wl.WorkoutRefs, ref)
 	}
 	for i := range result {
 		result[i].LoadType = fitness.ClassifyWeeklyLoad(result[i].TSS)

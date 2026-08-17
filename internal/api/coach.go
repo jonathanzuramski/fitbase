@@ -419,7 +419,7 @@ func (h *CoachHandler) collectCoachingData() (*aicoach.CoachingData, error) {
 		MaxHR:       athlete.MaxHR,
 	}
 
-	fitnessRaw, err := h.db.GetFitnessHistory(90)
+	fitnessRaw, err := h.db.GetFitnessHistory(90, h.db.AthleteLocation())
 	if err != nil {
 		return nil, err
 	}
@@ -443,7 +443,7 @@ func (h *CoachHandler) collectCoachingData() (*aicoach.CoachingData, error) {
 		workouts = append(workouts, h.briefFromWorkout(w))
 	}
 
-	weeklyRaw, err := h.db.GetWeeklyBreakdown(8)
+	weeklyRaw, err := h.db.GetWeeklyBreakdown(8, h.db.AthleteLocation())
 	if err != nil {
 		return nil, err
 	}

@@ -148,7 +148,7 @@ func (h *CoachHandler) toolAthleteProfile() (string, error) {
 // toolReadiness reuses the same core as GET /api/athlete/readiness — current
 // CTL/ATL/TSB, days since last workout, 28-day ramp rate, and a recommendation.
 func (h *CoachHandler) toolReadiness() (string, error) {
-	report, err := readinessReport(h.db)
+	report, err := readinessReport(h.db, h.db.AthleteLocation())
 	if err != nil {
 		return "", err
 	}
@@ -162,7 +162,7 @@ func (h *CoachHandler) toolFitnessTrend(input json.RawMessage) (string, error) {
 	_ = json.Unmarshal(input, &args)
 	days := clampInt(args.Days, 90, 7, 365)
 
-	hist, err := h.db.GetFitnessHistory(days)
+	hist, err := h.db.GetFitnessHistory(days, h.db.AthleteLocation())
 	if err != nil {
 		return "", err
 	}
@@ -262,7 +262,7 @@ func (h *CoachHandler) toolWeeklyBreakdown(input json.RawMessage) (string, error
 	_ = json.Unmarshal(input, &args)
 	weeks := clampInt(args.Weeks, 8, 1, 52)
 
-	rows, err := h.db.GetWeeklyBreakdown(weeks)
+	rows, err := h.db.GetWeeklyBreakdown(weeks, h.db.AthleteLocation())
 	if err != nil {
 		return "", err
 	}
