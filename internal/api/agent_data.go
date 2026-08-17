@@ -16,11 +16,13 @@ import (
 
 // readinessReport computes today's readiness snapshot: current Fitness/Fatigue/
 // Form, days since last workout, 28-day CTL ramp rate, and a recommendation.
-// Backs GET /api/athlete/readiness and the coach's readiness tool.
-func readinessReport(database *db.DB) (models.ReadinessReport, error) {
-	today := time.Now().In(database.AthleteLocation())
+// Backs GET /api/athlete/readiness and the coach's readiness tool. tz defines
+// "today" — the viewer's timezone for the REST route, the profile timezone for
+// the coach.
+func readinessReport(database *db.DB, tz *time.Location) (models.ReadinessReport, error) {
+	today := time.Now().In(tz)
 
-	fp, err := database.GetFitnessOnDate(today)
+	fp, err := database.GetFitnessOnDate(today, tz)
 	if err != nil {
 		return models.ReadinessReport{}, err
 	}
@@ -35,7 +37,7 @@ func readinessReport(database *db.DB) (models.ReadinessReport, error) {
 	}
 
 	var rampRate float64
-	if history, histErr := database.GetFitnessHistory(42); histErr == nil {
+	if history, histErr := database.GetFitnessHistory(42, tz); histErr == nil {
 		rampRate = fitness.RampRate(history, 28)
 	}
 

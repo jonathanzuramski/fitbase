@@ -12,11 +12,13 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/fitbase/fitbase/internal/db"
 	"github.com/fitbase/fitbase/internal/fitness"
 	"github.com/fitbase/fitbase/internal/importer"
 	"github.com/fitbase/fitbase/internal/models"
+	"github.com/fitbase/fitbase/internal/timeutil"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -236,7 +238,7 @@ func (h *Handler) GetFitness(w http.ResponseWriter, r *http.Request) {
 	if days > 365 {
 		days = 365
 	}
-	points, err := h.db.GetFitnessHistory(days)
+	points, err := h.db.GetFitnessHistory(days, h.viewerTZ(r))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -304,15 +306,6 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 // modal instead of an empty dashboard. Reports Active=false when idle.
 func (h *Handler) ImportStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, h.importer.ReimportStatus())
-}
-
-func queryInt(r *http.Request, key string, def int) int {
-	if v := r.URL.Query().Get(key); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			return n
-		}
-	}
-	return def
 }
 
 // GET /api/workouts/{id}/route — route info + all workouts on this route
@@ -420,7 +413,7 @@ func (h *Handler) GetWeeklyTraining(w http.ResponseWriter, r *http.Request) {
 	if weeks > 52 {
 		weeks = 52
 	}
-	rows, err := h.db.GetWeeklyBreakdown(weeks)
+	rows, err := h.db.GetWeeklyBreakdown(weeks, h.viewerTZ(r))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -433,7 +426,7 @@ func (h *Handler) GetWeeklyTraining(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/athlete/readiness
 func (h *Handler) GetReadiness(w http.ResponseWriter, r *http.Request) {
-	report, err := readinessReport(h.db)
+	report, err := readinessReport(h.db, h.viewerTZ(r))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
@@ -455,6 +448,19 @@ func (h *Handler) GetWorkoutAnalysis(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, analysis)
+}
+
+func (h *Handler) viewerTZ(r *http.Request) *time.Location {
+	return timeutil.ViewerLocation(r, h.db.AthleteLocation())
+}
+
+func queryInt(r *http.Request, key string, def int) int {
+	if v := r.URL.Query().Get(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return def
 }
 
 // sanitizeFilename strips characters that could break or inject into HTTP headers.

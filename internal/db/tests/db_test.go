@@ -675,7 +675,7 @@ func TestRecomputePowerLoad_Empty(t *testing.T) {
 
 func TestGetFitnessHistory_Empty(t *testing.T) {
 	d := newTestDB(t)
-	points, err := d.GetFitnessHistory(30)
+	points, err := d.GetFitnessHistory(30, time.UTC)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -703,7 +703,7 @@ func TestGetFitnessHistory_WithWorkouts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	points, err := d.GetFitnessHistory(7)
+	points, err := d.GetFitnessHistory(7, time.UTC)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -754,7 +754,7 @@ func TestFitnessOnDate_MatchesChart(t *testing.T) {
 
 	// Get the full chart history covering all workout dates.
 	const chartDays = 45
-	history, err := d.GetFitnessHistory(chartDays)
+	history, err := d.GetFitnessHistory(chartDays, time.UTC)
 	if err != nil {
 		t.Fatalf("GetFitnessHistory: %v", err)
 	}
@@ -770,7 +770,7 @@ func TestFitnessOnDate_MatchesChart(t *testing.T) {
 
 	// For each point in the chart, GetFitnessOnDate must return identical values.
 	for _, chartPt := range history {
-		fp, err := d.GetFitnessOnDate(chartPt.Date)
+		fp, err := d.GetFitnessOnDate(chartPt.Date, time.UTC)
 		if err != nil {
 			t.Fatalf("GetFitnessOnDate(%s): %v", chartPt.Date.Format("2006-01-02"), err)
 		}
@@ -809,11 +809,11 @@ func TestFitnessOnDate_MatchesChartForChart(t *testing.T) {
 	const days = 30
 	const projection = 4
 
-	plain, err := d.GetFitnessHistory(days)
+	plain, err := d.GetFitnessHistory(days, time.UTC)
 	if err != nil {
 		t.Fatal(err)
 	}
-	withProj, err := d.GetFitnessHistoryForChart(days, projection)
+	withProj, err := d.GetFitnessHistoryForChart(days, projection, time.UTC)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -875,13 +875,13 @@ func TestFitnessOnDate_MultipleWorkoutsSameDay(t *testing.T) {
 	}
 
 	// GetFitnessOnDate for that day should reflect the combined TSS.
-	fp, err := d.GetFitnessOnDate(today.AddDate(0, 0, -daysAgo))
+	fp, err := d.GetFitnessOnDate(today.AddDate(0, 0, -daysAgo), time.UTC)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Also check via chart history.
-	history, err := d.GetFitnessHistory(daysAgo)
+	history, err := d.GetFitnessHistory(daysAgo, time.UTC)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1864,7 +1864,7 @@ func TestGetWeeklyBreakdown(t *testing.T) {
 		t.Fatalf("InsertWorkout: %v", err)
 	}
 
-	rows, err := d.GetWeeklyBreakdown(12)
+	rows, err := d.GetWeeklyBreakdown(12, time.UTC)
 	if err != nil {
 		t.Fatalf("GetWeeklyBreakdown: %v", err)
 	}

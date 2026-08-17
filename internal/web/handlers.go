@@ -204,8 +204,12 @@ func (th *templateHandler) index(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Resolve the viewer's timezone (tz cookie → profile fallback); it anchors
+	// "today", "this week", and the end of the fitness chart.
+	tz := timeutil.ViewerLocation(r, th.db.AthleteLocation())
+
 	// Get User Fitness for fitness chart (4 day projection).
-	user_fitness, err := th.db.GetFitnessHistoryForChart(90, 4)
+	user_fitness, err := th.db.GetFitnessHistoryForChart(90, 4, tz)
 	if err != nil {
 		http.Error(w, "database error", http.StatusInternalServerError)
 		return
@@ -222,13 +226,6 @@ func (th *templateHandler) index(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "database error", http.StatusInternalServerError)
 		return
-	}
-
-	tz := time.UTC
-	if athlete.Timezone != "" {
-		if loc, err := time.LoadLocation(athlete.Timezone); err == nil {
-			tz = loc
-		}
 	}
 
 	type weekDayBar struct {
@@ -265,7 +262,7 @@ func (th *templateHandler) index(w http.ResponseWriter, r *http.Request) {
 
 	weekSummary, _ := th.db.GetPeriodSummary(weekStart)
 	yearSummary, _ := th.db.GetPeriodSummary(yearStart)
-	todayFitness, _ := th.db.GetFitnessOnDate(now)
+	todayFitness, _ := th.db.GetFitnessOnDate(now, tz)
 
 	// Streak widget: which days this week had any workout.
 	activityDays, _ := th.db.GetWeekActivityDays(weekStart, tz)
@@ -428,7 +425,9 @@ func (th *templateHandler) workout(w http.ResponseWriter, r *http.Request) {
 		eftpF = *sm.EFTP
 	}
 
-	user_fitness, _ := th.db.GetFitnessOnDate(workout.RecordedAt)
+	// Anchor on the ride's own timezone (RecordedAt was re-homed at scan time),
+	// so "fitness on the day of this ride" means the ride's training day.
+	user_fitness, _ := th.db.GetFitnessOnDate(workout.RecordedAt, workout.RecordedAt.Location())
 
 	athlete, err := th.db.GetAthlete()
 	if err != nil {
@@ -873,12 +872,8 @@ func (th *templateHandler) calendar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tz := time.UTC
-	if athlete.Timezone != "" {
-		if loc, err := time.LoadLocation(athlete.Timezone); err == nil {
-			tz = loc
-		}
-	}
+	// The calendar's "today" highlight and default month follow the viewer.
+	tz := timeutil.ViewerLocation(r, th.db.AthleteLocation())
 
 	now := time.Now().In(tz)
 	year, month := now.Year(), now.Month()

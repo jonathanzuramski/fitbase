@@ -138,7 +138,7 @@ func TestGetWeeklyBreakdown_TrainingDayWeeks(t *testing.T) {
 		}
 	}
 
-	weeks, err := d.GetWeeklyBreakdown(2)
+	weeks, err := d.GetWeeklyBreakdown(2, time.UTC)
 	if err != nil {
 		t.Fatalf("GetWeeklyBreakdown: %v", err)
 	}
