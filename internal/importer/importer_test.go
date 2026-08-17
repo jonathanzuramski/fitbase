@@ -427,6 +427,56 @@ func TestDeleteWorkout_AllowsReimport(t *testing.T) {
 	}
 }
 
+// Deleting a synced workout must stick. The auto-syncers (intervals.icu,
+// Dropbox) decide what to download by filename against the import ledger, so
+// deletion tombstones ledger entries instead of erasing them: the filename
+// stays "seen" (no re-download of a ride still present at the remote source),
+// while the hash check ignores tombstones (deliberate re-import still works
+// and revives the entry).
+func TestDeleteWorkout_TombstoneBlocksSyncerResurrection(t *testing.T) {
+	d := newTestDB(t)
+	imp := importer.NewImporter(d, t.TempDir())
+	fit := buildMinimalFIT(t)
+	const filename = "intervals-i77105584.fit"
+
+	id, err := imp.ImportBytes(fit, filename)
+	if err != nil || id == "" {
+		t.Fatalf("import = (%q, %v), want a workout id", id, err)
+	}
+	if err := imp.DeleteWorkout(id); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+
+	// The syncers' pre-download filters must still see the filename — this is
+	// exactly the check that keeps the next poll from re-downloading the ride.
+	if ok, err := imp.IsFilenameImported(filename); err != nil || !ok {
+		t.Errorf("IsFilenameImported after delete = (%v, %v), want true — syncer would resurrect the ride", ok, err)
+	}
+	known, err := imp.AllImportedFilenames()
+	if err != nil {
+		t.Fatalf("AllImportedFilenames: %v", err)
+	}
+	if _, ok := known[filename]; !ok {
+		t.Error("filename missing from AllImportedFilenames after delete — syncer would resurrect the ride")
+	}
+
+	// An explicit re-import of the same bytes still works (revives the entry)…
+	id2, err := imp.ImportBytes(fit, filename)
+	if err != nil || id2 == "" {
+		t.Fatalf("re-import = (%q, %v), want a workout id", id2, err)
+	}
+	// …and deleting the revived workout tombstones it again.
+	if err := imp.DeleteWorkout(id2); err != nil {
+		t.Fatalf("second delete: %v", err)
+	}
+	if ok, _ := imp.IsFilenameImported(filename); !ok {
+		t.Error("tombstone gone after delete of a revived workout")
+	}
+	if n, _ := d.CountWorkouts(); n != 0 {
+		t.Errorf("workout count = %d, want 0", n)
+	}
+}
+
 func TestDeleteWorkout_MissingReturnsNoRows(t *testing.T) {
 	d := newTestDB(t)
 	imp := importer.NewImporter(d, t.TempDir())

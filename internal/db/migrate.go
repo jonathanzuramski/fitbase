@@ -79,6 +79,7 @@ var migrations = []func(*sql.Tx) error{
 	migrateConvergeDerivedData, // v3 — rederive legacy derived data in place
 	migrateAICoach,             // v4 — AI coach settings/cache, schedule drafts, decoupling cache
 	migrateRideLocalTime,       // v5 — per-ride UTC offset, start coords, county/state + backfill
+	migrateLedgerTombstones,    // v6 — imported_files.deleted flag so deletes survive auto-sync
 }
 
 // migrate replays every migration the database hasn't run yet.
@@ -501,4 +502,22 @@ func gpsPointsTx(tx *sql.Tx, workoutID string) ([][2]float64, error) {
 		pts = append(pts, [2]float64{lng, lat})
 	}
 	return pts, rows.Err()
+}
+
+// migrateLedgerTombstones (v6) adds a deleted flag to the import ledger.
+// Deleting a workout used to erase its ledger rows so the file could be
+// deliberately re-imported — but the auto-syncers treat "filename not in the
+// ledger" as "new remote file", so a deleted ride still present at the source
+// (intervals.icu, Dropbox) resurrected within one poll cycle. Tombstoned rows
+// keep filename-level dedup intact (syncers skip the file forever) while
+// hash-level checks ignore them (an explicit re-import still works and
+// revives the row).
+func migrateLedgerTombstones(tx *sql.Tx) error {
+	_, err := tx.Exec(`ALTER TABLE imported_files ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0`)
+	if err != nil && strings.Contains(err.Error(), "duplicate column name") {
+		// Already present — a test (or recovery) rewound user_version and
+		// replayed the ladder over a database that had run v6 before.
+		return nil
+	}
+	return err
 }
