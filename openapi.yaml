@@ -764,7 +764,13 @@ components:
       properties:
         id:                     { type: string, example: "a3f9c2d1e4b5f6a7" }
         filename:               { type: string }
-        recorded_at:            { type: string, format: date-time }
+        training_day:           { type: string, format: date, example: "2026-08-16", description: "Calendar day the ride happened, in the ride's own timezone. All day/week analytics bucket by this." }
+        recorded_at:            { type: string, format: date-time, example: "2026-08-16T07:30:00-06:00", description: "Start instant, serialized with the ride's own UTC offset — the wall-clock time on the athlete's device." }
+        utc_offset_secs:        { type: integer, example: -21600, description: "UTC offset in effect where/when the ride started, resolved at import (device-declared, else GPS timezone, else athlete profile)." }
+        start_lat:              { type: number, nullable: true, description: "First GPS fix; absent for indoor rides." }
+        start_lng:              { type: number, nullable: true }
+        county:                 { type: string, nullable: true, example: "Boulder County", description: "US county containing the start point; absent outside the US or indoors." }
+        state:                  { type: string, nullable: true, example: "CO", description: "USPS state code for the start point." }
         sport:                  { type: string, enum: [cycling, running, swimming, hiking, other] }
         duration_secs:          { type: integer }
         elapsed_secs:           { type: integer }
@@ -787,7 +793,7 @@ components:
       type: object
       properties:
         id:                     { type: string }
-        date:                   { type: string, example: "2024-03-15" }
+        training_day:           { type: string, format: date, example: "2024-03-15", description: "Ride-local calendar day." }
         sport:                  { type: string }
         duration_mins:          { type: number }
         distance_km:            { type: number }
@@ -871,7 +877,7 @@ components:
       type: object
       properties:
         id:               { type: string }
-        planned_date:     { type: string, format: date }
+        planned_date:     { type: string, format: date-time, example: "2026-06-15T00:00:00Z", description: "Date-only value, serialized as a UTC midnight timestamp." }
         sport:            { type: string, example: cycling }
         title:            { type: string }
         description:      { type: string }
@@ -978,7 +984,7 @@ components:
     ReadinessReport:
       type: object
       properties:
-        date:                   { type: string, example: "2025-03-24" }
+        date:                   { type: string, format: date, example: "2025-03-24" }
         fitness:                { type: number, description: "Chronic Training Load (42-day EMA of TSS)" }
         fatigue:                { type: number, description: "Acute Training Load (7-day EMA of TSS)" }
         form:                   { type: number, description: "Fitness minus Fatigue" }

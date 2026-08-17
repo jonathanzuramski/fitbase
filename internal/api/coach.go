@@ -433,7 +433,7 @@ func (h *CoachHandler) collectCoachingData() (*aicoach.CoachingData, error) {
 		}
 	}
 
-	cutoff56 := time.Now().UTC().AddDate(0, 0, -56)
+	cutoff56 := time.Now().In(h.db.AthleteLocation()).AddDate(0, 0, -56)
 	workoutRows, err := h.db.ListWorkoutsSince(cutoff56, "", 0)
 	if err != nil {
 		return nil, err

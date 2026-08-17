@@ -101,7 +101,7 @@ func (r plannedRequest) toModel(source string) (models.PlannedWorkout, error) {
 //
 // GET /api/planned-workouts?start=…&end=…
 func (h *PlannedHandler) List(w http.ResponseWriter, r *http.Request) {
-	now := time.Now().UTC()
+	now := time.Now().In(h.db.AthleteLocation())
 	start := now.AddDate(0, 0, -7)
 	end := now.AddDate(0, 0, 30)
 	if s := r.URL.Query().Get("start"); s != "" {

@@ -5,11 +5,26 @@ import (
 )
 
 // Workout holds the summary data for a single activity.
+//
+// Time model: RecordedAt is the UTC instant the ride started — the immutable
+// truth used for ordering, duplicate detection, and training-load math.
+// UTCOffsetSecs is the UTC offset in effect where/when the ride happened,
+// captured once at import (device-declared → GPS timezone → athlete profile);
+// rows read from the DB carry RecordedAt already re-homed into that offset,
+// so formatting it yields the ride's own wall-clock time. TrainingDay is the
+// ride-local calendar day derived from that offset — all day/week analytics
+// bucket by it, never by per-query timezone math.
 type Workout struct {
-	ID                  string    `json:"id"`
-	Filename            string    `json:"filename"`
-	RecordedAt          time.Time `json:"recorded_at"`
-	Sport               string    `json:"sport"`
+	ID            string    `json:"id"`
+	Filename      string    `json:"filename"`
+	TrainingDay   string    `json:"training_day"`
+	RecordedAt    time.Time `json:"recorded_at"`
+	UTCOffsetSecs *int      `json:"utc_offset_secs,omitempty"` // nil = not yet resolved
+	StartLat      *float64  `json:"start_lat,omitempty"`       // first GPS fix; nil for indoor
+	StartLng      *float64  `json:"start_lng,omitempty"`
+	County        string    `json:"county,omitempty"` // e.g. "Boulder County"; "" outside US or indoor
+	State         string    `json:"state,omitempty"`  // USPS code, e.g. "CO"
+	Sport         string    `json:"sport"`
 	DurationSecs        int       `json:"duration_secs"`
 	ElapsedSecs         int       `json:"elapsed_secs"`
 	DistanceMeters      float64   `json:"distance_meters"`
@@ -174,7 +189,7 @@ type AllTimeBest struct {
 // WorkoutSummary is a compact, prose-friendly representation for LLM consumption.
 type WorkoutSummary struct {
 	ID              string   `json:"id"`
-	Date            string   `json:"date"`
+	TrainingDay     string   `json:"training_day"`
 	Sport           string   `json:"sport"`
 	DurationMins    float64  `json:"duration_mins"`
 	DistanceKM      float64  `json:"distance_km"`
@@ -187,9 +202,15 @@ type WorkoutSummary struct {
 }
 
 func (w *Workout) ToSummary() WorkoutSummary {
+	day := w.TrainingDay
+	if day == "" {
+		// Rows predating the training_day backfill fall back to the recorded
+		// instant's calendar day.
+		day = w.RecordedAt.Format("2006-01-02")
+	}
 	return WorkoutSummary{
 		ID:              w.ID,
-		Date:            w.RecordedAt.Format("2006-01-02"),
+		TrainingDay:     day,
 		Sport:           w.Sport,
 		DurationMins:    float64(w.DurationSecs) / 60.0,
 		DistanceKM:      w.DistanceMeters / 1000.0,

@@ -54,6 +54,9 @@ func buildTestFIT(t *testing.T, o testFITOpts) []byte {
 	activity.Type = typedef.ActivityManual
 	activity.Event = typedef.EventActivity
 	activity.EventType = typedef.EventTypeStop
+	if o.localOffsetSecs != 0 {
+		activity.LocalTimestamp = activity.Timestamp.Add(time.Duration(o.localOffsetSecs) * time.Second)
+	}
 
 	msgs := []proto.Message{
 		fileId.ToMesg(nil),
@@ -102,17 +105,18 @@ type testRecord struct {
 }
 
 type testFITOpts struct {
-	sport          typedef.Sport
-	durationSecs   int
-	distanceMeters float64
-	elevationGain  int
-	avgPower       int
-	maxPower       int
-	avgHR          int
-	maxHR          int
-	avgCadence     int
-	avgSpeedMPS    float64
-	records        []testRecord
+	sport           typedef.Sport
+	durationSecs    int
+	distanceMeters  float64
+	elevationGain   int
+	avgPower        int
+	maxPower        int
+	avgHR           int
+	maxHR           int
+	avgCadence      int
+	avgSpeedMPS     float64
+	localOffsetSecs int // activity local_timestamp = timestamp + this; 0 = omit
+	records         []testRecord
 }
 
 func defaultOpts() testFITOpts {
@@ -375,5 +379,71 @@ func TestParse_FilenamePreserved(t *testing.T) {
 	}
 	if result.Workout.Filename != "my_ride.fit" {
 		t.Errorf("Filename: got %q want %q", result.Workout.Filename, "my_ride.fit")
+	}
+}
+
+// ── Ride-local time and start position ────────────────────────────────────────
+
+// A device-declared local_timestamp yields the UTC offset directly.
+func TestParse_DeviceLocalOffset(t *testing.T) {
+	opts := defaultOpts()
+	opts.localOffsetSecs = -6 * 3600 // MDT
+	data := buildTestFIT(t, opts)
+
+	result, err := fitparser.Parse(bytes.NewReader(data), "test.fit", 250, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Workout.UTCOffsetSecs == nil || *result.Workout.UTCOffsetSecs != -6*3600 {
+		t.Errorf("UTCOffsetSecs: got %v want -21600", result.Workout.UTCOffsetSecs)
+	}
+}
+
+// No local_timestamp in the file → offset stays unresolved for the import
+// pipeline's GPS/profile fallbacks.
+func TestParse_NoLocalOffset(t *testing.T) {
+	data := buildTestFIT(t, defaultOpts())
+	result, err := fitparser.Parse(bytes.NewReader(data), "test.fit", 250, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Workout.UTCOffsetSecs != nil {
+		t.Errorf("UTCOffsetSecs: got %v want nil", *result.Workout.UTCOffsetSecs)
+	}
+}
+
+// A junk offset (not a 15-minute multiple) is rejected rather than stored.
+func TestParse_JunkLocalOffsetRejected(t *testing.T) {
+	opts := defaultOpts()
+	opts.localOffsetSecs = 1234 // no real timezone
+	data := buildTestFIT(t, opts)
+
+	result, err := fitparser.Parse(bytes.NewReader(data), "test.fit", 250, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Workout.UTCOffsetSecs != nil {
+		t.Errorf("UTCOffsetSecs: got %v want nil (junk offset)", *result.Workout.UTCOffsetSecs)
+	}
+}
+
+// The first valid GPS fix becomes the workout's start position (outdoor only).
+func TestParse_StartFix(t *testing.T) {
+	opts := defaultOpts()
+	opts.records[0].lat, opts.records[0].lng = 0, 0 // no fix yet on record 1
+	opts.records[1].lat, opts.records[1].lng = 40.0150, -105.2705
+	opts.records[2].lat, opts.records[2].lng = 40.0160, -105.2710
+	data := buildTestFIT(t, opts)
+
+	result, err := fitparser.Parse(bytes.NewReader(data), "test.fit", 250, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := result.Workout
+	if w.StartLat == nil || w.StartLng == nil {
+		t.Fatal("expected a start fix")
+	}
+	if math.Abs(*w.StartLat-40.0150) > 0.001 || math.Abs(*w.StartLng+105.2705) > 0.001 {
+		t.Errorf("start fix: got %v, %v want ~40.0150, ~-105.2705", *w.StartLat, *w.StartLng)
 	}
 }

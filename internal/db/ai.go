@@ -8,6 +8,7 @@ import (
 
 	"github.com/fitbase/fitbase/internal/crypto"
 	"github.com/fitbase/fitbase/internal/models"
+	"github.com/fitbase/fitbase/internal/timeutil"
 )
 
 // AISettings holds the configured AI provider, model, and decrypted API key.
@@ -59,15 +60,19 @@ func (db *DB) SaveAISettings(s AISettings) error {
 }
 
 // GetRecentZoneTotals sums time in each power zone (7 zones), HR zone (5 zones),
-// and the Sweet Spot reference band for all workouts recorded in the last N
-// days. SS is a parallel counter — it overlaps Z3/Z4 and is not part of the
-// 7-zone partition.
+// and the Sweet Spot reference band for all workouts in the last N days. SS is
+// a parallel counter — it overlaps Z3/Z4 and is not part of the 7-zone
+// partition. The window is cut on training_day — SQLite's date('now') is
+// UTC-now, which would shift the boundary by a day for athletes west of
+// Greenwich.
 func (db *DB) GetRecentZoneTotals(days int) ([7]int, [5]int, int, error) {
+	cutoff := timeutil.LocalMidnight(time.Now().In(db.athleteLocation())).
+		AddDate(0, 0, -days).Format("2006-01-02")
 	rows, err := db.Query(`
 		SELECT wzt.power_secs, wzt.hr_secs, wzt.ss_secs
 		FROM workout_zone_times wzt
 		JOIN workouts w ON w.id = wzt.workout_id
-		WHERE w.recorded_at >= date('now', ?)`, fmt.Sprintf("-%d days", days))
+		WHERE w.training_day >= ?`, cutoff)
 	if err != nil {
 		return [7]int{}, [5]int{}, 0, err
 	}
@@ -105,10 +110,7 @@ func (db *DB) GetRecentZoneTotals(days int) ([7]int, [5]int, int, error) {
 // caller would discard.
 func (db *DB) ListWorkoutsSince(since time.Time, sport string, limit int) ([]models.Workout, error) {
 	q := `
-		SELECT id, filename, recorded_at, sport, duration_secs, elapsed_secs, distance_meters,
-		       elevation_gain_meters, avg_power_watts, max_power_watts, normalized_power,
-		       avg_heart_rate, max_heart_rate, avg_cadence, avg_speed_mps,
-		       tss, intensity_factor, is_indoor, route_id, created_at
+		SELECT ` + workoutCols + `
 		FROM workouts
 		WHERE recorded_at >= ?`
 	args := []any{since.UTC().Format(time.RFC3339)}

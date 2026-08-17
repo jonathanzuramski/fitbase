@@ -10,6 +10,11 @@
   <div>
     <a href="/" class="back-link">← dashboard</a>
     <h1>{{$w.RecordedAt.Format "Monday, Jan 02 2006"}}</h1>
+    {{/* RecordedAt is re-homed into the ride's own timezone at scan, so this
+         is the wall-clock time on the athlete's device, wherever they rode. */}}
+    <div class="page-subtitle">
+      {{$w.RecordedAt.Format "3:04 PM"}}{{if $w.County}} · {{$w.County}}, {{$w.State}}{{end}}
+    </div>
   </div>
   <div style="display: flex; align-items: center; gap: 12px">
     <span class="sport-badge sport-{{$w.Sport}}">{{$w.Sport}}</span>

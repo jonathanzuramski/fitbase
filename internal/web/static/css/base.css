@@ -200,6 +200,13 @@ code {
   letter-spacing: 0.02em;
 }
 
+/* Ride-local start time + place line under a page-header h1. */
+.page-subtitle {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
 .back-link:hover {
   color: var(--text);
 }

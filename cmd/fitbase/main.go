@@ -11,6 +11,10 @@ import (
 	"syscall"
 	"time"
 
+	// Embed the IANA timezone database so per-ride timezone resolution works
+	// on hosts without system tzdata (slim containers, Windows).
+	_ "time/tzdata"
+
 	// Blank import registers every concrete LLM provider with the aicoach
 	// registry via init(). aicoach itself has no compile-time knowledge of
 	// which backends exist.

@@ -18,7 +18,7 @@ import (
 // Form, days since last workout, 28-day CTL ramp rate, and a recommendation.
 // Backs GET /api/athlete/readiness and the coach's readiness tool.
 func readinessReport(database *db.DB) (models.ReadinessReport, error) {
-	today := time.Now().UTC()
+	today := time.Now().In(database.AthleteLocation())
 
 	fp, err := database.GetFitnessOnDate(today)
 	if err != nil {

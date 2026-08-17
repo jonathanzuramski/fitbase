@@ -14,7 +14,9 @@ import (
 
 	"github.com/fitbase/fitbase/internal/crypto"
 	"github.com/fitbase/fitbase/internal/fitness"
+	"github.com/fitbase/fitbase/internal/geo"
 	"github.com/fitbase/fitbase/internal/models"
+	"github.com/fitbase/fitbase/internal/timeutil"
 	_ "modernc.org/sqlite"
 )
 
@@ -95,10 +97,35 @@ func (db *DB) InsertWorkout(w *models.Workout, streams []models.Stream) error {
 		routeCoordsV = &v
 	}
 
-	// Calendar day the athlete recorded this workout, in their local timezone.
-	// Stored at insert time so chart/streak/mileage queries don't need per-row
-	// timezone math.
-	trainingDay := w.RecordedAt.In(db.athleteLocation()).Format("2006-01-02")
+	// Resolve the ride's local-time offset if the FIT file didn't declare one:
+	// outdoor rides from the start coordinate's timezone (historically correct,
+	// DST included), otherwise the athlete profile timezone at the ride's date.
+	// Stamped once here so nothing downstream ever does per-query timezone math.
+	if w.UTCOffsetSecs == nil {
+		off, resolved := 0, false
+		if !w.IsIndoor && w.StartLat != nil && w.StartLng != nil {
+			if secs, ok := geo.UTCOffsetAt(*w.StartLat, *w.StartLng, w.RecordedAt); ok {
+				off, resolved = secs, true
+			}
+		}
+		if !resolved {
+			_, off = w.RecordedAt.In(db.athleteLocation()).Zone()
+		}
+		w.UTCOffsetSecs = &off
+	}
+	if w.County == "" && !w.IsIndoor && w.StartLat != nil && w.StartLng != nil {
+		if county, state, ok := geo.CountyState(*w.StartLat, *w.StartLng); ok {
+			w.County, w.State = county, state
+		}
+	}
+	// Calendar day the ride happened, in its own timezone.
+	w.TrainingDay = w.RecordedAt.In(time.FixedZone("", *w.UTCOffsetSecs)).Format("2006-01-02")
+
+	// Empty place strings persist as NULL so "unknown" is one value, not two.
+	var county, state any
+	if w.County != "" {
+		county, state = w.County, w.State
+	}
 
 	tx, err := db.Begin()
 	if err != nil {
@@ -111,13 +138,15 @@ func (db *DB) InsertWorkout(w *models.Workout, streams []models.Stream) error {
 			id, filename, recorded_at, sport, duration_secs, elapsed_secs, distance_meters,
 			elevation_gain_meters, avg_power_watts, max_power_watts, normalized_power,
 			avg_heart_rate, max_heart_rate, avg_cadence, avg_speed_mps,
-			tss, intensity_factor, is_indoor, route_coords, route_coords_v, training_day
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			tss, intensity_factor, is_indoor, route_coords, route_coords_v, training_day,
+			utc_offset_secs, start_lat, start_lng, county, state, geo_v
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		w.ID, w.Filename, w.RecordedAt.UTC().Format(time.RFC3339),
 		w.Sport, w.DurationSecs, w.ElapsedSecs, w.DistanceMeters, w.ElevationGainMeters,
 		w.AvgPowerWatts, w.MaxPowerWatts, w.NormalizedPower,
 		w.AvgHeartRate, w.MaxHeartRate, w.AvgCadenceRPM, w.AvgSpeedMPS,
-		w.TSS, w.IntensityFactor, w.IsIndoor, routeCoords, routeCoordsV, trainingDay,
+		w.TSS, w.IntensityFactor, w.IsIndoor, routeCoords, routeCoordsV, w.TrainingDay,
+		w.UTCOffsetSecs, w.StartLat, w.StartLng, county, state, geoVersion,
 	)
 	if err != nil {
 		return fmt.Errorf("insert workout: %w", err)
@@ -149,12 +178,7 @@ func (db *DB) InsertWorkout(w *models.Workout, streams []models.Stream) error {
 
 // GetWorkout retrieves a single workout by ID.
 func (db *DB) GetWorkout(id string) (*models.Workout, error) {
-	row := db.QueryRow(`
-		SELECT id, filename, recorded_at, sport, duration_secs, elapsed_secs, distance_meters,
-		       elevation_gain_meters, avg_power_watts, max_power_watts, normalized_power,
-		       avg_heart_rate, max_heart_rate, avg_cadence, avg_speed_mps,
-		       tss, intensity_factor, is_indoor, route_id, created_at
-		FROM workouts WHERE id = ?`, id)
+	row := db.QueryRow(`SELECT `+workoutCols+` FROM workouts WHERE id = ?`, id)
 
 	w, err := scanWorkout(row)
 	if err == sql.ErrNoRows {
@@ -199,10 +223,7 @@ func (db *DB) ListWorkouts(limit, offset int, sortKey, sortDir, typeFilter strin
 	}
 
 	// NULLS LAST keeps activities without that metric at the bottom regardless of direction.
-	q := `SELECT id, filename, recorded_at, sport, duration_secs, elapsed_secs, distance_meters,
-		       elevation_gain_meters, avg_power_watts, max_power_watts, normalized_power,
-		       avg_heart_rate, max_heart_rate, avg_cadence, avg_speed_mps,
-		       tss, intensity_factor, is_indoor, route_id, created_at
+	q := `SELECT ` + workoutCols + `
 		FROM workouts ` + where + `
 		ORDER BY ` + col + ` IS NULL, ` + col + ` ` + dir + `
 		LIMIT ? OFFSET ?`
@@ -224,20 +245,20 @@ func (db *DB) ListWorkouts(limit, offset int, sortKey, sortDir, typeFilter strin
 	return workouts, rows.Err()
 }
 
-// GetWorkoutsForMonth returns all workouts whose recorded_at falls within the
-// given month in the provided timezone, ordered chronologically.
-func (db *DB) GetWorkoutsForMonth(year int, month time.Month, tz *time.Location) ([]models.Workout, error) {
-	start := time.Date(year, month, 1, 0, 0, 0, 0, tz).UTC().Format(time.RFC3339)
-	end := time.Date(year, month+1, 1, 0, 0, 0, 0, tz).UTC().Format(time.RFC3339)
+// GetWorkoutsForMonth returns all workouts whose training_day falls within
+// the given calendar month, ordered chronologically. Months are ride-local
+// calendar months — no timezone parameter needed, because each workout
+// already knows which day it happened on.
+func (db *DB) GetWorkoutsForMonth(year int, month time.Month) ([]models.Workout, error) {
+	start := fmt.Sprintf("%04d-%02d-01", year, month)
+	next := time.Date(year, month+1, 1, 0, 0, 0, 0, time.UTC)
+	end := next.Format("2006-01-02")
 
 	rows, err := db.Query(`
-		SELECT id, filename, recorded_at, sport, duration_secs, elapsed_secs, distance_meters,
-		       elevation_gain_meters, avg_power_watts, max_power_watts, normalized_power,
-		       avg_heart_rate, max_heart_rate, avg_cadence, avg_speed_mps,
-		       tss, intensity_factor, is_indoor, route_id, created_at
+		SELECT `+workoutCols+`
 		FROM workouts
-		WHERE recorded_at >= ? AND recorded_at < ?
-		ORDER BY recorded_at ASC`, start, end)
+		WHERE training_day >= ? AND training_day < ?
+		ORDER BY training_day ASC, recorded_at ASC`, start, end)
 	if err != nil {
 		return nil, err
 	}
@@ -735,10 +756,7 @@ func (db *DB) GetRouteHistory(routeID string) (string, []models.Workout, error) 
 	}
 
 	rows, err := db.Query(`
-		SELECT id, filename, recorded_at, sport, duration_secs, elapsed_secs, distance_meters,
-		       elevation_gain_meters, avg_power_watts, max_power_watts, normalized_power,
-		       avg_heart_rate, max_heart_rate, avg_cadence, avg_speed_mps,
-		       tss, intensity_factor, is_indoor, route_id, created_at
+		SELECT `+workoutCols+`
 		FROM workouts WHERE route_id = ?
 		ORDER BY recorded_at DESC`, routeID)
 	if err != nil {
@@ -1046,19 +1064,14 @@ func (db *DB) athleteLocation() *time.Location {
 	return loc
 }
 
-// localMidnight returns midnight on the calendar day of `t` in `t`'s timezone.
-func localMidnight(t time.Time) time.Time {
-	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
-}
-
 // GetFitnessOnDate returns the Fitness/Fatigue/Form values as of a specific date.
 // Uses the same 270-day lookback as the dashboard chart (90-day display + 180-day
 // warmup) so the EMA starting conditions are identical and the values match.
 // "Today" and the target are interpreted in the athlete's timezone.
 func (db *DB) GetFitnessOnDate(date time.Time) (models.FitnessPoint, error) {
 	tz := db.athleteLocation()
-	target := localMidnight(date.In(tz))
-	today := localMidnight(time.Now().In(tz))
+	target := timeutil.LocalMidnight(date.In(tz))
+	today := timeutil.LocalMidnight(time.Now().In(tz))
 	daysAgo := max(int(today.Sub(target).Hours()/24), 0)
 	// Request daysAgo+90 days so the total lookback matches the chart (270 days).
 	// The target date lands at index 90 from the oldest point returned.
@@ -1094,7 +1107,7 @@ func (db *DB) getFitnessHistory(days, projection int) ([]models.FitnessPoint, er
 	totalDays := days + warmup
 
 	tz := db.athleteLocation()
-	today := localMidnight(time.Now().In(tz))
+	today := timeutil.LocalMidnight(time.Now().In(tz))
 	start := today.AddDate(0, 0, -totalDays)
 
 	// training_day was computed at insert time using the athlete's local
@@ -1155,34 +1168,53 @@ func (db *DB) GetLastWorkoutDate() (*time.Time, error) {
 	return &t, nil
 }
 
-// GetWeeklyBreakdown returns per-ISO-week training totals for the last n weeks.
-// Weeks with no workouts are omitted. Results are ordered oldest first.
+// GetWeeklyBreakdown returns per-ISO-week training totals for the last n weeks,
+// including the current (partial) week. Weeks with no workouts are omitted.
+// Results are ordered oldest first. Weeks are reckoned from training_day, so a
+// ride belongs to the week the athlete experienced it in, not the UTC week.
 func (db *DB) GetWeeklyBreakdown(weeks int) ([]models.WeeklyLoad, error) {
+	tz := db.athleteLocation()
+	start := timeutil.MondayOf(time.Now().In(tz)).AddDate(0, 0, -((weeks - 1) * 7))
+
 	rows, err := db.Query(`
-		SELECT
-			COALESCE(strftime('%G-W%V', recorded_at), '')  AS week,
-			COALESCE(SUM(tss), 0)                          AS total_tss,
-			SUM(duration_secs)                             AS total_duration_secs,
-			SUM(distance_meters)                           AS total_distance_meters,
-			SUM(elevation_gain_meters)                     AS total_elevation_meters,
-			COUNT(*)                                       AS workout_count
+		SELECT training_day, COALESCE(tss, 0), duration_secs, distance_meters, elevation_gain_meters
 		FROM workouts
-		WHERE recorded_at >= date('now', ? || ' days')
-		GROUP BY week
-		HAVING week != ''
-		ORDER BY week ASC`, fmt.Sprintf("-%d", weeks*7))
+		WHERE training_day >= ? AND training_day IS NOT NULL
+		ORDER BY training_day ASC`,
+		start.Format("2006-01-02"),
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close() //nolint:errcheck
+
+	// Aggregate per ISO week in Go: rows arrive ordered by training_day, so each
+	// week's workouts are contiguous and a label change opens a new bucket.
 	var result []models.WeeklyLoad
 	for rows.Next() {
-		var wl models.WeeklyLoad
-		if err := rows.Scan(&wl.Week, &wl.TSS, &wl.DurationSecs, &wl.DistanceMeters, &wl.ElevationGainMeters, &wl.WorkoutCount); err != nil {
+		var trainingDay string
+		var tss, dist, elev float64
+		var dur int
+		if err := rows.Scan(&trainingDay, &tss, &dur, &dist, &elev); err != nil {
 			return nil, err
 		}
-		wl.LoadType = fitness.ClassifyWeeklyLoad(wl.TSS)
-		result = append(result, wl)
+		day, err := time.ParseInLocation("2006-01-02", trainingDay, tz)
+		if err != nil {
+			continue // malformed training_day: skip rather than fail the report
+		}
+		week := timeutil.ISOWeekLabel(day)
+		if len(result) == 0 || result[len(result)-1].Week != week {
+			result = append(result, models.WeeklyLoad{Week: week})
+		}
+		wl := &result[len(result)-1]
+		wl.TSS += tss
+		wl.DurationSecs += dur
+		wl.DistanceMeters += dist
+		wl.ElevationGainMeters += elev
+		wl.WorkoutCount++
+	}
+	for i := range result {
+		result[i].LoadType = fitness.ClassifyWeeklyLoad(result[i].TSS)
 	}
 	return result, rows.Err()
 }
@@ -1199,6 +1231,10 @@ type NinetyDayAverages struct {
 // Get90DayAverages returns average power/HR/TSS metrics for a sport over the last 90 days.
 // Only workouts with power data are included. Returns nil if no qualifying workouts exist.
 func (db *DB) Get90DayAverages(sport string) (*NinetyDayAverages, error) {
+	// The window is cut on training_day — SQLite's date('now') is UTC-now,
+	// which would shift the boundary by a day for athletes west of Greenwich.
+	cutoff := timeutil.LocalMidnight(time.Now().In(db.athleteLocation())).
+		AddDate(0, 0, -90).Format("2006-01-02")
 	var a NinetyDayAverages
 	err := db.QueryRow(`
 		SELECT
@@ -1208,9 +1244,9 @@ func (db *DB) Get90DayAverages(sport string) (*NinetyDayAverages, error) {
 			AVG(NULLIF(intensity_factor, 0)),
 			AVG(duration_secs)
 		FROM workouts
-		WHERE recorded_at >= date('now', '-90 days')
+		WHERE training_day >= ?
 		  AND sport = ?
-		  AND avg_power_watts IS NOT NULL`, sport).Scan(
+		  AND avg_power_watts IS NOT NULL`, cutoff, sport).Scan(
 		&a.AvgNP, &a.AvgHR, &a.AvgTSS, &a.AvgIF, &a.AvgDurationSecs)
 	if err != nil {
 		return nil, err
@@ -1385,24 +1421,22 @@ func (db *DB) GetWeekActivityDays(weekStart time.Time, tz *time.Location) ([7]bo
 		if err != nil {
 			continue
 		}
-		wd := int(t.Weekday())
-		if wd == 0 {
-			wd = 7
-		}
-		days[wd-1] = true
+		days[timeutil.DaysSinceMonday(t)] = true
 	}
 	return days, rows.Err()
 }
 
-// GetPeriodSummary returns the total duration and TSS across all sports since
-// the given UTC time.
+// GetPeriodSummary returns the total duration and TSS across all sports on or
+// after the calendar day of `since` (callers pass local midnights — week or
+// year starts). Cut on training_day so rides count toward the day the athlete
+// experienced, not the UTC day.
 func (db *DB) GetPeriodSummary(since time.Time) (PeriodSummary, error) {
 	var s PeriodSummary
 	err := db.QueryRow(`
 		SELECT COALESCE(SUM(duration_secs), 0),
 		       COALESCE(SUM(tss), 0)
 		FROM workouts
-		WHERE recorded_at >= ?`, since.UTC().Format(time.RFC3339),
+		WHERE training_day >= ?`, since.Format("2006-01-02"),
 	).Scan(&s.DurationSecs, &s.TSS)
 	return s, err
 }
@@ -1462,12 +1496,7 @@ func (db *DB) GetMileageProgress(sport string, tz *time.Location) (MileageProgre
 	var p MileageProgress
 	now := time.Now().In(tz)
 
-	weekday := int(now.Weekday()) // 0=Sun … 6=Sat in Go; shift to ISO Mon=1 … Sun=7
-	if weekday == 0 {
-		weekday = 7
-	}
-	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, tz)
-	weekStart := today.AddDate(0, 0, -(weekday - 1))
+	weekStart := timeutil.MondayOf(now)
 	weekEnd := weekStart.AddDate(0, 0, 7)
 	yearStart := time.Date(now.Year(), 1, 1, 0, 0, 0, 0, tz)
 
@@ -1496,11 +1525,7 @@ func (db *DB) GetMileageProgress(sport string, tz *time.Location) (MileageProgre
 		if err != nil {
 			continue
 		}
-		wd := int(t.Weekday())
-		if wd == 0 {
-			wd = 7
-		}
-		p.WeekDayMeters[wd-1] = dist
+		p.WeekDayMeters[timeutil.DaysSinceMonday(t)] = dist
 		p.WeekMeters += dist
 	}
 	if err := rows.Err(); err != nil {
@@ -1508,8 +1533,8 @@ func (db *DB) GetMileageProgress(sport string, tz *time.Location) (MileageProgre
 	}
 
 	err = db.QueryRow(
-		`SELECT COALESCE(SUM(distance_meters), 0) FROM workouts WHERE sport = ? AND recorded_at >= ?`,
-		sport, yearStart.UTC().Format(time.RFC3339),
+		`SELECT COALESCE(SUM(distance_meters), 0) FROM workouts WHERE sport = ? AND training_day >= ?`,
+		sport, yearStart.Format("2006-01-02"),
 	).Scan(&p.YearMeters)
 	return p, err
 }
@@ -1521,6 +1546,12 @@ func (db *DB) GetMileageProgress(sport string, tz *time.Location) (MileageProgre
 // migration that re-converges rows below the new version (see the migrations
 // doc in migrate.go). NULL/absent = legacy uniform downsample (pre-RDP).
 const routeCoordsVersion = 2
+
+// geoVersion is the version of the geo lookup data (county boundaries +
+// timezone shapes) stamped on each row's geo_v at insert. If the embedded
+// datasets change meaningfully, bump this AND append a migration that
+// re-converges rows below the new version (migration v5 is the template).
+const geoVersion = 1
 
 // WorkoutRouteTrack is a simplified GPS track for a single workout.
 type WorkoutRouteTrack struct {
@@ -1665,21 +1696,43 @@ type scanner interface {
 	Scan(dest ...any) error
 }
 
+// workoutCols is the canonical workouts column list — every full-row SELECT
+// uses it, and scanWorkout scans exactly these columns in this order. Keep
+// the two in lockstep.
+const workoutCols = `id, filename, recorded_at, sport, duration_secs, elapsed_secs, distance_meters,
+	elevation_gain_meters, avg_power_watts, max_power_watts, normalized_power,
+	avg_heart_rate, max_heart_rate, avg_cadence, avg_speed_mps,
+	tss, intensity_factor, is_indoor, route_id, created_at,
+	training_day, utc_offset_secs, start_lat, start_lng, county, state`
+
 func scanWorkout(s scanner) (models.Workout, error) {
 	var w models.Workout
 	var recordedAt, createdAt string
+	var trainingDay, county, state sql.NullString
+	var offsetSecs sql.NullInt64
 	err := s.Scan(
 		&w.ID, &w.Filename, &recordedAt, &w.Sport,
 		&w.DurationSecs, &w.ElapsedSecs, &w.DistanceMeters, &w.ElevationGainMeters,
 		&w.AvgPowerWatts, &w.MaxPowerWatts, &w.NormalizedPower,
 		&w.AvgHeartRate, &w.MaxHeartRate, &w.AvgCadenceRPM, &w.AvgSpeedMPS,
 		&w.TSS, &w.IntensityFactor, &w.IsIndoor, &w.RouteID, &createdAt,
+		&trainingDay, &offsetSecs, &w.StartLat, &w.StartLng, &county, &state,
 	)
 	if err != nil {
 		return w, err
 	}
+	w.TrainingDay = trainingDay.String
+	w.County, w.State = county.String, state.String
 	if w.RecordedAt, err = time.Parse(time.RFC3339, recordedAt); err != nil {
 		return w, fmt.Errorf("parse recorded_at %q: %w", recordedAt, err)
+	}
+	if offsetSecs.Valid {
+		v := int(offsetSecs.Int64)
+		w.UTCOffsetSecs = &v
+		// Re-home the instant into the ride's own timezone: it still compares
+		// equal as an instant, but Format and JSON now yield the wall-clock
+		// time the athlete actually saw.
+		w.RecordedAt = w.RecordedAt.In(time.FixedZone("", v))
 	}
 	if w.CreatedAt, err = time.Parse(time.RFC3339, createdAt); err != nil {
 		return w, fmt.Errorf("parse created_at %q: %w", createdAt, err)
