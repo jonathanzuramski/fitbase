@@ -355,10 +355,15 @@ func (db *DB) FindDuplicateWorkout(recordedAt time.Time, sport string, durationS
 	return id, err
 }
 
-// DeleteWorkout removes a workout, its streams (cascades via FK), and every
-// imported_files entry recorded for its file — including hash aliases — so the
-// same file can be deliberately re-imported. Deleting is an explicit user
-// action; making the ledger forget the file is what makes it reversible.
+// DeleteWorkout removes a workout and its streams (cascades via FK), and
+// tombstones every imported_files entry recorded for its file — including
+// hash aliases — rather than deleting them. The distinction carries the
+// delete's intent to the two kinds of future imports: filename-level checks
+// (IsFilenameImported, AllImportedFilenames — what the auto-syncers use)
+// still see tombstoned rows, so a deleted ride that still exists at the
+// remote source is never re-downloaded; hash-level checks (IsImported — the
+// watch-dir/upload path) skip tombstones, so deliberately re-importing the
+// file works and revives the row via MarkImported.
 func (db *DB) DeleteWorkout(id string) error {
 	tx, err := db.Begin()
 	if err != nil {
@@ -367,10 +372,10 @@ func (db *DB) DeleteWorkout(id string) error {
 	defer tx.Rollback() //nolint:errcheck
 	// Ledger first: the filename lookup needs the workout row to still exist.
 	if _, err := tx.Exec(`
-		DELETE FROM imported_files WHERE hash IN (
+		UPDATE imported_files SET deleted = 1 WHERE hash IN (
 			SELECT hash FROM imported_files
 			WHERE filename = (SELECT filename FROM workouts WHERE id = ?))`, id); err != nil {
-		return fmt.Errorf("clear import ledger: %w", err)
+		return fmt.Errorf("tombstone import ledger: %w", err)
 	}
 	res, err := tx.Exec("DELETE FROM workouts WHERE id = ?", id)
 	if err != nil {
@@ -460,29 +465,37 @@ func (db *DB) AllWorkoutArchiveRefs() ([]models.Workout, error) {
 
 // MarkImported records a file hash so it won't be re-imported.
 func (db *DB) MarkImported(hash, filename string) error {
-	_, err := db.Exec(
-		"INSERT OR IGNORE INTO imported_files (hash, filename) VALUES (?,?)",
+	// The upsert revives a tombstoned row: an explicit re-import of a
+	// previously deleted file makes it a live import again.
+	_, err := db.Exec(`
+		INSERT INTO imported_files (hash, filename) VALUES (?,?)
+		ON CONFLICT(hash, filename) DO UPDATE SET deleted = 0`,
 		hash, filename,
 	)
 	return err
 }
 
-// IsImported returns true if the file hash has been seen before.
+// IsImported returns true if the file hash has been seen before. Tombstoned
+// entries (workout deleted) don't count: an explicit re-import of the same
+// bytes must proceed, not be skipped.
 func (db *DB) IsImported(hash string) (bool, error) {
 	var exists bool
-	err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM imported_files WHERE hash = ?)", hash).Scan(&exists)
+	err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM imported_files WHERE hash = ? AND deleted = 0)", hash).Scan(&exists)
 	return exists, err
 }
 
-// IsFilenameImported reports whether a file with the given filename has been imported.
-// Used by integrations to avoid re-downloading already-imported files.
+// IsFilenameImported reports whether a file with the given filename has ever
+// been imported — tombstoned (deleted-workout) entries included, deliberately:
+// integrations use this to decide what to download, and a deleted ride still
+// present at the remote source must not be re-fetched.
 func (db *DB) IsFilenameImported(filename string) (bool, error) {
 	var exists bool
 	err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM imported_files WHERE filename = ?)", filename).Scan(&exists)
 	return exists, err
 }
 
-// AllImportedFilenames returns the set of every filename that has been imported.
+// AllImportedFilenames returns the set of every filename that has ever been
+// imported, tombstoned entries included — see IsFilenameImported for why.
 // Used by integrations to batch-check a whole folder listing at once.
 func (db *DB) AllImportedFilenames() (map[string]struct{}, error) {
 	rows, err := db.Query("SELECT filename FROM imported_files")

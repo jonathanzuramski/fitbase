@@ -246,9 +246,14 @@ func (imp *Importer) removeWatchFile(path string) {
 }
 
 // DeleteWorkout removes a workout everywhere: the database row (and cascaded
-// streams/curves/zones), its import-ledger entries, and its archived FIT file.
-// Deletion must reach the archive too — otherwise the ledger no longer blocks
-// the file, but the next archive rebuild would resurrect the workout.
+// streams/curves/zones) and its archived FIT file, and tombstones its
+// import-ledger entries. The tombstone (rather than deletion) is what makes
+// the delete stick: the auto-syncers skip any filename the ledger has seen —
+// tombstoned or not — so a deleted ride still present at the remote source
+// (intervals.icu, Dropbox) is not re-downloaded next poll. Deliberate
+// re-import via upload or the watch dir still works: the hash check ignores
+// tombstones. Deletion must reach the archive too — otherwise the next
+// archive rebuild would resurrect the workout.
 // Returns sql.ErrNoRows if the workout doesn't exist.
 func (imp *Importer) DeleteWorkout(id string) error {
 	w, err := imp.db.GetWorkout(id)
