@@ -153,6 +153,9 @@ func TestGetWeeklyBreakdown_TrainingDayWeeks(t *testing.T) {
 		t.Errorf("week[1] = %q count %d, want %q count 2",
 			weeks[1].Week, weeks[1].WorkoutCount, timeutil.ISOWeekLabel(thisMonday))
 	}
+	if len(weeks[1].WorkoutRefs) != 2 || weeks[1].WorkoutRefs[0].ID != "wk00000000000002" {
+		t.Errorf("week[1] refs = %+v, want 2 refs starting with wk…02", weeks[1].WorkoutRefs)
+	}
 	if weeks[1].TSS != 150 { // two sampleWorkouts at 75 TSS each
 		t.Errorf("week[1] TSS = %v, want 150", weeks[1].TSS)
 	}

@@ -127,15 +127,27 @@ type PowerCurveReport struct {
 	WeightKG float64           `json:"weight_kg"`
 }
 
-// WeeklyLoad holds aggregated training data for a single ISO week.
-type WeeklyLoad struct {
-	Week                string  `json:"week"`
+// WorkoutRef is a compact workout reference: high-level info plus the ID, so a
+// consumer of WeeklyLoad can fetch the full workout when a drill-down is necessary.
+type WorkoutRef struct {
+	ID                  string  `json:"id"`
+	TrainingDay         string  `json:"training_day"` // YYYY-MM-DD, ride local
 	TSS                 float64 `json:"tss"`
 	DurationSecs        int     `json:"duration_secs"`
 	DistanceMeters      float64 `json:"distance_meters"`
 	ElevationGainMeters float64 `json:"elevation_gain_meters"`
-	WorkoutCount        int     `json:"workout_count"`
-	LoadType            string  `json:"load_type"`
+}
+
+// WeeklyLoad holds aggregated training data for a single ISO week.
+type WeeklyLoad struct {
+	Week                string       `json:"week"`
+	TSS                 float64      `json:"tss"`
+	DurationSecs        int          `json:"duration_secs"`
+	DistanceMeters      float64      `json:"distance_meters"`
+	ElevationGainMeters float64      `json:"elevation_gain_meters"`
+	WorkoutCount        int          `json:"workout_count"`
+	LoadType            string       `json:"load_type"`
+	WorkoutRefs         []WorkoutRef `json:"workout_refs"`
 }
 
 // ZoneBreakdown is time spent in a single training zone.

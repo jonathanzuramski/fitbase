@@ -102,7 +102,7 @@ func CoachTools() []ToolSpec {
 		{
 			Name:        ToolGetWeeklyBreakdown,
 			Label:       "your weekly load",
-			Description: "Per-week training summary for the last N weeks: total TSS, duration, distance, elevation, workout count, and a load-type label (build/taper/recovery/etc). Use for weekly volume, consistency, and periodization questions.",
+			Description: "Per-week training summary for the last N weeks: total TSS, duration, distance, elevation, workout count, and a load-type label (build/taper/recovery/etc). Each week also lists workout_refs — compact per-ride entries (id, training day, TSS, duration, distance, elevation) — so you can name the rides behind a big week or pass an id to get_workout_detail without calling list_recent_workouts. Use for weekly volume, consistency, and periodization questions.",
 			InputSchema: objSchema(map[string]any{
 				"weeks": intProp("Number of weeks back, 1–52. Default 8 if omitted."),
 			}),
