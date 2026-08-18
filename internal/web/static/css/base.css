@@ -86,6 +86,19 @@ html {
 ::-webkit-scrollbar-corner {
   background: transparent;
 }
+/* Drag grip on user-resizable boxes (e.g. route history): the unstyled
+   default is a light-gray square that clashes with the dark theme. Draw
+   two subtle diagonal stripes instead. */
+::-webkit-resizer {
+  background: linear-gradient(
+    135deg,
+    transparent 0 55%,
+    var(--border) 55% 65%,
+    transparent 65% 75%,
+    var(--border) 75% 85%,
+    transparent 85%
+  );
+}
 
 a {
   color: var(--accent);
