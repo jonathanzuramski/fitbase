@@ -1,0 +1,4 @@
+# Go html/template sources — Prettier reads {{...}} actions as text/attributes
+# and mangles them (split braces, padded key literals). See the formatter-damage
+# guards in internal/web/templates_parse_test.go for what that has broken.
+internal/web/templates/

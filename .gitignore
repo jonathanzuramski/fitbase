@@ -11,8 +11,10 @@ fitbase.exe
 # macOS
 .DS_Store
 
-# IDE
-.vscode/
+# IDE — personal files stay ignored; settings.json is shared because it
+# disables format-on-save for the Go templates (formatters mangle {{...}}).
+.vscode/*
+!.vscode/settings.json
 .idea/
 
 # Database and user data (never commit)
