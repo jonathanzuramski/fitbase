@@ -3,6 +3,7 @@ package web
 import (
 	"bufio"
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -46,6 +47,47 @@ func TestTemplatesNoMangledActions(t *testing.T) {
 			if mangledAction.MatchString(sc.Text()) {
 				t.Errorf("%s:%d: template action with split braces (formatter damage?): %s",
 					e.Name(), n, sc.Text())
+			}
+		}
+		_ = f.Close() // read-only embedded file; Close cannot fail meaningfully
+	}
+}
+
+// urlHelperCall / stringLit find sortURL/filterURL actions and the string
+// literals inside them, for TestTemplatesNoPaddedURLKeys.
+var (
+	urlHelperCall = regexp.MustCompile(`\{\{[^{}]*(?:sortURL|filterURL)[^{}]*\}\}`)
+	stringLit     = regexp.MustCompile(`"([^"]*)"`)
+)
+
+// TestTemplatesNoPaddedURLKeys flags sort/filter keys that grew padding —
+// `sortURL .Sort .Dir " date"` instead of `"date"`. The index handler
+// whitelist-validates these keys, so a padded value fails validation and the
+// link silently becomes a no-op. HTML auto-formatters do exactly this when a
+// quoted template literal sits inside an href (the inner quote reads as the
+// end of the attribute, and the "attributes" after it get re-spaced) — it has
+// happened: every homepage sort and filter link shipped broken. This test is
+// why it won't ship again.
+func TestTemplatesNoPaddedURLKeys(t *testing.T) {
+	entries, err := FS.ReadDir("templates")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		f, err := FS.Open("templates/" + e.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		sc := bufio.NewScanner(f)
+		sc.Buffer(make([]byte, 1024*1024), 1024*1024)
+		for n := 1; sc.Scan(); n++ {
+			for _, call := range urlHelperCall.FindAllString(sc.Text(), -1) {
+				for _, lit := range stringLit.FindAllStringSubmatch(call, -1) {
+					if lit[1] != strings.TrimSpace(lit[1]) {
+						t.Errorf("%s:%d: padded key %q in %s (formatter damage?)",
+							e.Name(), n, lit[1], call)
+					}
+				}
 			}
 		}
 		_ = f.Close() // read-only embedded file; Close cannot fail meaningfully
