@@ -304,9 +304,9 @@
 				<div class="filter-tabs">
 					<a href="{{filterURL .Sort .Dir ""}}"
 						class="filter-tab{{if eq .TypeFilter ""}} active{{end}}">all</a>
-					<a href="{{filterURL .Sort .Dir " outdoor"}}" class="filter-tab{{if eq .TypeFilter " outdoor"}}
+					<a href="{{filterURL .Sort .Dir "outdoor"}}" class="filter-tab{{if eq .TypeFilter "outdoor"}}
 						active{{end}}">outdoor</a>
-					<a href="{{filterURL .Sort .Dir " indoor"}}" class="filter-tab{{if eq .TypeFilter " indoor"}}
+					<a href="{{filterURL .Sort .Dir "indoor"}}" class="filter-tab{{if eq .TypeFilter "indoor"}}
 						active{{end}}">indoor</a>
 				</div>
 				<div class="view-toggle">
@@ -319,23 +319,23 @@
 				<table class="workout-table">
 					<thead>
 						<tr>
-							<th><a href="{{sortURL .Sort .Dir " date" .TypeFilter}}" class="sort-link">date {{sortArrow
+							<th><a href="{{sortURL .Sort .Dir "date" .TypeFilter}}" class="sort-link">date {{sortArrow
 									.Sort .Dir "date"}}</a></th>
-							<th><a href="{{sortURL .Sort .Dir " sport" .TypeFilter}}" class="sort-link">sport
+							<th><a href="{{sortURL .Sort .Dir "sport" .TypeFilter}}" class="sort-link">sport
 									{{sortArrow .Sort .Dir "sport"}}</a></th>
-							<th><a href="{{sortURL .Sort .Dir " duration" .TypeFilter}}" class="sort-link">duration
+							<th><a href="{{sortURL .Sort .Dir "duration" .TypeFilter}}" class="sort-link">duration
 									{{sortArrow .Sort .Dir "duration"}}</a></th>
-							<th><a href="{{sortURL .Sort .Dir " distance" .TypeFilter}}" class="sort-link">distance
+							<th><a href="{{sortURL .Sort .Dir "distance" .TypeFilter}}" class="sort-link">distance
 									{{sortArrow .Sort .Dir "distance"}}</a></th>
-							<th><a href="{{sortURL .Sort .Dir " power" .TypeFilter}}" class="sort-link">power / pace
+							<th><a href="{{sortURL .Sort .Dir "power" .TypeFilter}}" class="sort-link">power / pace
 									{{sortArrow .Sort .Dir "power"}}</a></th>
-							<th><a href="{{sortURL .Sort .Dir " np" .TypeFilter}}" class="sort-link">NP {{sortArrow
+							<th><a href="{{sortURL .Sort .Dir "np" .TypeFilter}}" class="sort-link">NP {{sortArrow
 									.Sort .Dir "np"}}</a></th>
-							<th><a href="{{sortURL .Sort .Dir " tss" .TypeFilter}}" class="sort-link">TSS {{sortArrow
+							<th><a href="{{sortURL .Sort .Dir "tss" .TypeFilter}}" class="sort-link">TSS {{sortArrow
 									.Sort .Dir "tss"}}</a></th>
-							<th><a href="{{sortURL .Sort .Dir " hr" .TypeFilter}}" class="sort-link">avg hr {{sortArrow
+							<th><a href="{{sortURL .Sort .Dir "hr" .TypeFilter}}" class="sort-link">avg hr {{sortArrow
 									.Sort .Dir "hr"}}</a></th>
-							<th><a href="{{sortURL .Sort .Dir " elev" .TypeFilter}}" class="sort-link">elev {{sortArrow
+							<th><a href="{{sortURL .Sort .Dir "elev" .TypeFilter}}" class="sort-link">elev {{sortArrow
 									.Sort .Dir "elev"}}</a></th>
 							<th></th>
 						</tr>
