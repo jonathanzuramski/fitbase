@@ -324,6 +324,16 @@
     }
   }
 
+  // Route history is capped to a scrollable area; when viewing an older ride,
+  // start the list scrolled so the highlighted current row is visible.
+  {
+    const wrap = document.querySelector('.route-history-table-wrap');
+    const cur = wrap && wrap.querySelector('.route-history-current');
+    if (cur) {
+      wrap.scrollTop = cur.getBoundingClientRect().top - wrap.getBoundingClientRect().top - wrap.clientHeight / 2;
+    }
+  }
+
   function confirmDelete(id) {
     if (!confirm('Delete this workout? This cannot be undone.')) return;
     fetch('/api/workouts/' + id, { method: 'DELETE' })
