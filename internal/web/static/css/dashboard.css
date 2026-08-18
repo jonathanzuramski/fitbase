@@ -363,9 +363,13 @@
 /* ── Route history table ─────────────────────────────── */
 .route-history-table-wrap {
 	overflow-x: auto;
-	/* Popular routes accumulate hundreds of rides; cap the card and scroll. */
+	/* Popular routes accumulate hundreds of rides; cap the card and scroll.
+	   The max-height is a no-JS fallback — the workout page script converts
+	   it to an explicit height so the resize handle can drag beyond it. */
 	max-height: 300px;
 	overflow-y: auto;
+	resize: vertical;
+	min-height: 80px;
 }
 
 .route-history-table-wrap thead th {
