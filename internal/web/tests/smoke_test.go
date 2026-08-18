@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -73,9 +74,12 @@ func TestPagesRender(t *testing.T) {
 
 	for _, path := range []string{
 		"/",
+		"/?sort=duration&dir=asc&type=outdoor&page=1",
+		"/?goal_sport=running",
 		"/workouts/" + w.ID,
 		"/settings",
 		"/calendar",
+		"/calendar?year=2024&month=5",
 		"/heatmap",
 		"/welcome",
 		"/importing",
@@ -86,5 +90,78 @@ func TestPagesRender(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Errorf("GET %s: got %d, want 200 (body: %.200s)", path, rec.Code, rec.Body.String())
 		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/workouts/does-not-exist", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("GET /workouts/does-not-exist: got %d, want 404", rec.Code)
+	}
+}
+
+// TestDashboardSorting proves a sort URL actually reorders the rendered table
+// — not just that the page returns 200. Sorting can break silently: the
+// handler whitelist-validates ?sort=, so any breakage in the key names,
+// sortColumns map, or ORDER BY renders a perfectly healthy page in the
+// default order. This covers the request→query half of the chain;
+// TestTemplatesNoPaddedURLKeys covers the other half (the templates emitting
+// well-formed sort URLs in the first place).
+func TestDashboardSorting(t *testing.T) {
+	d, err := db.Open(filepath.Join(t.TempDir(), "sort.db"), []byte("fitbase-test-key-do-not-use-prod"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { _ = d.Close() })
+	if err := d.MarkSetupComplete(); err != nil {
+		t.Fatalf("mark setup complete: %v", err)
+	}
+
+	// Two workouts whose formatted durations are unambiguous in the HTML.
+	short := &models.Workout{
+		ID: "short_ride", Filename: "short.fit", Sport: "cycling",
+		RecordedAt:   time.Date(2024, 5, 1, 9, 0, 0, 0, time.UTC),
+		DurationSecs: 3600, AvgSpeedMPS: 8, DistanceMeters: 28800,
+		CreatedAt: time.Now().UTC(),
+	}
+	long := &models.Workout{
+		ID: "long_ride", Filename: "long.fit", Sport: "cycling",
+		RecordedAt:   time.Date(2024, 5, 2, 9, 0, 0, 0, time.UTC),
+		DurationSecs: 7200, AvgSpeedMPS: 8, DistanceMeters: 57600,
+		CreatedAt: time.Now().UTC(),
+	}
+	for _, w := range []*models.Workout{short, long} {
+		if err := d.InsertWorkout(w, nil); err != nil {
+			t.Fatalf("insert %s: %v", w.ID, err)
+		}
+	}
+
+	h := web.NewTemplateHandler(d, false, web.FS)
+	rowOrder := func(url string) (shortIdx, longIdx int) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, url, nil)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET %s: got %d, want 200", url, rec.Code)
+		}
+		body := rec.Body.String()
+		shortIdx = strings.Index(body, short.ID)
+		longIdx = strings.Index(body, long.ID)
+		if shortIdx < 0 || longIdx < 0 {
+			t.Fatalf("GET %s: workout rows missing from page", url)
+		}
+		return shortIdx, longIdx
+	}
+
+	if s, l := rowOrder("/?sort=duration&dir=asc"); s > l {
+		t.Error("sort=duration&dir=asc: short ride should come first")
+	}
+	if s, l := rowOrder("/?sort=duration&dir=desc"); s < l {
+		t.Error("sort=duration&dir=desc: long ride should come first")
+	}
+	// Default order is newest first — the long (newer) ride leads.
+	if s, l := rowOrder("/"); s < l {
+		t.Error("default order: newest ride should come first")
 	}
 }
