@@ -1,12 +1,12 @@
-{{define "importing"}}
+{{ define "importing" }}
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>importing — fitbase</title>
-  <link rel="stylesheet" href="/static/css/base.css" />
-  <link rel="stylesheet" href="/static/css/components.css" />
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>importing — fitbase</title>
+		<link rel="stylesheet" href="/static/css/base.css" />
+		<link rel="stylesheet" href="/static/css/components.css" />
   <style>
     html, body { height: 100%; margin: 0; background: var(--bg, #0f1117); }
     .importing-wrap {
@@ -24,34 +24,34 @@
       letter-spacing: 0.04em;
     }
   </style>
-</head>
-<body>
-  <div class="importing-wrap">
-    <div>
-      <div class="importing-brand">fitbase</div>
-      <div class="bulk-modal">
-        <div class="bulk-title">importing your archive…</div>
-        <div class="bulk-filename">restoring workouts — this only happens once</div>
-        <div class="bulk-progress-track">
-          <div class="bulk-progress-bar" id="imp-bar"></div>
-        </div>
-        <div class="bulk-counts">
-          <span id="imp-counter">0 / 0</span>
-          <span class="bulk-results" id="imp-results"></span>
-        </div>
-      </div>
-      <!-- Shown only when a rebuild couldn't restore some workouts from the local
-           archive; they can be recovered by resyncing a connected source. -->
-      <div class="bulk-modal" id="imp-resync" style="display:none; margin-top:16px;">
-        <div class="bulk-title">some workouts need a resync</div>
-        <div class="bulk-filename" id="imp-resync-msg"></div>
-        <div class="bulk-counts" style="margin-top:12px; gap:12px;">
-          <a class="btn-secondary" href="/settings">resync a source</a>
-          <a class="btn-secondary" href="/">continue anyway</a>
-        </div>
-      </div>
-    </div>
-  </div>
+	</head>
+	<body>
+		<div class="importing-wrap">
+			<div>
+				<div class="importing-brand">fitbase</div>
+				<div class="bulk-modal">
+					<div class="bulk-title">importing your archive…</div>
+					<div class="bulk-filename">restoring workouts — this only happens once</div>
+					<div class="bulk-progress-track">
+						<div class="bulk-progress-bar" id="imp-bar"></div>
+					</div>
+					<div class="bulk-counts">
+						<span id="imp-counter">0 / 0</span>
+						<span class="bulk-results" id="imp-results"></span>
+					</div>
+				</div>
+				<!-- Shown only when a rebuild couldn't restore some workouts from the local
+				archive; they can be recovered by resyncing a connected source. -->
+				<div class="bulk-modal" id="imp-resync" style="display:none; margin-top:16px;">
+					<div class="bulk-title">some workouts need a resync</div>
+					<div class="bulk-filename" id="imp-resync-msg"></div>
+					<div class="bulk-counts" style="margin-top:12px; gap:12px;">
+						<a class="btn-secondary" href="/settings">resync a source</a>
+						<a class="btn-secondary" href="/">continue anyway</a>
+					</div>
+				</div>
+			</div>
+		</div>
   <script>
     // Standalone first-run import screen. The router redirects every page here
     // while a startup reimport is active; we poll until it finishes, then go
@@ -101,6 +101,6 @@
       poll();
     })();
   </script>
-</body>
+	</body>
 </html>
-{{end}}
+{{ end }}
