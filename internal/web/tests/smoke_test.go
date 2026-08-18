@@ -1,4 +1,4 @@
-package web
+package web_test
 
 import (
 	"net/http"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/fitbase/fitbase/internal/db"
 	"github.com/fitbase/fitbase/internal/models"
+	"github.com/fitbase/fitbase/internal/web"
 )
 
 // TestPagesRender boots the real template handler against a real database and
@@ -68,7 +69,7 @@ func TestPagesRender(t *testing.T) {
 		t.Fatalf("refresh achievements: %v", err)
 	}
 
-	h := NewTemplateHandler(d, false, FS)
+	h := web.NewTemplateHandler(d, false, web.FS)
 
 	for _, path := range []string{
 		"/",

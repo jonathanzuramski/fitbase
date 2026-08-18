@@ -1,23 +1,26 @@
-package web
+package web_test
 
 import (
 	"bufio"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/fitbase/fitbase/internal/web"
 )
 
 // TestTemplatesParse catches template breakage at test time instead of as a
-// runtime panic on first page load. loadTemplatesFrom uses template.Must, so a
-// malformed action anywhere in any page template panics here.
+// runtime panic on first page load. Template loading uses template.Must, so a
+// malformed action anywhere in any page template panics during handler
+// construction. The nil DB is fine: construction only parses templates.
 func TestTemplatesParse(t *testing.T) {
 	defer func() {
 		if r := recover(); r != nil {
 			t.Fatalf("template parse panic: %v", r)
 		}
 	}()
-	if got := loadTemplatesFrom(FS); got == nil {
-		t.Fatal("loadTemplatesFrom returned nil")
+	if got := web.NewTemplateHandler(nil, false, web.FS); got == nil {
+		t.Fatal("NewTemplateHandler returned nil")
 	}
 }
 
@@ -32,25 +35,12 @@ var mangledAction = regexp.MustCompile(
 		`|(?:\bif\b|\belse\b|\bend\b|\brange\b|\bwith\b|\.[A-Z]\w*)[^{}]*\}\s+\}`)
 
 func TestTemplatesNoMangledActions(t *testing.T) {
-	entries, err := FS.ReadDir("templates")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, e := range entries {
-		f, err := FS.Open("templates/" + e.Name())
-		if err != nil {
-			t.Fatal(err)
+	forEachTemplateLine(t, func(name string, n int, line string) {
+		if mangledAction.MatchString(line) {
+			t.Errorf("%s:%d: template action with split braces (formatter damage?): %s",
+				name, n, line)
 		}
-		sc := bufio.NewScanner(f)
-		sc.Buffer(make([]byte, 1024*1024), 1024*1024)
-		for n := 1; sc.Scan(); n++ {
-			if mangledAction.MatchString(sc.Text()) {
-				t.Errorf("%s:%d: template action with split braces (formatter damage?): %s",
-					e.Name(), n, sc.Text())
-			}
-		}
-		_ = f.Close() // read-only embedded file; Close cannot fail meaningfully
-	}
+	})
 }
 
 // urlHelperCall / stringLit find sortURL/filterURL actions and the string
@@ -69,26 +59,34 @@ var (
 // happened: every homepage sort and filter link shipped broken. This test is
 // why it won't ship again.
 func TestTemplatesNoPaddedURLKeys(t *testing.T) {
-	entries, err := FS.ReadDir("templates")
+	forEachTemplateLine(t, func(name string, n int, line string) {
+		for _, call := range urlHelperCall.FindAllString(line, -1) {
+			for _, lit := range stringLit.FindAllStringSubmatch(call, -1) {
+				if lit[1] != strings.TrimSpace(lit[1]) {
+					t.Errorf("%s:%d: padded key %q in %s (formatter damage?)",
+						name, n, lit[1], call)
+				}
+			}
+		}
+	})
+}
+
+// forEachTemplateLine runs fn for every line of every embedded template.
+func forEachTemplateLine(t *testing.T, fn func(name string, lineNo int, line string)) {
+	t.Helper()
+	entries, err := web.FS.ReadDir("templates")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, e := range entries {
-		f, err := FS.Open("templates/" + e.Name())
+		f, err := web.FS.Open("templates/" + e.Name())
 		if err != nil {
 			t.Fatal(err)
 		}
 		sc := bufio.NewScanner(f)
 		sc.Buffer(make([]byte, 1024*1024), 1024*1024)
 		for n := 1; sc.Scan(); n++ {
-			for _, call := range urlHelperCall.FindAllString(sc.Text(), -1) {
-				for _, lit := range stringLit.FindAllStringSubmatch(call, -1) {
-					if lit[1] != strings.TrimSpace(lit[1]) {
-						t.Errorf("%s:%d: padded key %q in %s (formatter damage?)",
-							e.Name(), n, lit[1], call)
-					}
-				}
-			}
+			fn(e.Name(), n, sc.Text())
 		}
 		_ = f.Close() // read-only embedded file; Close cannot fail meaningfully
 	}
