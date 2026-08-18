@@ -350,9 +350,7 @@
 									<td>{{ formatDistance .DistanceMeters $imperial }}</td>
 									<td>
 										{{ if .AvgPowerWatts }}{{ formatOptFloat .AvgPowerWatts "W" }}
-										{{ else }}{{ formatPace
-	.AvgSpeedMPS $imperial
-}}
+										{{ else }}{{ formatPace	.AvgSpeedMPS $imperial }}
 										{{ end }}</td>
 									<td>{{ formatOptFloat .NormalizedPower "W" }}</td>
 									<td class="tss">{{ formatOptFloat .TSS "" }}</td>
