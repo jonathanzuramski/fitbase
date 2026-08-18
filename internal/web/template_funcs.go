@@ -34,6 +34,65 @@ var FuncMap = template.FuncMap{
 	"add1":            func(i int) int { return i + 1 },
 	"goalDisplayDist": goalDisplayDist,
 	"tsbClass":        tsbClass,
+	"achievementText": achievementText,
+	"achievementIcon": achievementIcon,
+}
+
+// achievementIcon returns the trophy glyph for an achievement rank.
+func achievementIcon(rank int) string {
+	switch rank {
+	case 1:
+		return "🏆"
+	case 2:
+		return "🥈"
+	default:
+		return "🥉"
+	}
+}
+
+// achievementText renders an achievement kind+rank as a short badge label,
+// e.g. "course record", "2nd best 20 min power", "longest ride".
+func achievementText(a models.Achievement, sport string) string {
+	ordinal := [4]string{"", "", "2nd ", "3rd "}[min(a.Rank, 3)]
+	activity := "activity"
+	switch sport {
+	case "cycling":
+		activity = "ride"
+	case "running":
+		activity = "run"
+	}
+
+	switch a.Kind {
+	case "route_time":
+		if a.Rank == 1 {
+			return "course record"
+		}
+		return ordinal + "fastest on this route"
+	case "route_power":
+		if a.Rank == 1 {
+			return "best power on this route"
+		}
+		return ordinal + "best power on this route"
+	case "longest_distance":
+		return "longest " + activity
+	case "most_climbing":
+		return "most climbing in one " + activity
+	}
+	if secsStr, ok := strings.CutPrefix(a.Kind, "power_"); ok {
+		secs, _ := strconv.Atoi(secsStr)
+		label := fmt.Sprintf("%ds", secs)
+		switch {
+		case secs >= 3600:
+			label = fmt.Sprintf("%d hr", secs/3600)
+		case secs >= 60:
+			label = fmt.Sprintf("%d min", secs/60)
+		}
+		if a.Rank == 1 {
+			return "all-time best " + label + " power"
+		}
+		return ordinal + "best " + label + " power"
+	}
+	return a.Kind
 }
 
 // sortURL returns the href for a sortable column header, preserving the active type filter.

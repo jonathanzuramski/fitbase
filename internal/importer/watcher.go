@@ -205,6 +205,10 @@ func (imp *Importer) Import(path string) (string, error) {
 				slog.Warn("route assignment failed", "id", result.ID, "err", err)
 			}
 		}
+		// After route assignment — route PRs need the route_id in place.
+		if err := imp.db.RefreshAchievements(result.ID); err != nil {
+			slog.Warn("achievement computation failed", "id", result.ID, "err", err)
+		}
 		// Workout is stored and archived; the watch-dir copy is no longer needed.
 		imp.removeWatchFile(path)
 		imp.mu.RLock()
@@ -269,6 +273,11 @@ func (imp *Importer) DeleteWorkout(id string) error {
 	if err := os.Remove(imp.ArchivePath(w)); err != nil && !os.IsNotExist(err) {
 		slog.Warn("failed to remove archived FIT for deleted workout; an archive rebuild would restore it",
 			"id", id, "path", imp.ArchivePath(w), "err", err)
+	}
+	// Removing a ride rewrites PR history: efforts it once outranked may now
+	// deserve its trophies, so recompute everything recorded after it.
+	if err := imp.db.RecomputeAchievementsAfter(w.RecordedAt); err != nil {
+		slog.Warn("achievement recompute after delete failed", "id", id, "err", err)
 	}
 	return nil
 }
@@ -399,6 +408,10 @@ func (imp *Importer) ImportBytes(data []byte, filename string) (string, error) {
 			if err := imp.db.SetWorkoutRouteID(result.ID, routeID); err != nil {
 				slog.Warn("route assignment failed", "id", result.ID, "err", err)
 			}
+		}
+		// After route assignment — route PRs need the route_id in place.
+		if err := imp.db.RefreshAchievements(result.ID); err != nil {
+			slog.Warn("achievement computation failed", "id", result.ID, "err", err)
 		}
 		imp.mu.RLock()
 		hasDrive := imp.drive != nil

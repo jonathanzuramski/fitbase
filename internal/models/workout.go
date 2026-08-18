@@ -43,6 +43,17 @@ type Workout struct {
 	CreatedAt           time.Time `json:"created_at"`
 }
 
+// Achievement is a personal-best trophy earned by a workout: rank 1–3 against
+// every strictly earlier workout in the same category (route time/power,
+// duration power bests, longest ride, most climbing). Computed once at import
+// so a trophy records what was true when the ride happened.
+type Achievement struct {
+	WorkoutID string  `json:"workout_id"`
+	Kind      string  `json:"kind"`
+	Rank      int     `json:"rank"`
+	Value     float64 `json:"value"`
+}
+
 // Stream is a single time-series data point within a workout.
 type Stream struct {
 	Timestamp      time.Time `json:"timestamp"`

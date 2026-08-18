@@ -129,6 +129,29 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/workouts/{id}/achievements:
+    get:
+      summary: Get workout achievements
+      description: |
+        Returns the workout's personal-best trophies, best rank first.
+        A trophy of rank 1–3 means the workout beat all but rank-1 strictly
+        earlier efforts in its category at the time it was recorded. Kinds:
+        `route_time` and `route_power` (PRs on the matched route),
+        `power_<secs>` (same-sport duration power bests at 5/60/300/1200/3600s),
+        `longest_distance` and `most_climbing` (same-sport all-time records,
+        rank 1 only). `value` is the metric that earned the trophy — seconds
+        for `route_time`, watts for power kinds, meters otherwise.
+      parameters:
+        - $ref: "#/components/parameters/WorkoutID"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AchievementsResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/athlete:
     get:
       summary: Get athlete profile
@@ -1025,6 +1048,20 @@ components:
             route_id:   { type: string, nullable: true }
             route_name: { type: string, nullable: true }
             workouts:   { type: array, items: { $ref: "#/components/schemas/Workout" } }
+        error: { type: string, nullable: true }
+
+    Achievement:
+      type: object
+      properties:
+        workout_id: { type: string }
+        kind: { type: string, example: power_1200 }
+        rank: { type: integer, minimum: 1, maximum: 3 }
+        value: { type: number, description: "seconds (route_time), watts (power kinds), or meters" }
+
+    AchievementsResponse:
+      type: object
+      properties:
+        data:  { type: array, items: { $ref: "#/components/schemas/Achievement" } }
         error: { type: string, nullable: true }
 
     WorkoutListResponse:

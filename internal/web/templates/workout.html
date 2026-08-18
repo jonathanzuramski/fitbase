@@ -22,6 +22,16 @@
   </div>
 </div>
 
+{{/* ── Achievements ─────────────────────────────────── */}} {{if .Achievements}}
+<div class="achievement-row">
+  {{range .Achievements}}
+  <span class="achievement-badge achievement-rank-{{.Rank}}"
+    >{{achievementIcon .Rank}} {{achievementText . $w.Sport}}</span
+  >
+  {{end}}
+</div>
+{{end}}
+
 {{if .FTPDetected}}
 <div class="alert-banner ftp-banner">
   <span class="alert-icon">&#9889;</span>
@@ -103,9 +113,9 @@
         {{range .RouteHistory}}
         <tr class="workout-row{{if eq .ID $w.ID}} route-history-current{{end}}" onclick="location.href='/workouts/{{.ID}}'">
           <td class="date">{{.RecordedAt.Format "Jan 02, 2006"}}</td>
-          <td>{{formatDuration .DurationSecs}}</td>
+          <td>{{formatDuration .DurationSecs}}{{if eq .ID $.RouteBestTimeID}} <span class="route-record" title="course record">🏆</span>{{end}}</td>
           {{if $w.AvgPowerWatts}}
-          <td>{{formatOptFloat .AvgPowerWatts "W"}}</td>
+          <td>{{formatOptFloat .AvgPowerWatts "W"}}{{if eq .ID $.RouteBestPowerID}} <span class="route-record" title="best power on this route">🏆</span>{{end}}</td>
           <td>{{formatOptFloat .NormalizedPower "W"}}</td>
           {{end}} {{if $w.AvgHeartRate}}
           <td>{{formatOptInt .AvgHeartRate "bpm"}}</td>

@@ -473,32 +473,52 @@ func (th *templateHandler) workout(w http.ResponseWriter, r *http.Request) {
 		routeName, routeHistory, _ = th.db.GetRouteHistory(*workout.RouteID)
 	}
 
+	// Current record holders across the route's whole history, for the trophy
+	// markers in the table. (Unlike the badges below — which are frozen at
+	// import time — these always reflect the standings as of today.)
+	var routeBestTimeID, routeBestPowerID string
+	var bestTime int
+	var bestPower float64
+	for _, rw := range routeHistory {
+		if rw.DurationSecs > 0 && (routeBestTimeID == "" || rw.DurationSecs < bestTime) {
+			routeBestTimeID, bestTime = rw.ID, rw.DurationSecs
+		}
+		if rw.AvgPowerWatts != nil && (routeBestPowerID == "" || *rw.AvgPowerWatts > bestPower) {
+			routeBestPowerID, bestPower = rw.ID, *rw.AvgPowerWatts
+		}
+	}
+
+	achievements, _ := th.db.GetWorkoutAchievements(workout.ID)
+
 	renderTemplate(w, th.templates().workout, "base", map[string]any{
-		"Workout":         workout,
-		"Streams":         streams,
-		"Imperial":        th.isImperial(),
-		"WorkKJ":          sm.WorkKJ,
-		"Calories":        sm.Calories,
-		"EFTP":            eftpF,
-		"EFTPRounded":     int(eftpF),
-		"MaxCadence":      sm.MaxCadence,
-		"MaxPower1s":      sm.MaxPower1s,
-		"VI":              viF,
-		"EF":              efF,
-		"Fitness":         user_fitness,
-		"FTP":             ftpAtTime,
-		"ThresholdHR":     athlete.ThresholdHR,
-		"AllTimeCurve":    allTimeCurve,
-		"WorkoutCurve":    workoutCurve,
-		"FTPDetected":     ftpDetected,
-		"FTPOld":          ftpOld,
-		"WeightKG":        athlete.WeightKG,
-		"RouteHistory":    routeHistory,
-		"RouteName":       routeName,
-		"PowerZoneSecs":   powerZoneSecs,
-		"HRZoneSecs":      hrZoneSecs,
-		"PowerZoneRanges": fitness.PowerZoneRangeLabels(ftpAtTime),
-		"HRZoneRanges":    fitness.HRZoneRangeLabels(hrZones, athlete.ThresholdHR),
+		"Workout":          workout,
+		"Streams":          streams,
+		"Imperial":         th.isImperial(),
+		"WorkKJ":           sm.WorkKJ,
+		"Calories":         sm.Calories,
+		"EFTP":             eftpF,
+		"EFTPRounded":      int(eftpF),
+		"MaxCadence":       sm.MaxCadence,
+		"MaxPower1s":       sm.MaxPower1s,
+		"VI":               viF,
+		"EF":               efF,
+		"Fitness":          user_fitness,
+		"FTP":              ftpAtTime,
+		"ThresholdHR":      athlete.ThresholdHR,
+		"AllTimeCurve":     allTimeCurve,
+		"WorkoutCurve":     workoutCurve,
+		"FTPDetected":      ftpDetected,
+		"FTPOld":           ftpOld,
+		"WeightKG":         athlete.WeightKG,
+		"RouteHistory":     routeHistory,
+		"RouteName":        routeName,
+		"RouteBestTimeID":  routeBestTimeID,
+		"RouteBestPowerID": routeBestPowerID,
+		"Achievements":     achievements,
+		"PowerZoneSecs":    powerZoneSecs,
+		"HRZoneSecs":       hrZoneSecs,
+		"PowerZoneRanges":  fitness.PowerZoneRangeLabels(ftpAtTime),
+		"HRZoneRanges":     fitness.HRZoneRangeLabels(hrZones, athlete.ThresholdHR),
 	})
 }
 
