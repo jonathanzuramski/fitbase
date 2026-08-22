@@ -84,6 +84,7 @@ func NewRouter(h *Handler, dropbox *DropboxHandler, intervalsH *IntervalsHandler
 		})
 	})
 
+	r.Get("/openapi.yaml", ServeOpenAPI)
 	r.Handle("/static/*", http.StripPrefix("/static", http.FileServer(staticFS)))
 	r.Mount("/", importGate(h, templateHandler))
 

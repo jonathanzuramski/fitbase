@@ -141,9 +141,10 @@ curl -X POST http://localhost:8080/api/integrations/gdrive/restore
 
 ## API
 
-Full spec in [`openapi.yaml`](./openapi.yaml), which doubles as a tool schema for function calling. A few key endpoints:
+Full spec in [`openapi.yaml`](./openapi.yaml), which doubles as a tool schema for function calling. A running instance also serves it at `GET /openapi.yaml` (with the `servers` URL rewritten to the host you fetched it from), so agents can discover the API without a copy of the repo. A few key endpoints:
 
 ```
+GET    /openapi.yaml                  this spec, for agent discovery
 GET    /api/workouts                  list workouts
 GET    /api/workouts/{id}/summary     compact summary for LLMs
 GET    /api/workouts/{id}/analysis    zones, variability, 90-day comparison

@@ -13,9 +13,24 @@ info:
   version: 0.2.0
 
 servers:
+  # Placeholder — when this spec is fetched from a running instance at
+  # GET /openapi.yaml, the URL is rewritten to the host the request arrived on.
   - url: http://localhost:8080
 
 paths:
+  /openapi.yaml:
+    get:
+      summary: This spec
+      description: |
+        The OpenAPI spec itself, served so agents can discover the API from a
+        running instance. The `servers` URL is rewritten to the request host,
+        so the returned spec is immediately usable as a tool schema.
+      responses:
+        "200":
+          description: OpenAPI 3.1 spec
+          content:
+            application/yaml: {}
+
   /api/workouts:
     get:
       summary: List workouts
