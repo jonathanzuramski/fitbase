@@ -9,9 +9,11 @@ import (
 
 // RampRate is the change in CTL (fitness) over the trailing N days, rounded
 // to 1 decimal. A +CTL ramp >8/week (≈ +32/4wk) is the conventional
-// over-training warning line; <0 is detraining. Returns 0 when the history is
-// too short to span the requested window.
+// over-training warning line; <0 is detraining. Trailing projected points are
+// ignored so an unlogged today doesn't register as a day of detraining.
+// Returns 0 when the settled history is too short to span the window.
 func RampRate(history []models.FitnessPoint, days int) float64 {
+	history = Settled(history)
 	if days <= 0 || len(history) < days+1 {
 		return 0
 	}
@@ -31,6 +33,31 @@ func ClassifyWeeklyLoad(tss float64) string {
 	default:
 		return "Very High"
 	}
+}
+
+// Settled returns history with its trailing projected points removed.
+//
+// A projected point is a day whose load isn't final: the forecast days after
+// today, and today itself until a workout with TSS has been logged for it.
+// Anything that reports "current" fitness should read the last settled point
+// rather than the last point — an unlogged today is zero-TSS decay, and since
+// ATL decays ~6x faster than CTL that decay inflates form by several points.
+func Settled(history []models.FitnessPoint) []models.FitnessPoint {
+	end := len(history)
+	for end > 0 && history[end-1].IsProjection {
+		end--
+	}
+	return history[:end]
+}
+
+// Current returns the most recent settled point — the state the rider carries
+// into today — and false when the history has no settled point at all.
+func Current(history []models.FitnessPoint) (models.FitnessPoint, bool) {
+	settled := Settled(history)
+	if len(settled) == 0 {
+		return models.FitnessPoint{}, false
+	}
+	return settled[len(settled)-1], true
 }
 
 // ComputeLoad computes daily Fitness/Fatigue/Form from a map of daily TSS values using

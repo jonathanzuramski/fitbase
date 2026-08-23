@@ -932,9 +932,15 @@ components:
       type: object
       properties:
         date:    { type: string, format: date-time }
-        fitness: { type: number }
-        fatigue: { type: number }
-        form:    { type: number }
+        fitness: { type: number, description: "Chronic Training Load (42-day EMA of TSS)" }
+        fatigue: { type: number, description: "Acute Training Load (7-day EMA of TSS)" }
+        form:    { type: number, description: "Fitness minus Fatigue" }
+        is_projection:
+          type: boolean
+          description: >-
+            Present and true when the day's load is not final: forecast days,
+            and today until a workout with TSS has been logged for it. Read
+            "current" fitness from the last point without this flag.
 
     ZonesReport:
       type: object
@@ -1034,6 +1040,7 @@ components:
       type: object
       properties:
         date:                   { type: string, format: date, example: "2025-03-24" }
+        as_of:                  { type: string, format: date, example: "2025-03-23", description: "Day the load values are settled through: today once a workout with TSS is logged for today, otherwise yesterday — so form is the freshness carried into today, not a forecast of a day off" }
         fitness:                { type: number, description: "Chronic Training Load (42-day EMA of TSS)" }
         fatigue:                { type: number, description: "Acute Training Load (7-day EMA of TSS)" }
         form:                   { type: number, description: "Fitness minus Fatigue" }

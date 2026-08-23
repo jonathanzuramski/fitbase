@@ -193,7 +193,11 @@ type WorkoutAnalysis struct {
 
 // ReadinessReport is a coaching snapshot: current form, load context, and a recommendation.
 type ReadinessReport struct {
-	Date                 string  `json:"date"`
+	Date string `json:"date"`
+	// AsOf is the day the load values are settled through: today once a
+	// workout with TSS has been logged for today, otherwise yesterday. Form is
+	// then the freshness the rider carries into today, not a forecast of a day off.
+	AsOf                 string  `json:"as_of"`
 	Fitness              float64 `json:"fitness"`
 	Fatigue              float64 `json:"fatigue"`
 	Form                 float64 `json:"form"`

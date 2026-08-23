@@ -1082,6 +1082,11 @@ func (db *DB) athleteLocation() *time.Location {
 // warmup) so the EMA starting conditions are identical and the values match.
 // "Today" and the target are interpreted in tz — the viewer's timezone for web
 // requests (see timeutil.ViewerLocation), the profile timezone for AI paths.
+//
+// Asking for today before a ride with TSS has been logged returns yesterday's
+// point — the state the rider carries into today — rather than a zero-TSS
+// forecast of today; the returned point's Date says which day the values are
+// settled through.
 func (db *DB) GetFitnessOnDate(date time.Time, tz *time.Location) (models.FitnessPoint, error) {
 	target := timeutil.LocalMidnight(date.In(tz))
 	today := timeutil.LocalMidnight(time.Now().In(tz))
@@ -1095,11 +1100,17 @@ func (db *DB) GetFitnessOnDate(date time.Time, tz *time.Location) (models.Fitnes
 	if len(points) == 0 {
 		return models.FitnessPoint{}, nil
 	}
-	// points is oldest-first; index 90 is the target date.
+	// points is oldest-first; index 90 is the target date. Only today can be
+	// unsettled in a projection-free walk, so Current falls back at most one day.
+	idx := 90
 	if len(points) <= 90 {
-		return points[0], nil
+		idx = 0
 	}
-	return points[90], nil
+	fp, ok := fitness.Current(points[:idx+1])
+	if !ok {
+		return models.FitnessPoint{}, nil
+	}
+	return fp, nil
 }
 
 // GetFitnessHistory returns daily Fitness/Fatigue/Form for the last n days.
@@ -1161,6 +1172,18 @@ func (db *DB) getFitnessHistory(days, projection int, tz *time.Location) ([]mode
 	// them differently without doing its own clock math.
 	for i := len(points) - projection; i < len(points); i++ {
 		points[i].IsProjection = true
+	}
+	// Today is only settled once a workout with TSS has been logged for it.
+	// Until then its point is a day of zero-TSS decay — a forecast of a day
+	// off, not a record of one — and because ATL decays ~6x faster than CTL it
+	// overstates form by several points. Flag it like the forecast days so the
+	// chart draws it dashed and "current" readers (readiness, the coach) fall
+	// back to yesterday via fitness.Settled/Current. A day with a logged ride
+	// but no TSS doesn't count: it contributes nothing to the EMA either way.
+	if _, ridden := tssByDay[today.Format("2006-01-02")]; !ridden {
+		if i := len(points) - projection - 1; i >= 0 {
+			points[i].IsProjection = true
+		}
 	}
 	return points, nil
 }

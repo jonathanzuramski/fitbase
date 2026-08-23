@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fitbase/fitbase/internal/db"
+	"github.com/fitbase/fitbase/internal/fitness"
 	"github.com/fitbase/fitbase/internal/models"
 	_ "modernc.org/sqlite"
 )
@@ -768,22 +769,39 @@ func TestFitnessOnDate_MatchesChart(t *testing.T) {
 		chartByDate[p.Date.Format("2006-01-02")] = p
 	}
 
+	// No ride is logged for today, so the chart flags today as a projection and
+	// GetFitnessOnDate(today) must return the last settled day (yesterday)
+	// rather than today's zero-TSS forecast.
+	if last := history[len(history)-1]; !last.IsProjection {
+		t.Fatalf("today (%s) should be a projection until a ride is logged", last.Date.Format("2006-01-02"))
+	}
+
 	// For each point in the chart, GetFitnessOnDate must return identical values.
-	for _, chartPt := range history {
+	for i, chartPt := range history {
+		want := chartPt
+		if chartPt.IsProjection {
+			if i == 0 {
+				t.Fatal("projected point with no settled day before it")
+			}
+			want = history[i-1]
+		}
 		fp, err := d.GetFitnessOnDate(chartPt.Date, time.UTC)
 		if err != nil {
 			t.Fatalf("GetFitnessOnDate(%s): %v", chartPt.Date.Format("2006-01-02"), err)
 		}
 
 		dateStr := chartPt.Date.Format("2006-01-02")
-		if fp.Fitness != chartPt.Fitness {
-			t.Errorf("%s: CTL mismatch — GetFitnessOnDate=%.9f, chart=%.9f", dateStr, fp.Fitness, chartPt.Fitness)
+		if !fp.Date.Equal(want.Date) {
+			t.Errorf("%s: as-of date — GetFitnessOnDate=%s, want %s", dateStr, fp.Date.Format("2006-01-02"), want.Date.Format("2006-01-02"))
 		}
-		if fp.Fatigue != chartPt.Fatigue {
-			t.Errorf("%s: ATL mismatch — GetFitnessOnDate=%.9f, chart=%.9f", dateStr, fp.Fatigue, chartPt.Fatigue)
+		if fp.Fitness != want.Fitness {
+			t.Errorf("%s: CTL mismatch — GetFitnessOnDate=%.9f, chart=%.9f", dateStr, fp.Fitness, want.Fitness)
 		}
-		if fp.Form != chartPt.Form {
-			t.Errorf("%s: TSB mismatch — GetFitnessOnDate=%.9f, chart=%.9f", dateStr, fp.Form, chartPt.Form)
+		if fp.Fatigue != want.Fatigue {
+			t.Errorf("%s: ATL mismatch — GetFitnessOnDate=%.9f, chart=%.9f", dateStr, fp.Fatigue, want.Fatigue)
+		}
+		if fp.Form != want.Form {
+			t.Errorf("%s: TSB mismatch — GetFitnessOnDate=%.9f, chart=%.9f", dateStr, fp.Form, want.Form)
 		}
 	}
 }
@@ -835,11 +853,25 @@ func TestFitnessOnDate_MatchesChartForChart(t *testing.T) {
 		if plain[i].Form != withProj[i].Form {
 			t.Errorf("%s: TSB plain=%.9f chart=%.9f", dateStr, plain[i].Form, withProj[i].Form)
 		}
+		if plain[i].IsProjection != withProj[i].IsProjection {
+			t.Errorf("%s: is_projection plain=%v chart=%v", dateStr, plain[i].IsProjection, withProj[i].IsProjection)
+		}
 	}
 
-	// Projected days should show decaying fatigue (no new TSS).
-	lastReal := withProj[len(plain)-1]
-	for i := len(plain); i < len(withProj); i++ {
+	// No ride is logged today, so today — the last overlapping point — is
+	// flagged as a projection in both walks and the settled history ends
+	// yesterday. The chart's solid line stops there; today joins the forecast.
+	if !plain[len(plain)-1].IsProjection {
+		t.Fatal("today should be flagged as a projection until a ride is logged")
+	}
+	settled := fitness.Settled(withProj)
+	if len(settled) != len(plain)-1 {
+		t.Fatalf("settled history should end yesterday (%d points), got %d", len(plain)-1, len(settled))
+	}
+
+	// Projected days — today included — should show decaying fatigue (no new TSS).
+	lastReal := settled[len(settled)-1]
+	for i := len(settled); i < len(withProj); i++ {
 		proj := withProj[i]
 		// Both CTL and ATL should decay toward zero (be less than previous real values).
 		if proj.Fatigue >= lastReal.Fatigue {
@@ -1885,5 +1917,130 @@ func TestGetWeeklyBreakdown(t *testing.T) {
 	}
 	if rows[0].LoadType == "" {
 		t.Error("LoadType is empty")
+	}
+}
+
+// TestGetFitnessHistory_TodayProjectedUntilRideLogged pins the rule behind the
+// chart's dashed "today": with no ride logged, today's point is a day of
+// zero-TSS decay and is flagged as a projection; once a ride with TSS lands on
+// today the point is settled and reflects the ride.
+func TestGetFitnessHistory_TodayProjectedUntilRideLogged(t *testing.T) {
+	d := newTestDB(t)
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+
+	tss := 120.0
+	w := sampleWorkout("todayproj0001ab")
+	w.RecordedAt = today.AddDate(0, 0, -1).Add(8 * time.Hour)
+	w.TSS = &tss
+	if err := d.InsertWorkout(w, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	before, err := d.GetFitnessHistory(7, time.UTC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	todayPt, yesterdayPt := before[len(before)-1], before[len(before)-2]
+	if !todayPt.Date.Equal(today) {
+		t.Fatalf("last point should be today %s, got %s", today.Format("2006-01-02"), todayPt.Date.Format("2006-01-02"))
+	}
+	if !todayPt.IsProjection {
+		t.Error("today should be a projection before any ride is logged")
+	}
+	if yesterdayPt.IsProjection {
+		t.Error("yesterday has a ride and must be settled")
+	}
+	// The unsettled point is a day of decay. Fatigue falls faster than fitness,
+	// so it reads fresher than the form the rider actually carries into today —
+	// the inflation the flag exists to keep off the badge and out of the coach.
+	if todayPt.Form <= yesterdayPt.Form {
+		t.Errorf("zero-TSS today should read fresher than yesterday: today %.2f, yesterday %.2f", todayPt.Form, yesterdayPt.Form)
+	}
+
+	// Log a ride today: the point becomes settled and includes the ride.
+	w2 := sampleWorkout("todayproj0002ab")
+	w2.RecordedAt = today.Add(7 * time.Hour)
+	w2.TSS = &tss
+	if err := d.InsertWorkout(w2, nil); err != nil {
+		t.Fatal(err)
+	}
+	after, err := d.GetFitnessHistory(7, time.UTC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logged := after[len(after)-1]
+	if !logged.Date.Equal(today) {
+		t.Fatalf("last point should still be today, got %s", logged.Date.Format("2006-01-02"))
+	}
+	if logged.IsProjection {
+		t.Error("today should be settled once a ride with TSS is logged")
+	}
+	if logged.Fatigue <= todayPt.Fatigue {
+		t.Errorf("logged ride should raise today's fatigue: got %.2f, unlogged forecast was %.2f", logged.Fatigue, todayPt.Fatigue)
+	}
+}
+
+// TestGetFitnessOnDate_TodayFallsBackToLastSettled — readiness asks for "today";
+// before a ride is logged that must be yesterday's settled point (with
+// yesterday's date), not today's zero-TSS forecast. Past dates and a logged
+// today are returned as-is.
+func TestGetFitnessOnDate_TodayFallsBackToLastSettled(t *testing.T) {
+	d := newTestDB(t)
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+
+	tss := 90.0
+	for i := 1; i <= 5; i++ {
+		w := sampleWorkout(fmt.Sprintf("ondatefb%08d", i))
+		w.RecordedAt = today.AddDate(0, 0, -i).Add(8 * time.Hour)
+		w.TSS = &tss
+		if err := d.InsertWorkout(w, nil); err != nil {
+			t.Fatalf("insert %d: %v", i, err)
+		}
+	}
+
+	history, err := d.GetFitnessHistory(7, time.UTC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	yesterday := history[len(history)-2]
+
+	fp, err := d.GetFitnessOnDate(today, time.UTC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fp.Date.Equal(yesterday.Date) {
+		t.Fatalf("as-of date: got %s, want yesterday %s", fp.Date.Format("2006-01-02"), yesterday.Date.Format("2006-01-02"))
+	}
+	if fp.Fitness != yesterday.Fitness || fp.Fatigue != yesterday.Fatigue || fp.Form != yesterday.Form {
+		t.Errorf("today before a ride should equal yesterday's settled point: got CTL=%.6f ATL=%.6f TSB=%.6f, want CTL=%.6f ATL=%.6f TSB=%.6f",
+			fp.Fitness, fp.Fatigue, fp.Form, yesterday.Fitness, yesterday.Fatigue, yesterday.Form)
+	}
+
+	// A past date is unaffected by the fallback.
+	threeAgo := history[len(history)-4]
+	fp3, err := d.GetFitnessOnDate(today.AddDate(0, 0, -3), time.UTC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fp3.Date.Equal(threeAgo.Date) || fp3.Form != threeAgo.Form {
+		t.Errorf("past date: got %s TSB=%.6f, want %s TSB=%.6f", fp3.Date.Format("2006-01-02"), fp3.Form, threeAgo.Date.Format("2006-01-02"), threeAgo.Form)
+	}
+
+	// Log a ride today: "today" is now settled and returned as-is.
+	w := sampleWorkout("ondatefbtoday01")
+	w.RecordedAt = today.Add(6 * time.Hour)
+	w.TSS = &tss
+	if err := d.InsertWorkout(w, nil); err != nil {
+		t.Fatal(err)
+	}
+	fp, err = d.GetFitnessOnDate(today, time.UTC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fp.Date.Equal(today) {
+		t.Fatalf("after logging a ride, as-of date should be today %s, got %s", today.Format("2006-01-02"), fp.Date.Format("2006-01-02"))
+	}
+	if fp.Fatigue <= yesterday.Fatigue {
+		t.Errorf("today's ride should raise fatigue above yesterday's %.2f, got %.2f", yesterday.Fatigue, fp.Fatigue)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -674,5 +675,75 @@ func TestGetWorkoutAnalysis_NoSweetSpotWhenNull(t *testing.T) {
 	}
 	if got.SweetSpot != nil {
 		t.Errorf("SweetSpot = %+v, want nil when ss_secs is NULL", got.SweetSpot)
+	}
+}
+
+// ── GET /api/athlete/readiness ────────────────────────────────────────────────
+
+// TestGetReadiness_AsOfIsLastSettledDay — before a ride is logged today the
+// snapshot reports yesterday's settled form (as_of = yesterday) rather than a
+// zero-TSS forecast of today, which would read several points fresher; logging
+// a ride today moves as_of to today and updates the numbers.
+func TestGetReadiness_AsOfIsLastSettledDay(t *testing.T) {
+	h, d := newTestHandler(t)
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+
+	insertRide := func(id string, at time.Time, tss float64) {
+		t.Helper()
+		w := &models.Workout{
+			ID:           id,
+			Filename:     id + ".fit",
+			RecordedAt:   at,
+			Sport:        "cycling",
+			DurationSecs: 3600,
+			TSS:          &tss,
+			CreatedAt:    time.Now().UTC(),
+		}
+		if err := d.InsertWorkout(w, nil); err != nil {
+			t.Fatalf("insert %s: %v", id, err)
+		}
+	}
+	readiness := func() models.ReadinessReport {
+		t.Helper()
+		req := httptest.NewRequest("GET", "/api/athlete/readiness", nil)
+		rr := httptest.NewRecorder()
+		h.GetReadiness(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("status: got %d, body=%s", rr.Code, rr.Body.String())
+		}
+		var report models.ReadinessReport
+		decodeEnvelope(t, rr.Body.Bytes(), &report)
+		return report
+	}
+
+	// A week of daily rides ending yesterday; nothing logged for today yet.
+	for i := 1; i <= 7; i++ {
+		insertRide(fmt.Sprintf("readyasof%07d", i), today.AddDate(0, 0, -i).Add(8*time.Hour), 100)
+	}
+	before := readiness()
+	if before.Date != today.Format("2006-01-02") {
+		t.Errorf("date: got %s, want today %s", before.Date, today.Format("2006-01-02"))
+	}
+	if want := today.AddDate(0, 0, -1).Format("2006-01-02"); before.AsOf != want {
+		t.Errorf("as_of before a ride today: got %s, want yesterday %s", before.AsOf, want)
+	}
+
+	// The carried-in values must be yesterday's settled point, not today's decay.
+	yesterday, err := d.GetFitnessOnDate(today.AddDate(0, 0, -1), time.UTC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Form != math.Round(yesterday.Form*10)/10 {
+		t.Errorf("form before a ride today: got %.1f, want yesterday's settled %.1f", before.Form, yesterday.Form)
+	}
+
+	// Log today's ride: as_of moves to today and fatigue reflects the ride.
+	insertRide("readyasoftoday1", today.Add(6*time.Hour), 100)
+	after := readiness()
+	if after.AsOf != today.Format("2006-01-02") {
+		t.Errorf("as_of after logging a ride today: got %s, want %s", after.AsOf, today.Format("2006-01-02"))
+	}
+	if after.Fatigue <= before.Fatigue {
+		t.Errorf("today's ride should raise fatigue: before %.1f, after %.1f", before.Fatigue, after.Fatigue)
 	}
 }
