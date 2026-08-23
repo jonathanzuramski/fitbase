@@ -668,7 +668,7 @@
 
 	// ── AI coach ────────────────────────────────────────────────────────────────
 	// GET returns cached markdown; POST streams fresh markdown via SSE.
-	{ { if .AIConfigured } }
+	{{ if .AIConfigured }}
 	(function () {
 		const btn = document.getElementById('ai-generate-btn');
 		const body = document.getElementById('ai-insights');
@@ -796,13 +796,13 @@
 			} catch (_) { }
 		});
 	})();
-	{ { end } }
+	{{ end }}
 
 	// ── Ask the coach (tool-augmented chat) ─────────────────────────────────────
 	// Stateless server: the browser holds the whole conversation and posts it
 	// every turn. The model pulls data via tools; we show that as it happens,
 	// then stream the answer in.
-	{ { if .AIChatCapable } }
+	{{ if .AIChatCapable }}
 	(function () {
 		const form = document.getElementById('chat-form');
 		const input = document.getElementById('chat-input');
@@ -1134,7 +1134,7 @@
 		renderHistory();
 		resumeIfActive();
 	})();
-	{ { end } }
+	{{ end }}
 
 	// Parse a chunk of SSE text. Events in the buffer are separated by blank
 	// lines; return the unconsumed tail for the next read. Shared by the
