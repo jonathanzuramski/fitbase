@@ -400,6 +400,35 @@
 <script src="/static/js/marked.min.js"></script>
 <script src="/static/js/purify.min.js"></script>
 <script>
+	// strictStrikethrough replaces marked's built-in strikethrough rule.
+	//
+	// Out of the box, marked treats a single "~" as strikethrough, so a coach
+	// reply like "hold ~250W for ~20 min" rendered "250W for " with a line
+	// through it. This version only recognises the two-tilde form ~~like this~~;
+	// a lone "~" (the coach uses it for "approximately") is left as plain text.
+	//
+	// marked calls this with the not-yet-parsed remainder of the current line.
+	// It must return either a token describing what it matched at the very
+	// start of that text, or undefined to say "no strikethrough here".
+	function strictStrikethrough(remainingText) {
+		// "~~", then one or more characters that are not "~", then "~~".
+		const match = /^~~([^~]+)~~/.exec(remainingText);
+		if (!match) {
+			return undefined;
+		}
+		const matchedText = match[0]; // e.g. "~~old plan~~"
+		const innerText = match[1]; // e.g. "old plan"
+		return {
+			type: 'del',
+			raw: matchedText, // how much of remainingText marked should consume
+			text: innerText,
+			tokens: this.lexer.inlineTokens(innerText),
+		};
+	}
+	if (window.marked) {
+		window.marked.use({ tokenizer: { del: strictStrikethrough } });
+	}
+
 	// renderSafeMarkdown converts untrusted LLM output (markdown) to HTML and
 	// sanitizes it: marked builds the HTML, DOMPurify strips any embedded
 	// <script>, event-handler attributes, and javascript: URIs so a crafted coach
@@ -642,7 +671,7 @@
 
 	// ── AI coach ────────────────────────────────────────────────────────────────
 	// GET returns cached markdown; POST streams fresh markdown via SSE.
-	{{if .AIConfigured}}
+	{{ if .AIConfigured }}
 	(function () {
 		const btn = document.getElementById('ai-generate-btn');
 		const body = document.getElementById('ai-insights');
@@ -770,13 +799,13 @@
 			} catch (_) { }
 		});
 	})();
-	{{end}}
+	{{ end }}
 
 	// ── Ask the coach (tool-augmented chat) ─────────────────────────────────────
 	// Stateless server: the browser holds the whole conversation and posts it
 	// every turn. The model pulls data via tools; we show that as it happens,
 	// then stream the answer in.
-	{{if .AIChatCapable}}
+	{{ if .AIChatCapable }}
 	(function () {
 		const form = document.getElementById('chat-form');
 		const input = document.getElementById('chat-input');
@@ -1108,7 +1137,7 @@
 		renderHistory();
 		resumeIfActive();
 	})();
-	{{end}}
+	{{ end }}
 
 	// Parse a chunk of SSE text. Events in the buffer are separated by blank
 	// lines; return the unconsumed tail for the next read. Shared by the
