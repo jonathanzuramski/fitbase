@@ -21,5 +21,5 @@ func ServeOpenAPI(w http.ResponseWriter, r *http.Request) {
 		[]byte("url: "+scheme+"://"+r.Host), 1)
 
 	w.Header().Set("Content-Type", "application/yaml")
-	w.Write(spec)
+	_, _ = w.Write(spec)
 }
