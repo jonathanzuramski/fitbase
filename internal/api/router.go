@@ -28,6 +28,7 @@ func NewRouter(h *Handler, dropbox *DropboxHandler, intervalsH *IntervalsHandler
 			r.Get("/analysis", h.GetWorkoutAnalysis)
 			r.Get("/download", h.DownloadFIT)
 			r.Get("/route", h.GetWorkoutRoute)
+			r.Get("/achievements", h.GetWorkoutAchievements)
 			r.Delete("/", h.DeleteWorkout)
 		})
 
@@ -83,6 +84,7 @@ func NewRouter(h *Handler, dropbox *DropboxHandler, intervalsH *IntervalsHandler
 		})
 	})
 
+	r.Get("/openapi.yaml", ServeOpenAPI)
 	r.Handle("/static/*", http.StripPrefix("/static", http.FileServer(staticFS)))
 	r.Mount("/", importGate(h, templateHandler))
 

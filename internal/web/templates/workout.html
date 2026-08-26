@@ -1,290 +1,332 @@
-{{define "title"}}{{.Workout.RecordedAt.Format "Jan 02, 2006"}} — fitbase{{end}} {{define "mainClass"}} container--narrow{{end}} {{define "head"}} {{if hasGPS
-.Streams}}
-<link
-  rel="stylesheet"
-  href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css"
-/>
-{{end}} {{end}} {{define "content"}} {{$imperial := .Imperial}} {{$w := .Workout}}
+{{ define "title" }}{{ .Workout.RecordedAt.Format "Jan 02, 2006" }} — fitbase{{ end }} {{ define "mainClass" }} container--narrow{{ end }} 
+{{ define "head" }} 
+{{ if hasGPS
+	.Streams
+}}
+	<link
+		rel="stylesheet"
+		href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css"
+	/>
+{{ end }} 
+{{ end }} 
+{{ define "content" }} {{ $imperial := .Imperial }} {{ $w := .Workout }}
 
 <div class="page-header">
-  <div>
-    <a href="/" class="back-link">← dashboard</a>
-    <h1>{{$w.RecordedAt.Format "Monday, Jan 02 2006"}}</h1>
-    {{/* RecordedAt is re-homed into the ride's own timezone at scan, so this
+	<div>
+		<a href="/" class="back-link">← dashboard</a>
+		<h1>{{ $w.RecordedAt.Format "Monday, Jan 02 2006" }}</h1>
+		{{/* RecordedAt is re-homed into the ride's own timezone at scan, so this
          is the wall-clock time on the athlete's device, wherever they rode. */}}
-    <div class="page-subtitle">
-      {{$w.RecordedAt.Format "3:04 PM"}}{{if $w.County}} · {{$w.County}}, {{$w.State}}{{end}}
-    </div>
-  </div>
-  <div style="display: flex; align-items: center; gap: 12px">
-    <span class="sport-badge sport-{{$w.Sport}}">{{$w.Sport}}</span>
-    <button class="delete-btn-lg" onclick="confirmDelete('{{$w.ID}}')">delete</button>
-  </div>
+		<div class="page-subtitle">
+			{{ $w.RecordedAt.Format "3:04 PM" }}{{ if $w.County }} · {{ $w.County }}, {{ $w.State }}{{ end }}
+		</div>
+	</div>
+	<div style="display: flex; align-items: center; gap: 12px">
+		<span class="sport-badge sport-{{ $w.Sport }}">{{ $w.Sport }}</span>
+		<button class="delete-btn-lg" onclick="confirmDelete('{{ $w.ID }}')">delete</button>
+	</div>
 </div>
 
-{{if .FTPDetected}}
-<div class="alert-banner ftp-banner">
-  <span class="alert-icon">&#9889;</span>
-  New FTP detected: <strong>{{.EFTPRounded}}W</strong> (was {{.FTPOld}}W)
-  <button class="alert-link" onclick="updateFTP({{.EFTPRounded}})">update FTP</button>
-</div>
-{{end}} {{/* ── Activity summary ─────────────────────────────── */}}
+{{/* ── Achievements ─────────────────────────────────── */}} 
+{{ if .Achievements }}
+	<div class="achievement-row">
+		{{ range .Achievements }}
+			<span class="achievement-badge achievement-rank-{{ .Rank }}"
+			>{{ achievementIcon .Rank }} {{ achievementText . $w.Sport }}</span
+			>
+		{{ end }}
+	</div>
+{{ end }}
+
+{{ if .FTPDetected }}
+	<div class="alert-banner ftp-banner">
+		<span class="alert-icon">&#9889;</span>
+		New FTP detected: <strong>{{ .EFTPRounded }}W</strong> (was {{ .FTPOld }}W)
+		<button class="alert-link" onclick="updateFTP({{ .EFTPRounded }})">update FTP</button>
+	</div>
+{{ end }} {{/* ── Activity summary ─────────────────────────────── */}}
 <section class="card">
-  <h2 class="card-title">activity</h2>
-  <div class="metric-row">
-    <div class="metric-cell">
-      <div class="metric-label">{{if gt $w.ElapsedSecs $w.DurationSecs}}moving time{{else}}duration{{end}}</div>
-      <div class="metric-value">{{formatDuration $w.DurationSecs}}</div>
-    </div>
-    {{if gt $w.ElapsedSecs $w.DurationSecs}}
-    <div class="metric-cell">
-      <div class="metric-label">elapsed</div>
-      <div class="metric-value">{{formatDuration $w.ElapsedSecs}}</div>
-    </div>
-    {{end}}
-    <div class="metric-cell">
-      <div class="metric-label">distance</div>
-      <div class="metric-value">{{formatDistance $w.DistanceMeters $imperial}}</div>
-    </div>
-    <div class="metric-cell">
-      <div class="metric-label">elevation</div>
-      <div class="metric-value">{{formatElevation $w.ElevationGainMeters $imperial}}</div>
-    </div>
-    <div class="metric-cell">
-      {{if eq $w.Sport "running"}}
-      <div class="metric-label">avg pace</div>
-      <div class="metric-value">{{formatPace $w.AvgSpeedMPS $imperial}}</div>
-      {{else}}
-      <div class="metric-label">avg speed</div>
-      <div class="metric-value">{{formatSpeed $w.AvgSpeedMPS $imperial}}</div>
-      {{end}}
-    </div>
-    {{if gt .WorkKJ 0.0}}
-    <div class="metric-cell hide-mobile">
-      <div class="metric-label">work</div>
-      <div class="metric-value">{{printf "%.0f" .WorkKJ}}<span class="metric-unit">kJ</span></div>
-    </div>
-    <div class="metric-cell">
-      <div class="metric-label">calories</div>
-      <div class="metric-value">{{printf "%.0f" .Calories}}<span class="metric-unit">kcal</span></div>
-    </div>
-    {{end}}
-  </div>
+	<h2 class="card-title">activity</h2>
+	<div class="metric-row">
+		<div class="metric-cell">
+			<div class="metric-label">{{ if gt $w.ElapsedSecs $w.DurationSecs }}moving time{{ else }}duration{{ end }}</div>
+			<div class="metric-value">{{ formatDuration $w.DurationSecs }}</div>
+		</div>
+		{{ if gt $w.ElapsedSecs $w.DurationSecs }}
+			<div class="metric-cell">
+				<div class="metric-label">elapsed</div>
+				<div class="metric-value">{{ formatDuration $w.ElapsedSecs }}</div>
+			</div>
+		{{ end }}
+		<div class="metric-cell">
+			<div class="metric-label">distance</div>
+			<div class="metric-value">{{ formatDistance $w.DistanceMeters $imperial }}</div>
+		</div>
+		<div class="metric-cell">
+			<div class="metric-label">elevation</div>
+			<div class="metric-value">{{ formatElevation $w.ElevationGainMeters $imperial }}</div>
+		</div>
+		<div class="metric-cell">
+			{{ if eq $w.Sport "running" }}
+				<div class="metric-label">avg pace</div>
+				<div class="metric-value">{{ formatPace $w.AvgSpeedMPS $imperial }}</div>
+			{{ else }}
+				<div class="metric-label">avg speed</div>
+				<div class="metric-value">{{ formatSpeed $w.AvgSpeedMPS $imperial }}</div>
+			{{ end }}
+		</div>
+		{{ if gt .WorkKJ 0.0 }}
+			<div class="metric-cell hide-mobile">
+				<div class="metric-label">work</div>
+				<div class="metric-value">{{ printf "%.0f" .WorkKJ }}<span class="metric-unit">kJ</span></div>
+			</div>
+			<div class="metric-cell">
+				<div class="metric-label">calories</div>
+				<div class="metric-value">{{ printf "%.0f" .Calories }}<span class="metric-unit">kcal</span></div>
+			</div>
+		{{ end }}
+	</div>
 </section>
 
-{{/* ── Route map ───────────────────────────────────── */}} {{if hasGPS .Streams}}
-<section class="card">
-  <h2 class="card-title">route</h2>
-  <div id="route-map" class="route-map"></div>
-</section>
-{{end}} {{/* ── Route history ──────────────────────────────────── */}} {{if and .RouteHistory (gt (len .RouteHistory)
-1)}}
-<section class="card">
-  <h2 class="card-title">route history <span class="muted">({{len .RouteHistory}} rides)</span></h2>
-  <div class="route-history-table-wrap">
-    <table class="workout-table">
-      <thead>
-        <tr>
-          <th>date</th>
-          <th>duration</th>
-          {{if $w.AvgPowerWatts}}
-          <th>avg power</th>
-          <th>NP</th>
-          {{end}} {{if $w.AvgHeartRate}}
-          <th>avg HR</th>
-          {{end}}
-          <th>avg speed</th>
-          {{if $w.AvgPowerWatts}}
-          <th>TSS</th>
-          {{end}}
-        </tr>
-      </thead>
-      <tbody>
-        {{range .RouteHistory}}
-        <tr class="workout-row{{if eq .ID $w.ID}} route-history-current{{end}}" onclick="location.href='/workouts/{{.ID}}'">
-          <td class="date">{{.RecordedAt.Format "Jan 02, 2006"}}</td>
-          <td>{{formatDuration .DurationSecs}}</td>
-          {{if $w.AvgPowerWatts}}
-          <td>{{formatOptFloat .AvgPowerWatts "W"}}</td>
-          <td>{{formatOptFloat .NormalizedPower "W"}}</td>
-          {{end}} {{if $w.AvgHeartRate}}
-          <td>{{formatOptInt .AvgHeartRate "bpm"}}</td>
-          {{end}}
-          <td>{{formatSpeed .AvgSpeedMPS $imperial}}</td>
-          {{if $w.AvgPowerWatts}}
-          <td class="tss">{{formatOptFloat .TSS ""}}</td>
-          {{end}}
-        </tr>
-        {{end}}
-      </tbody>
-    </table>
-  </div>
-</section>
-{{end}} {{/* ── Power ────────────────────────────────────────── */}} {{if $w.AvgPowerWatts}}
-<section class="card">
-  <h2 class="card-title">power</h2>
-  <div class="metric-row">
-    <div class="metric-cell">
-      <div class="metric-label">avg power</div>
-      <div class="metric-value metric-power">{{$w.AvgPowerWatts}}<span class="metric-unit">W</span></div>
-    </div>
-    {{if .MaxPower1s}}
-    <div class="metric-cell">
-      <div class="metric-label">max power</div>
-      <div class="metric-value metric-power">{{.MaxPower1s}}<span class="metric-unit">W</span></div>
-    </div>
-    {{end}} {{if $w.NormalizedPower}}
-    <div class="metric-cell metric-cell-highlight">
-      <div class="metric-label">normalized power</div>
-      <div class="metric-value metric-power">{{$w.NormalizedPower}}<span class="metric-unit">W</span></div>
-    </div>
-    {{end}} {{if $w.IntensityFactor}}
-    <div class="metric-cell">
-      <div class="metric-label">intensity factor</div>
-      <div class="metric-value">{{formatIF $w.IntensityFactor}}</div>
-    </div>
-    {{end}} {{if $w.TSS}}
-    <div class="metric-cell metric-cell-highlight">
-      <div class="metric-label">TSS</div>
-      <div class="metric-value">{{formatOptFloat $w.TSS ""}}</div>
-    </div>
-    {{end}} {{if .VI}}
-    <div class="metric-cell">
-      <div class="metric-label">variability index</div>
-      <div class="metric-value">{{printf "%.2f" .VI}}</div>
-    </div>
-    {{end}} {{if .EFTP}}
-    <div class="metric-cell">
-      <div class="metric-label">eFTP</div>
-      <div class="metric-value metric-power">{{printf "%.0f" .EFTP}}<span class="metric-unit">W</span></div>
-    </div>
-    {{end}} {{if .FTP}}
-    <div class="metric-cell">
-      <div class="metric-label">FTP</div>
-      <div class="metric-value metric-power">{{.FTP}}<span class="metric-unit">W</span></div>
-    </div>
-    {{end}} {{if .EF}}
-    <div class="metric-cell">
-      <div class="metric-label">EF</div>
-      <div class="metric-value">{{printf "%.2f" .EF}}</div>
-    </div>
-    {{end}}
-  </div>
-</section>
-{{end}}
+{{/* ── Route map ───────────────────────────────────── */}} 
+{{ if hasGPS .Streams }}
+	<section class="card">
+		<h2 class="card-title">route</h2>
+		<div id="route-map" class="route-map"></div>
+	</section>
+{{ end }} {{/* ── Route history ──────────────────────────────────── */}} 
+{{ if and .RouteHistory (gt (len .RouteHistory)
+	1
+	)
+}}
+	<section class="card">
+		<h2 class="card-title">route history <span class="muted">({{ len .RouteHistory }} rides)</span></h2>
+		<div class="route-history-table-wrap">
+			<table class="workout-table">
+				<thead>
+					<tr>
+						<th>date</th>
+						<th>duration</th>
+						{{ if $w.AvgPowerWatts }}
+							<th>avg power</th>
+							<th>NP</th>
+						{{ end }} 
+						{{ if $w.AvgHeartRate }}
+							<th>avg HR</th>
+						{{ end }}
+						<th>avg speed</th>
+						{{ if $w.AvgPowerWatts }}
+							<th>TSS</th>
+						{{ end }}
+					</tr>
+				</thead>
+				<tbody>
+					{{ range .RouteHistory }}
+						<tr class="workout-row{{ if eq .ID $w.ID }} route-history-current{{ end }}" onclick="location.href='/workouts/{{ .ID }}'">
+							<td class="date">{{ .RecordedAt.Format "Jan 02, 2006" }}</td>
+							<td>{{ formatDuration .DurationSecs }}{{ if eq .ID $.RouteBestTimeID }} <span class="route-record" title="course record">🏆</span>{{ end }}</td>
+							{{ if $w.AvgPowerWatts }}
+								<td>{{ formatOptFloat .AvgPowerWatts "W" }}{{ if eq .ID $.RouteBestPowerID }} <span class="route-record" title="best power on this route">🏆</span>{{ end }}</td>
+								<td>{{ formatOptFloat .NormalizedPower "W" }}</td>
+							{{ end }} 
+							{{ if $w.AvgHeartRate }}
+								<td>{{ formatOptInt .AvgHeartRate "bpm" }}</td>
+							{{ end }}
+							<td>{{ formatSpeed .AvgSpeedMPS $imperial }}</td>
+							{{ if $w.AvgPowerWatts }}
+								<td class="tss">{{ formatOptFloat .TSS "" }}</td>
+							{{ end }}
+						</tr>
+					{{ end }}
+				</tbody>
+			</table>
+		</div>
+	</section>
+{{ end }} {{/* ── Power ────────────────────────────────────────── */}} 
+{{ if $w.AvgPowerWatts }}
+	<section class="card">
+		<h2 class="card-title">power</h2>
+		<div class="metric-row">
+			<div class="metric-cell">
+				<div class="metric-label">avg power</div>
+				<div class="metric-value metric-power">{{ $w.AvgPowerWatts }}<span class="metric-unit">W</span></div>
+			</div>
+			{{ if .MaxPower1s }}
+				<div class="metric-cell">
+					<div class="metric-label">max power</div>
+					<div class="metric-value metric-power">{{ .MaxPower1s }}<span class="metric-unit">W</span></div>
+				</div>
+			{{ end }} 
+			{{ if $w.NormalizedPower }}
+				<div class="metric-cell metric-cell-highlight">
+					<div class="metric-label">normalized power</div>
+					<div class="metric-value metric-power">{{ $w.NormalizedPower }}<span class="metric-unit">W</span></div>
+				</div>
+			{{ end }} 
+			{{ if $w.IntensityFactor }}
+				<div class="metric-cell">
+					<div class="metric-label">intensity factor</div>
+					<div class="metric-value">{{ formatIF $w.IntensityFactor }}</div>
+				</div>
+			{{ end }} 
+			{{ if $w.TSS }}
+				<div class="metric-cell metric-cell-highlight">
+					<div class="metric-label">TSS</div>
+					<div class="metric-value">{{ formatOptFloat $w.TSS "" }}</div>
+				</div>
+			{{ end }} 
+			{{ if .VI }}
+				<div class="metric-cell">
+					<div class="metric-label">variability index</div>
+					<div class="metric-value">{{ printf "%.2f" .VI }}</div>
+				</div>
+			{{ end }} 
+			{{ if .EFTP }}
+				<div class="metric-cell">
+					<div class="metric-label">eFTP</div>
+					<div class="metric-value metric-power">{{ printf "%.0f" .EFTP }}<span class="metric-unit">W</span></div>
+				</div>
+			{{ end }} 
+			{{ if .FTP }}
+				<div class="metric-cell">
+					<div class="metric-label">FTP</div>
+					<div class="metric-value metric-power">{{ .FTP }}<span class="metric-unit">W</span></div>
+				</div>
+			{{ end }} 
+			{{ if .EF }}
+				<div class="metric-cell">
+					<div class="metric-label">EF</div>
+					<div class="metric-value">{{ printf "%.2f" .EF }}</div>
+				</div>
+			{{ end }}
+		</div>
+	</section>
+{{ end }}
 
 <div class="stats-row">
-  {{/* ── Heart rate ───────────────────────────────────── */}} {{if $w.AvgHeartRate}}
-  <section class="card">
-    <h2 class="card-title">heart rate</h2>
-    <div class="metric-row">
-      <div class="metric-cell">
-        <div class="metric-label">avg</div>
-        <div class="metric-value metric-hr">
-          {{formatOptInt $w.AvgHeartRate ""}}<span class="metric-unit">bpm</span>
-        </div>
-      </div>
-      {{if $w.MaxHeartRate}}
-      <div class="metric-cell">
-        <div class="metric-label">max</div>
-        <div class="metric-value metric-hr">
-          {{formatOptInt $w.MaxHeartRate ""}}<span class="metric-unit">bpm</span>
-        </div>
-      </div>
-      {{end}}
-    </div>
-  </section>
-  {{end}} {{/* ── Cadence ──────────────────────────────────────── */}} {{if $w.AvgCadenceRPM}}
-  <section class="card">
-    <h2 class="card-title">cadence</h2>
-    <div class="metric-row">
-      <div class="metric-cell">
-        <div class="metric-label">avg</div>
-        <div class="metric-value metric-cadence">
-          {{formatOptInt $w.AvgCadenceRPM ""}}<span class="metric-unit">rpm</span>
-        </div>
-      </div>
-      {{if .MaxCadence}}
-      <div class="metric-cell">
-        <div class="metric-label">max</div>
-        <div class="metric-value metric-cadence">{{.MaxCadence}}<span class="metric-unit">rpm</span></div>
-      </div>
-      {{end}}
-    </div>
-  </section>
-  {{end}} {{/* ── Training load ────────────────────────────────── */}} {{if gt .Fitness.Fitness 0.0}}
-  <section class="card">
-    <h2 class="card-title">training load <span class="muted">on this day</span></h2>
-    <div class="metric-row">
-      <div class="metric-cell">
-        <div class="metric-label">fitness</div>
-        <div class="metric-value metric-ctl">{{printf "%.1f" .Fitness.Fitness}}</div>
-      </div>
-      <div class="metric-cell">
-        <div class="metric-label">fatigue</div>
-        <div class="metric-value metric-atl">{{printf "%.1f" .Fitness.Fatigue}}</div>
-      </div>
-      <div class="metric-cell">
-        <div class="metric-label">form</div>
-        <div class="metric-value {{tsbClass .Fitness.Form}}">
-          {{printf "%.1f" .Fitness.Form}}
-        </div>
-      </div>
-    </div>
-  </section>
-  {{end}}
+	{{/* ── Heart rate ───────────────────────────────────── */}} 
+	{{ if $w.AvgHeartRate }}
+		<section class="card">
+			<h2 class="card-title">heart rate</h2>
+			<div class="metric-row">
+				<div class="metric-cell">
+					<div class="metric-label">avg</div>
+					<div class="metric-value metric-hr">
+						{{ formatOptInt $w.AvgHeartRate "" }}<span class="metric-unit">bpm</span>
+					</div>
+				</div>
+				{{ if $w.MaxHeartRate }}
+					<div class="metric-cell">
+						<div class="metric-label">max</div>
+						<div class="metric-value metric-hr">
+							{{ formatOptInt $w.MaxHeartRate "" }}<span class="metric-unit">bpm</span>
+						</div>
+					</div>
+				{{ end }}
+			</div>
+		</section>
+	{{ end }} {{/* ── Cadence ──────────────────────────────────────── */}} 
+	{{ if $w.AvgCadenceRPM }}
+		<section class="card">
+			<h2 class="card-title">cadence</h2>
+			<div class="metric-row">
+				<div class="metric-cell">
+					<div class="metric-label">avg</div>
+					<div class="metric-value metric-cadence">
+						{{ formatOptInt $w.AvgCadenceRPM "" }}<span class="metric-unit">rpm</span>
+					</div>
+				</div>
+				{{ if .MaxCadence }}
+					<div class="metric-cell">
+						<div class="metric-label">max</div>
+						<div class="metric-value metric-cadence">{{ .MaxCadence }}<span class="metric-unit">rpm</span></div>
+					</div>
+				{{ end }}
+			</div>
+		</section>
+	{{ end }} {{/* ── Training load ────────────────────────────────── */}} 
+	{{ if gt .Fitness.Fitness 0.0 }}
+		<section class="card">
+			<h2 class="card-title">training load <span class="muted">on this day</span></h2>
+			<div class="metric-row">
+				<div class="metric-cell">
+					<div class="metric-label">fitness</div>
+					<div class="metric-value metric-ctl">{{ printf "%.1f" .Fitness.Fitness }}</div>
+				</div>
+				<div class="metric-cell">
+					<div class="metric-label">fatigue</div>
+					<div class="metric-value metric-atl">{{ printf "%.1f" .Fitness.Fatigue }}</div>
+				</div>
+				<div class="metric-cell">
+					<div class="metric-label">form</div>
+					<div class="metric-value {{ tsbClass .Fitness.Form }}">
+						{{ printf "%.1f" .Fitness.Form }}
+					</div>
+				</div>
+			</div>
+		</section>
+	{{ end }}
 </div>
 
-{{/* ── Power curve ──────────────────────────────────── */}} {{if $w.AvgPowerWatts}}
-<section class="card">
-  <div class="card-header-row">
-    <h2 class="card-title">power curve</h2>
-    <div class="pc-view-toggle">
-      <button class="pc-view-btn active" id="pc-btn-bar" onclick="setPCView('bar')">bars</button>
-      <button class="pc-view-btn" id="pc-btn-line" onclick="setPCView('line')">line</button>
-    </div>
-  </div>
-  <div id="power-curve" class="power-curve-grid"></div>
-  <div id="power-curve-line" style="display: none"></div>
-</section>
-{{end}} {{/* ── Charts ───────────────────────────────────────── */}} {{if .Streams}} {{if $w.AvgPowerWatts}}
-<section class="card">
-  <h2 class="card-title">power</h2>
-  <div id="power-chart"></div>
-</section>
-<section class="card">
-  <h2 class="card-title">time in power zone</h2>
-  <div id="power-zone-chart" class="zd-grid"></div>
-</section>
-{{end}} {{if $w.AvgHeartRate}}
-<section class="card">
-  <h2 class="card-title">heart rate</h2>
-  <div id="hr-chart"></div>
-</section>
-<section class="card">
-  <h2 class="card-title">time in heart rate zone</h2>
-  <div id="hr-zone-chart" class="zd-grid"></div>
-</section>
-{{end}} {{if $w.AvgCadenceRPM}}
-<section class="card">
-  <h2 class="card-title">cadence</h2>
-  <div id="cadence-chart"></div>
-</section>
-{{end}}
+{{/* ── Power curve ──────────────────────────────────── */}} 
+{{ if $w.AvgPowerWatts }}
+	<section class="card">
+		<div class="card-header-row">
+			<h2 class="card-title">power curve</h2>
+			<div class="pc-view-toggle">
+				<button class="pc-view-btn active" id="pc-btn-bar" onclick="setPCView('bar')">bars</button>
+				<button class="pc-view-btn" id="pc-btn-line" onclick="setPCView('line')">line</button>
+			</div>
+		</div>
+		<div id="power-curve" class="power-curve-grid"></div>
+		<div id="power-curve-line" style="display: none"></div>
+	</section>
+{{ end }} {{/* ── Charts ───────────────────────────────────────── */}} 
+{{ if .Streams }} 
+	{{ if $w.AvgPowerWatts }}
+		<section class="card">
+			<h2 class="card-title">power</h2>
+			<div id="power-chart"></div>
+		</section>
+		<section class="card">
+			<h2 class="card-title">time in power zone</h2>
+			<div id="power-zone-chart" class="zd-grid"></div>
+		</section>
+	{{ end }} 
+	{{ if $w.AvgHeartRate }}
+		<section class="card">
+			<h2 class="card-title">heart rate</h2>
+			<div id="hr-chart"></div>
+		</section>
+		<section class="card">
+			<h2 class="card-title">time in heart rate zone</h2>
+			<div id="hr-zone-chart" class="zd-grid"></div>
+		</section>
+	{{ end }} 
+	{{ if $w.AvgCadenceRPM }}
+		<section class="card">
+			<h2 class="card-title">cadence</h2>
+			<div id="cadence-chart"></div>
+		</section>
+	{{ end }}
 
-<section class="card">
-  <h2 class="card-title">{{if eq $w.Sport "running"}}pace{{else}}speed{{end}}</h2>
-  <div id="speed-chart"></div>
-</section>
+	<section class="card">
+		<h2 class="card-title">{{ if eq $w.Sport "running" }}pace{{ else }}speed{{ end }}</h2>
+		<div id="speed-chart"></div>
+	</section>
 
-{{if hasGPS .Streams}}
-<section class="card">
-  <h2 class="card-title">elevation</h2>
-  <div id="elevation-chart"></div>
-</section>
-{{end}} {{end}} {{end}} {{define "scripts"}} {{if hasGPS .Streams}}
+	{{ if hasGPS .Streams }}
+		<section class="card">
+			<h2 class="card-title">elevation</h2>
+			<div id="elevation-chart"></div>
+		</section>
+	{{ end }} 
+{{ end }} 
+{{ end }} 
+{{ define "scripts" }} 
+{{ if hasGPS .Streams }}
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-{{end}}
+{{ end }}
 <script>
   const streams = {{.Streams | toJSON}};
 
@@ -355,4 +397,4 @@
     }).then(r => { if (r.ok) location.reload(); else alert('Failed to update FTP.'); });
   }
 </script>
-{{end}}
+{{ end }}

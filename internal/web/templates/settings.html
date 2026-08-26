@@ -1,570 +1,575 @@
 <!--nosemgrep-->
-{{define "mainClass"}} container--narrow{{end}}
-{{define "title"}}settings — fitbase{{end}} {{define "content"}} {{$imperial := .Imperial}}
+{{ define "mainClass" }} container--narrow{{ end }}
+{{ define "title" }}settings — fitbase{{ end }} 
+{{ define "content" }} {{ $imperial := .Imperial }}
 <div class="page-header">
-  <h1>settings</h1>
+	<h1>settings</h1>
 </div>
 
 <!-- Sync progress overlay -->
 <div class="bulk-overlay" id="sync-overlay" hidden>
-  <div class="bulk-modal">
-    <div class="bulk-title" id="sync-title"></div>
-    <div class="bulk-filename" id="sync-subtitle">working…</div>
-    <div class="bulk-progress-track">
-      <div class="bulk-progress-bar" id="sync-bar"></div>
-    </div>
-    <div class="bulk-counts">
-      <span id="sync-counter"></span>
-      <span class="bulk-results" id="sync-results"></span>
-    </div>
-    <button class="bulk-done" id="sync-done" hidden>done</button>
-  </div>
+	<div class="bulk-modal">
+		<div class="bulk-title" id="sync-title"></div>
+		<div class="bulk-filename" id="sync-subtitle">working…</div>
+		<div class="bulk-progress-track">
+			<div class="bulk-progress-bar" id="sync-bar"></div>
+		</div>
+		<div class="bulk-counts">
+			<span id="sync-counter"></span>
+			<span class="bulk-results" id="sync-results"></span>
+		</div>
+		<button class="bulk-done" id="sync-done" hidden>done</button>
+	</div>
 </div>
 
 <!-- ── Athlete Metrics ─────────────────────────────────── -->
 <div class="settings-section">
-  <div class="settings-section-header">
-    <span class="settings-section-title">athlete metrics</span>
-  </div>
-  <section class="card metrics-card">
-    <div class="metrics-split">
+	<div class="settings-section-header">
+		<span class="settings-section-title">athlete metrics</span>
+	</div>
+	<section class="card metrics-card">
+		<div class="metrics-split">
 
-      <!-- Left: Current Profile -->
-      <div class="metrics-col metrics-profile-col">
-        <h2 class="card-title">current profile</h2>
-        <form method="POST" action="/settings/athlete" class="athlete-form">
-          <div class="athlete-fields-grid">
-            <div class="athlete-field">
-              <label for="ftp_watts">FTP <span class="muted">functional threshold power</span></label>
-              <div class="form-control-group">
-                <input type="number" id="ftp_watts" name="ftp_watts" class="form-input"
-                  value="{{.Athlete.FTPWatts}}" min="1" max="600" required />
-                <span class="form-unit">W</span>
-              </div>
-            </div>
-            <div class="athlete-field">
-              <label for="weight">weight</label>
-              <div class="form-control-group">
-                <input type="number" id="weight" name="weight" class="form-input"
-                  value="{{formatFloat1 .WeightDisplay}}" min="1"
-                  max="{{if $imperial}}500{{else}}250{{end}}" step="0.1" required />
-                <span class="form-unit">{{if $imperial}}lbs{{else}}kg{{end}}</span>
-              </div>
-            </div>
-            <div class="athlete-field">
-              <label for="threshold_hr">threshold HR <span class="muted">lactate threshold</span></label>
-              <div class="form-control-group">
-                <input type="number" id="threshold_hr" name="threshold_hr" class="form-input"
-                  value="{{if .Athlete.ThresholdHR}}{{.Athlete.ThresholdHR}}{{end}}"
-                  min="0" max="250" placeholder="—" />
-                <span class="form-unit">bpm</span>
-              </div>
-            </div>
-            <div class="athlete-field">
-              <label for="max_hr">max HR</label>
-              <div class="form-control-group">
-                <input type="number" id="max_hr" name="max_hr" class="form-input"
-                  value="{{if .Athlete.MaxHR}}{{.Athlete.MaxHR}}{{end}}"
-                  min="0" max="250" placeholder="—" />
-                <span class="form-unit">bpm</span>
-              </div>
-            </div>
-          </div>
-          <div class="form-actions form-actions-end">
-            <button type="submit" class="btn-primary">save profile</button>
-          </div>
-        </form>
-      </div>
+			<!-- Left: Current Profile -->
+			<div class="metrics-col metrics-profile-col">
+				<h2 class="card-title">current profile</h2>
+				<form method="POST" action="/settings/athlete" class="athlete-form">
+					<div class="athlete-fields-grid">
+						<div class="athlete-field">
+							<label for="ftp_watts">FTP <span class="muted">functional threshold power</span></label>
+							<div class="form-control-group">
+								<input type="number" id="ftp_watts" name="ftp_watts" class="form-input"
+									value="{{ .Athlete.FTPWatts }}" min="1" max="600" required />
+								<span class="form-unit">W</span>
+							</div>
+						</div>
+						<div class="athlete-field">
+							<label for="weight">weight</label>
+							<div class="form-control-group">
+								<input type="number" id="weight" name="weight" class="form-input"
+									value="{{ formatFloat1 .WeightDisplay }}" min="1"
+									max="{{ if $imperial }}500{{ else }}250{{ end }}" step="0.1" required />
+								<span class="form-unit">{{ if $imperial }}lbs{{ else }}kg{{ end }}</span>
+							</div>
+						</div>
+						<div class="athlete-field">
+							<label for="threshold_hr">threshold HR <span class="muted">lactate threshold</span></label>
+							<div class="form-control-group">
+								<input type="number" id="threshold_hr" name="threshold_hr" class="form-input"
+									value="{{ if .Athlete.ThresholdHR }}{{ .Athlete.ThresholdHR }}{{ end }}"
+									min="0" max="250" placeholder="—" />
+								<span class="form-unit">bpm</span>
+							</div>
+						</div>
+						<div class="athlete-field">
+							<label for="max_hr">max HR</label>
+							<div class="form-control-group">
+								<input type="number" id="max_hr" name="max_hr" class="form-input"
+									value="{{ if .Athlete.MaxHR }}{{ .Athlete.MaxHR }}{{ end }}"
+									min="0" max="250" placeholder="—" />
+								<span class="form-unit">bpm</span>
+							</div>
+						</div>
+					</div>
+					<div class="form-actions form-actions-end">
+						<button type="submit" class="btn-primary">save profile</button>
+					</div>
+				</form>
+			</div>
 
-      <!-- Right: FTP History -->
-      <div class="metrics-col metrics-ftp-col">
-        <h2 class="card-title">
-          FTP history <span class="muted">historical FTP for past-workout TSS</span>
-        </h2>
-        <p class="muted ftp-history-help">
-          TSS for a workout uses the FTP active on its date. The profile FTP above stays the source of truth for new workouts.
-        </p>
-        {{if .FTPHistory}}
-        <div class="ftp-history-table-wrap">
-          <table class="ftp-history-table">
-            <thead>
-              <tr>
-                <th>effective from</th>
-                <th>FTP</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {{range .FTPHistory}}
-              <tr>
-                <td>{{.EffectiveFrom.Format "2006-01-02"}}</td>
-                <td>{{.FTPWatts}} W</td>
-                <td>
-                  <form method="POST" action="/settings/ftp-history/delete" class="ftp-history-delete-form"
-                    onsubmit="return confirm('Delete this FTP history entry?');">
-                    <input type="hidden" name="id" value="{{.ID}}" />
-                    <button type="submit" class="btn-link-danger">delete</button>
-                  </form>
-                </td>
-              </tr>
-              {{end}}
-            </tbody>
-          </table>
-        </div>
-        {{else}}
-        <p class="muted ftp-history-empty">No FTP history entries yet.</p>
-        {{end}}
-        <form method="POST" action="/settings/ftp-history" class="ftp-history-add-form">
-          <input type="date" name="effective_from" class="form-input" value="{{.Today}}"
-            aria-label="effective from" required />
-          <div class="form-control-group ftp-history-watts-group">
-            <input type="number" name="ftp_watts" class="form-input" min="1" max="600"
-              placeholder="FTP" aria-label="FTP watts" required />
-            <span class="form-unit">W</span>
-          </div>
-          <button type="submit" class="btn-secondary">add entry</button>
-        </form>
-        <div class="ftp-history-actions">
-          <button id="ftp-history-recompute" class="btn-primary" type="button">
-            recompute TSS for all workouts
-          </button>
-          <span class="muted ftp-history-actions-hint">
-            walks every power-based workout — run after editing
-          </span>
-        </div>
-      </div>
+			<!-- Right: FTP History -->
+			<div class="metrics-col metrics-ftp-col">
+				<h2 class="card-title">
+					FTP history <span class="muted">historical FTP for past-workout TSS</span>
+				</h2>
+				<p class="muted ftp-history-help">
+					TSS for a workout uses the FTP active on its date. The profile FTP above stays the source of truth for new workouts.
+				</p>
+				{{ if .FTPHistory }}
+					<div class="ftp-history-table-wrap">
+						<table class="ftp-history-table">
+							<thead>
+								<tr>
+									<th>effective from</th>
+									<th>FTP</th>
+									<th></th>
+								</tr>
+							</thead>
+							<tbody>
+								{{ range .FTPHistory }}
+									<tr>
+										<td>{{ .EffectiveFrom.Format "2006-01-02" }}</td>
+										<td>{{ .FTPWatts }} W</td>
+										<td>
+											<form method="POST" action="/settings/ftp-history/delete" class="ftp-history-delete-form"
+												onsubmit="return confirm('Delete this FTP history entry?');">
+												<input type="hidden" name="id" value="{{ .ID }}" />
+												<button type="submit" class="btn-link-danger">delete</button>
+											</form>
+										</td>
+									</tr>
+								{{ end }}
+							</tbody>
+						</table>
+					</div>
+				{{ else }}
+					<p class="muted ftp-history-empty">No FTP history entries yet.</p>
+				{{ end }}
+				<form method="POST" action="/settings/ftp-history" class="ftp-history-add-form">
+					<input type="date" name="effective_from" class="form-input" value="{{ .Today }}"
+						aria-label="effective from" required />
+					<div class="form-control-group ftp-history-watts-group">
+						<input type="number" name="ftp_watts" class="form-input" min="1" max="600"
+							placeholder="FTP" aria-label="FTP watts" required />
+						<span class="form-unit">W</span>
+					</div>
+					<button type="submit" class="btn-secondary">add entry</button>
+				</form>
+				<div class="ftp-history-actions">
+					<button id="ftp-history-recompute" class="btn-primary" type="button">
+						recompute TSS for all workouts
+					</button>
+					<span class="muted ftp-history-actions-hint">
+						walks every power-based workout — run after editing
+					</span>
+				</div>
+			</div>
 
-    </div>
-  </section>
+		</div>
+	</section>
 </div>
 
 <!-- ── Training Zones ──────────────────────────────────── -->
 <div class="settings-section">
-  <div class="settings-section-header">
-    <span class="settings-section-title">training zones</span>
-  </div>
-  <section class="card zones-card">
-    <div class="zones-split">
+	<div class="settings-section-header">
+		<span class="settings-section-title">training zones</span>
+	</div>
+	<section class="card zones-card">
+		<div class="zones-split">
 
-      <!-- Left: Power Zones -->
-      <div class="zones-col zones-power-col">
-        <h2 class="card-title">power zones <span class="muted">based on {{.Athlete.FTPWatts}}W FTP</span></h2>
-        <table class="zone-table">
-          <thead>
-            <tr>
-              <th></th>
-              <th>zone</th>
-              <th>% FTP</th>
-              <th>watts</th>
-            </tr>
-          </thead>
-          <tbody>
-            {{range .PowerZones}}
-            <tr class="zone-row zone-power-{{.Label | lower}}">
-              <td class="zone-label">{{.Label}}</td>
-              <td class="zone-name">{{.Name}}</td>
-              <td class="zone-pct">{{if eq .PctHigh 0}}{{.PctLow}}%+{{else}}{{.PctLow}}–{{.PctHigh}}%{{end}}</td>
-              <td class="zone-range">{{if eq .WattsHigh 0}}{{.WattsLow}}w+{{else}}{{.WattsLow}}–{{.WattsHigh}}w{{end}}</td>
-            </tr>
-            {{end}}
-          </tbody>
-        </table>
-      </div>
+			<!-- Left: Power Zones -->
+			<div class="zones-col zones-power-col">
+				<h2 class="card-title">power zones <span class="muted">based on {{ .Athlete.FTPWatts }}W FTP</span></h2>
+				<table class="zone-table">
+					<thead>
+						<tr>
+							<th></th>
+							<th>zone</th>
+							<th>% FTP</th>
+							<th>watts</th>
+						</tr>
+					</thead>
+					<tbody>
+						{{ range .PowerZones }}
+							<tr class="zone-row zone-power-{{ .Label | lower }}">
+								<td class="zone-label">{{ .Label }}</td>
+								<td class="zone-name">{{ .Name }}</td>
+								<td class="zone-pct">{{ if eq .PctHigh 0 }}{{ .PctLow }}%+{{ else }}{{ .PctLow }}–{{ .PctHigh }}%{{ end }}</td>
+								<td class="zone-range">{{ if eq .WattsHigh 0 }}{{ .WattsLow }}w+{{ else }}{{ .WattsLow }}–{{ .WattsHigh }}w{{ end }}</td>
+							</tr>
+						{{ end }}
+					</tbody>
+				</table>
+			</div>
 
-      <!-- Right: HR Zones -->
-      <div class="zones-col zones-hr-col">
-        <h2 class="card-title">
-          heart rate zones {{if .HRZonesCustom}}
-          <span class="muted">custom</span>
-          {{else if .Athlete.ThresholdHR}}
-          <span class="muted">based on {{.Athlete.ThresholdHR}} bpm threshold</span>
-          {{end}}
-        </h2>
-        {{if or .Athlete.ThresholdHR .HRZonesCustom}}
-        <table class="zone-table">
-          <thead>
-            <tr>
-              <th></th>
-              <th>zone</th>
-              {{if not .HRZonesCustom}}<th>% threshold</th>{{end}}
-              <th>bpm</th>
-            </tr>
-          </thead>
-          <tbody>
-            {{range .HRZones}}
-            <tr class="zone-row zone-hr-{{.Label | lower}}">
-              <td class="zone-label">{{.Label}}</td>
-              <td class="zone-name">{{.Name}}</td>
-              {{if not $.HRZonesCustom}}
-              <td class="zone-pct">{{if eq .PctHigh 0}}{{.PctLow}}%+{{else}}{{.PctLow}}–{{.PctHigh}}%{{end}}</td>
-              {{end}}
-              <td class="zone-range">{{if eq .BPMHigh 0}}{{.BPMLow}}+{{else}}{{.BPMLow}}–{{.BPMHigh}}{{end}}</td>
-            </tr>
-            {{end}}
-          </tbody>
-        </table>
-        <div class="zones-col-actions">
-          <button class="btn-secondary" onclick="document.getElementById('modal-hr-zones').showModal()">
-            {{if .HRZonesCustom}}update custom zones{{else}}override zones{{end}}
-          </button>
-          {{if .HRZonesCustom}}
-          <form method="POST" action="/settings/hr-zones/reset" style="display:inline">
-            <button type="submit" class="btn-secondary">reset to calculated</button>
-          </form>
-          {{end}}
-        </div>
-        {{else}}
-        <p class="muted" style="font-size: 13px">set a threshold HR above to see your heart rate zones.</p>
-        {{end}}
-      </div>
+			<!-- Right: HR Zones -->
+			<div class="zones-col zones-hr-col">
+				<h2 class="card-title">
+					heart rate zones 
+					{{ if .HRZonesCustom }}
+						<span class="muted">custom</span>
+					{{ else if .Athlete.ThresholdHR }}
+						<span class="muted">based on {{ .Athlete.ThresholdHR }} bpm threshold</span>
+					{{ end }}
+				</h2>
+				{{ if or .Athlete.ThresholdHR .HRZonesCustom }}
+					<table class="zone-table">
+						<thead>
+							<tr>
+								<th></th>
+								<th>zone</th>
+								{{ if not .HRZonesCustom }}<th>% threshold</th>{{ end }}
+								<th>bpm</th>
+							</tr>
+						</thead>
+						<tbody>
+							{{ range .HRZones }}
+								<tr class="zone-row zone-hr-{{ .Label | lower }}">
+									<td class="zone-label">{{ .Label }}</td>
+									<td class="zone-name">{{ .Name }}</td>
+									{{ if not $.HRZonesCustom }}
+										<td class="zone-pct">{{ if eq .PctHigh 0 }}{{ .PctLow }}%+{{ else }}{{ .PctLow }}–{{ .PctHigh }}%{{ end }}</td>
+									{{ end }}
+									<td class="zone-range">{{ if eq .BPMHigh 0 }}{{ .BPMLow }}+{{ else }}{{ .BPMLow }}–{{ .BPMHigh }}{{ end }}</td>
+								</tr>
+							{{ end }}
+						</tbody>
+					</table>
+					<div class="zones-col-actions">
+						<button class="btn-secondary" onclick="document.getElementById('modal-hr-zones').showModal()">
+							{{ if .HRZonesCustom }}update custom zones{{ else }}override zones{{ end }}
+						</button>
+						{{ if .HRZonesCustom }}
+							<form method="POST" action="/settings/hr-zones/reset" style="display:inline">
+								<button type="submit" class="btn-secondary">reset to calculated</button>
+							</form>
+						{{ end }}
+					</div>
+				{{ else }}
+					<p class="muted" style="font-size: 13px">set a threshold HR above to see your heart rate zones.</p>
+				{{ end }}
+			</div>
 
-    </div>
-  </section>
+		</div>
+	</section>
 </div>
 
 <!-- HR Zones Override Modal -->
 <dialog id="modal-hr-zones" class="settings-modal">
-  <div class="settings-modal-header">
-    <span class="settings-modal-title">{{if .HRZonesCustom}}update custom zones{{else}}override HR zones{{end}}</span>
-    <button class="settings-modal-close" onclick="this.closest('dialog').close()">✕</button>
-  </div>
-  <form method="POST" action="/settings/hr-zones" class="settings-modal-form hr-zones-grid">
-    {{range $i, $z := .HRZones}} {{if ne $z.BPMHigh 0}}
-    <div class="hr-zone-row">
-      <span class="hr-zone-label">{{$z.Label}} max</span>
-      <input type="number" name="z{{add1 $i}}_max" class="form-input hr-zone-input"
-        value="{{$z.BPMHigh}}" min="1" max="300" required />
-      <span class="form-unit">bpm</span>
-    </div>
-    {{end}} {{end}}
-    <div class="settings-modal-actions">
-      <button type="button" class="btn-secondary" onclick="this.closest('dialog').close()">cancel</button>
-      <button type="submit" class="btn-primary">save custom zones</button>
-    </div>
-  </form>
+	<div class="settings-modal-header">
+		<span class="settings-modal-title">{{ if .HRZonesCustom }}update custom zones{{ else }}override HR zones{{ end }}</span>
+		<button class="settings-modal-close" onclick="this.closest('dialog').close()">✕</button>
+	</div>
+	<form method="POST" action="/settings/hr-zones" class="settings-modal-form hr-zones-grid">
+		{{ range $i, $z := .HRZones }} 
+			{{ if ne $z.BPMHigh 0 }}
+				<div class="hr-zone-row">
+					<span class="hr-zone-label">{{ $z.Label }} max</span>
+					<input type="number" name="z{{ add1 $i }}_max" class="form-input hr-zone-input"
+						value="{{ $z.BPMHigh }}" min="1" max="300" required />
+					<span class="form-unit">bpm</span>
+				</div>
+			{{ end }} 
+		{{ end }}
+		<div class="settings-modal-actions">
+			<button type="button" class="btn-secondary" onclick="this.closest('dialog').close()">cancel</button>
+			<button type="submit" class="btn-primary">save custom zones</button>
+		</div>
+	</form>
 </dialog>
 
 <!-- ── Integrations & Backups ──────────────────────────── -->
 <div class="settings-section">
-  <div class="settings-section-header">
-    <span class="settings-section-title">integrations & backups</span>
-  </div>
-  <section class="card integrations-card">
+	<div class="settings-section-header">
+		<span class="settings-section-title">integrations & backups</span>
+	</div>
+	<section class="card integrations-card">
 
-    <!-- intervals.icu -->
-    <div class="integration-item">
-      <div class="integration-item-row">
-        <div class="integration-item-name">intervals.icu</div>
-        {{if .IntervalsConnected}}
-        <div class="integration-status">
-          <span class="status-dot connected"></span>
-          <span>connected — athlete <code>{{.IntervalsAthleteID}}</code></span>
-        </div>
-        <div class="integration-actions">
-          <button class="btn-secondary"
-            onclick="runSync('/api/integrations/intervals/sync?stream=1', 'syncing from intervals.icu')">sync now</button>
-          <button class="btn-secondary" id="intervals-ftp-sync">sync FTP history</button>
-          <button class="btn-secondary"
-            onclick="document.getElementById('modal-intervals-creds').showModal()">update credentials</button>
-          <button class="btn-danger" id="intervals-disconnect">disconnect</button>
-        </div>
-        {{else}}
-        <div class="integration-status">
-          <span class="status-dot"></span>
-          <span class="muted">not connected</span>
-        </div>
-        <div class="integration-actions">
-          <button class="btn-secondary"
-            onclick="document.getElementById('modal-intervals-connect').showModal()">configure</button>
-        </div>
-        {{end}}
-      </div>
-      {{if .IntervalsConnected}}
-      <label class="longpoll-label">
-        {{if .IntervalsAutoSync}}
-        <input type="checkbox" id="intervals-autosync-toggle" checked />
-        {{else}}
-        <input type="checkbox" id="intervals-autosync-toggle" />
-        {{end}}
-        sync future workouts
-      </label>
-      {{end}}
-    </div>
+		<!-- intervals.icu -->
+		<div class="integration-item">
+			<div class="integration-item-row">
+				<div class="integration-item-name">intervals.icu</div>
+				{{ if .IntervalsConnected }}
+					<div class="integration-status">
+						<span class="status-dot connected"></span>
+						<span>connected — athlete <code>{{ .IntervalsAthleteID }}</code></span>
+					</div>
+					<div class="integration-actions">
+						<button class="btn-secondary"
+							onclick="runSync('/api/integrations/intervals/sync?stream=1', 'syncing from intervals.icu')">sync now</button>
+						<button class="btn-secondary" id="intervals-ftp-sync">sync FTP history</button>
+						<button class="btn-secondary"
+							onclick="document.getElementById('modal-intervals-creds').showModal()">update credentials</button>
+						<button class="btn-danger" id="intervals-disconnect">disconnect</button>
+					</div>
+				{{ else }}
+					<div class="integration-status">
+						<span class="status-dot"></span>
+						<span class="muted">not connected</span>
+					</div>
+					<div class="integration-actions">
+						<button class="btn-secondary"
+							onclick="document.getElementById('modal-intervals-connect').showModal()">configure</button>
+					</div>
+				{{ end }}
+			</div>
+			{{ if .IntervalsConnected }}
+				<label class="longpoll-label">
+					{{ if .IntervalsAutoSync }}
+						<input type="checkbox" id="intervals-autosync-toggle" checked />
+					{{ else }}
+						<input type="checkbox" id="intervals-autosync-toggle" />
+					{{ end }}
+					sync future workouts
+				</label>
+			{{ end }}
+		</div>
 
-    <!-- dropbox -->
-    <div class="integration-item">
-      <div class="integration-item-row">
-        <div class="integration-item-name">dropbox</div>
-        {{if .DropboxConnected}}
-        <div class="integration-status">
-          <span class="status-dot connected"></span>
-          <span>connected — syncing from <code>{{.DropboxFolder}}</code></span>
-        </div>
-        <div class="integration-actions">
-          <button class="btn-secondary"
-            onclick="runSync('/api/integrations/dropbox/sync?stream=1', 'syncing from dropbox')">sync now</button>
-          <button class="btn-secondary"
-            onclick="document.getElementById('modal-dropbox-settings').showModal()">update settings</button>
-          <button class="btn-danger" id="dropbox-disconnect">disconnect</button>
-        </div>
-        {{else}}
-        <div class="integration-status">
-          <span class="status-dot"></span>
-          <span class="muted">not connected</span>
-        </div>
-        <div class="integration-actions">
-          <button class="btn-secondary"
-            onclick="document.getElementById('modal-dropbox-connect').showModal()">configure</button>
-        </div>
-        {{end}}
-      </div>
-      {{if .DropboxConnected}}
-      <label class="longpoll-label">
-        {{if .DropboxLongpoll}}
-        <input type="checkbox" id="dropbox-longpoll-toggle" checked />
-        {{else}}
-        <input type="checkbox" id="dropbox-longpoll-toggle" />
-        {{end}}
-        sync future workouts
-      </label>
-      {{end}}
-    </div>
+		<!-- dropbox -->
+		<div class="integration-item">
+			<div class="integration-item-row">
+				<div class="integration-item-name">dropbox</div>
+				{{ if .DropboxConnected }}
+					<div class="integration-status">
+						<span class="status-dot connected"></span>
+						<span>connected — syncing from <code>{{ .DropboxFolder }}</code></span>
+					</div>
+					<div class="integration-actions">
+						<button class="btn-secondary"
+							onclick="runSync('/api/integrations/dropbox/sync?stream=1', 'syncing from dropbox')">sync now</button>
+						<button class="btn-secondary"
+							onclick="document.getElementById('modal-dropbox-settings').showModal()">update settings</button>
+						<button class="btn-danger" id="dropbox-disconnect">disconnect</button>
+					</div>
+				{{ else }}
+					<div class="integration-status">
+						<span class="status-dot"></span>
+						<span class="muted">not connected</span>
+					</div>
+					<div class="integration-actions">
+						<button class="btn-secondary"
+							onclick="document.getElementById('modal-dropbox-connect').showModal()">configure</button>
+					</div>
+				{{ end }}
+			</div>
+			{{ if .DropboxConnected }}
+				<label class="longpoll-label">
+					{{ if .DropboxLongpoll }}
+						<input type="checkbox" id="dropbox-longpoll-toggle" checked />
+					{{ else }}
+						<input type="checkbox" id="dropbox-longpoll-toggle" />
+					{{ end }}
+					sync future workouts
+				</label>
+			{{ end }}
+		</div>
 
-    <!-- google drive -->
-    <div class="integration-item">
-      <div class="integration-item-row">
-        <div class="integration-item-name">google drive</div>
-        {{if .GDriveConnected}}
-        <div class="integration-status">
-          <span class="status-dot connected"></span>
-          <span>connected — FIT files backed up automatically</span>
-        </div>
-        <div class="integration-actions">
-          <button class="btn-secondary"
-            onclick="runSync('/api/integrations/gdrive/sync?stream=1', 'syncing to google drive')">sync now</button>
-          <button class="btn-secondary"
-            onclick="document.getElementById('modal-gdrive-creds').showModal()">update credentials</button>
-          <button class="btn-danger" id="gdrive-disconnect">disconnect</button>
-        </div>
-        {{else if .GDriveConfigured}}
-        <div class="integration-status">
-          <span class="status-dot"></span>
-          <span class="muted">credentials saved — authorize fitbase to access your Google Drive</span>
-        </div>
-        <div class="integration-actions">
-          <a href="/api/integrations/gdrive/connect" class="btn-primary">connect google drive</a>
-          <button class="btn-secondary"
-            onclick="document.getElementById('modal-gdrive-creds').showModal()">update credentials</button>
-        </div>
-        {{else}}
-        <div class="integration-status">
-          <span class="status-dot"></span>
-          <span class="muted">not connected</span>
-        </div>
-        <div class="integration-actions">
-          <button class="btn-secondary"
-            onclick="document.getElementById('modal-gdrive-connect').showModal()">configure</button>
-        </div>
-        {{end}}
-      </div>
-    </div>
+		<!-- google drive -->
+		<div class="integration-item">
+			<div class="integration-item-row">
+				<div class="integration-item-name">google drive</div>
+				{{ if .GDriveConnected }}
+					<div class="integration-status">
+						<span class="status-dot connected"></span>
+						<span>connected — FIT files backed up automatically</span>
+					</div>
+					<div class="integration-actions">
+						<button class="btn-secondary"
+							onclick="runSync('/api/integrations/gdrive/sync?stream=1', 'syncing to google drive')">sync now</button>
+						<button class="btn-secondary"
+							onclick="document.getElementById('modal-gdrive-creds').showModal()">update credentials</button>
+						<button class="btn-danger" id="gdrive-disconnect">disconnect</button>
+					</div>
+				{{ else if .GDriveConfigured }}
+					<div class="integration-status">
+						<span class="status-dot"></span>
+						<span class="muted">credentials saved — authorize fitbase to access your Google Drive</span>
+					</div>
+					<div class="integration-actions">
+						<a href="/api/integrations/gdrive/connect" class="btn-primary">connect google drive</a>
+						<button class="btn-secondary"
+							onclick="document.getElementById('modal-gdrive-creds').showModal()">update credentials</button>
+					</div>
+				{{ else }}
+					<div class="integration-status">
+						<span class="status-dot"></span>
+						<span class="muted">not connected</span>
+					</div>
+					<div class="integration-actions">
+						<button class="btn-secondary"
+							onclick="document.getElementById('modal-gdrive-connect').showModal()">configure</button>
+					</div>
+				{{ end }}
+			</div>
+		</div>
 
-  </section>
+	</section>
 </div>
 
 <!-- ── AI Coach ───────────────────────────────────────────── -->
 <div class="settings-section">
-  <div class="settings-section-header">
-    <span class="settings-section-title">AI coach</span>
-  </div>
-  <section class="card">
-    <p class="muted" style="font-size: 13px; margin-bottom: 14px">
-      Select a provider and model, then enter your API key to enable personalized coaching insights on the dashboard.
-      Your key is encrypted at rest.
-    </p>
-    {{if .AIConfigured}}
-    <div class="integration-row" style="margin-bottom: 14px">
-      <div class="integration-status">
-        <span class="status-dot connected"></span>
-        <span>{{.AIProvider}} — {{.AIModel}}</span>
-      </div>
-    </div>
-    <details class="credentials-details">
-      <summary class="credentials-summary">update settings</summary>
-      <form method="POST" action="/settings/ai" class="credentials-form" id="ai-settings-form">
-        <select name="provider" class="form-input ai-provider-select" required>
-          <option value="">select provider…</option>
-          {{range .AIProviders}}
-          <option value="{{.Name}}" {{if eq $.AIProvider .Name}}selected{{end}}>{{.Label}}</option>
-          {{end}}
-        </select>
-        <select name="model" class="form-input ai-model-select" required>
-          <option value="">select model…</option>
-        </select>
-        <input type="password" name="api_key" placeholder="API key (leave blank to keep current)" class="form-input" autocomplete="off" />
-        <div class="ai-model-refresh-row">
-          <button type="button" class="btn-secondary ai-refresh-models">refresh model list</button>
-          <span class="ai-refresh-status" aria-live="polite"></span>
-        </div>
-        <button type="submit" class="btn-secondary">save</button>
-      </form>
-    </details>
-    {{else}}
-    <form method="POST" action="/settings/ai" class="credentials-form" id="ai-settings-form">
-      <select name="provider" class="form-input ai-provider-select" required>
-        <option value="">select provider…</option>
-        {{range .AIProviders}}
-        <option value="{{.Name}}">{{.Label}}</option>
-        {{end}}
-      </select>
-      <select name="model" class="form-input ai-model-select" required>
-        <option value="">select model…</option>
-      </select>
-      <input type="password" name="api_key" placeholder="API key" class="form-input" required />
-      <div class="ai-model-refresh-row">
-        <button type="button" class="btn-secondary ai-refresh-models">refresh model list</button>
-        <span class="ai-refresh-status" aria-live="polite"></span>
-      </div>
-      <button type="submit" class="btn-primary">save</button>
-    </form>
-    {{end}}
-  </section>
+	<div class="settings-section-header">
+		<span class="settings-section-title">AI coach</span>
+	</div>
+	<section class="card">
+		<p class="muted" style="font-size: 13px; margin-bottom: 14px">
+			Select a provider and model, then enter your API key to enable personalized coaching insights on the dashboard.
+			Your key is encrypted at rest.
+		</p>
+		{{ if .AIConfigured }}
+			<div class="integration-row" style="margin-bottom: 14px">
+				<div class="integration-status">
+					<span class="status-dot connected"></span>
+					<span>{{ .AIProvider }} — {{ .AIModel }}</span>
+				</div>
+			</div>
+			<details class="credentials-details">
+				<summary class="credentials-summary">update settings</summary>
+				<form method="POST" action="/settings/ai" class="credentials-form" id="ai-settings-form">
+					<select name="provider" class="form-input ai-provider-select" required>
+						<option value="">select provider…</option>
+						{{ range .AIProviders }}
+							<option value="{{ .Name }}" {{ if eq $.AIProvider .Name }}selected{{ end }}>{{ .Label }}</option>
+						{{ end }}
+					</select>
+					<select name="model" class="form-input ai-model-select" required>
+						<option value="">select model…</option>
+					</select>
+					<input type="password" name="api_key" placeholder="API key (leave blank to keep current)" class="form-input" autocomplete="off" />
+					<div class="ai-model-refresh-row">
+						<button type="button" class="btn-secondary ai-refresh-models">refresh model list</button>
+						<span class="ai-refresh-status" aria-live="polite"></span>
+					</div>
+					<button type="submit" class="btn-secondary">save</button>
+				</form>
+			</details>
+		{{ else }}
+			<form method="POST" action="/settings/ai" class="credentials-form" id="ai-settings-form">
+				<select name="provider" class="form-input ai-provider-select" required>
+					<option value="">select provider…</option>
+					{{ range .AIProviders }}
+						<option value="{{ .Name }}">{{ .Label }}</option>
+					{{ end }}
+				</select>
+				<select name="model" class="form-input ai-model-select" required>
+					<option value="">select model…</option>
+				</select>
+				<input type="password" name="api_key" placeholder="API key" class="form-input" required />
+				<div class="ai-model-refresh-row">
+					<button type="button" class="btn-secondary ai-refresh-models">refresh model list</button>
+					<span class="ai-refresh-status" aria-live="polite"></span>
+				</div>
+				<button type="submit" class="btn-primary">save</button>
+			</form>
+		{{ end }}
+	</section>
 </div>
 
 <!-- Intervals.icu modals -->
 <dialog id="modal-intervals-connect" class="settings-modal">
-  <div class="settings-modal-header">
-    <span class="settings-modal-title">connect intervals.icu</span>
-    <button class="settings-modal-close" onclick="this.closest('dialog').close()">✕</button>
-  </div>
-  <p class="settings-modal-hint">
-    Find your Athlete ID in your intervals.icu profile URL. Generate an API key at
-    <strong>Settings → API</strong> in intervals.icu.
-  </p>
-  <form method="POST" action="/settings/integrations/intervals/credentials" class="settings-modal-form">
-    <input type="text" name="athlete_id" placeholder="athlete id (e.g. i12345)" class="form-input" required />
-    <input type="password" name="api_key" placeholder="api key" class="form-input" required />
-    <div class="settings-modal-actions">
-      <button type="button" class="btn-secondary" onclick="this.closest('dialog').close()">cancel</button>
-      <button type="submit" class="btn-primary">connect</button>
-    </div>
-  </form>
+	<div class="settings-modal-header">
+		<span class="settings-modal-title">connect intervals.icu</span>
+		<button class="settings-modal-close" onclick="this.closest('dialog').close()">✕</button>
+	</div>
+	<p class="settings-modal-hint">
+		Find your Athlete ID in your intervals.icu profile URL. Generate an API key at
+		<strong>Settings → API</strong> in intervals.icu.
+	</p>
+	<form method="POST" action="/settings/integrations/intervals/credentials" class="settings-modal-form">
+		<input type="text" name="athlete_id" placeholder="athlete id (e.g. i12345)" class="form-input" required />
+		<input type="password" name="api_key" placeholder="api key" class="form-input" required />
+		<div class="settings-modal-actions">
+			<button type="button" class="btn-secondary" onclick="this.closest('dialog').close()">cancel</button>
+			<button type="submit" class="btn-primary">connect</button>
+		</div>
+	</form>
 </dialog>
 
 <dialog id="modal-intervals-creds" class="settings-modal">
-  <div class="settings-modal-header">
-    <span class="settings-modal-title">update intervals.icu credentials</span>
-    <button class="settings-modal-close" onclick="this.closest('dialog').close()">✕</button>
-  </div>
-  <form method="POST" action="/settings/integrations/intervals/credentials" class="settings-modal-form">
-    <input type="text" name="athlete_id" placeholder="athlete id (e.g. i12345)" class="form-input"
-      value="{{.IntervalsAthleteID}}" required />
-    <input type="password" name="api_key" placeholder="api key" class="form-input" required />
-    <div class="settings-modal-actions">
-      <button type="button" class="btn-secondary" onclick="this.closest('dialog').close()">cancel</button>
-      <button type="submit" class="btn-secondary">save</button>
-    </div>
-  </form>
+	<div class="settings-modal-header">
+		<span class="settings-modal-title">update intervals.icu credentials</span>
+		<button class="settings-modal-close" onclick="this.closest('dialog').close()">✕</button>
+	</div>
+	<form method="POST" action="/settings/integrations/intervals/credentials" class="settings-modal-form">
+		<input type="text" name="athlete_id" placeholder="athlete id (e.g. i12345)" class="form-input"
+			value="{{ .IntervalsAthleteID }}" required />
+		<input type="password" name="api_key" placeholder="api key" class="form-input" required />
+		<div class="settings-modal-actions">
+			<button type="button" class="btn-secondary" onclick="this.closest('dialog').close()">cancel</button>
+			<button type="submit" class="btn-secondary">save</button>
+		</div>
+	</form>
 </dialog>
 
 <!-- Dropbox modals -->
 <dialog id="modal-dropbox-connect" class="settings-modal">
-  <div class="settings-modal-header">
-    <span class="settings-modal-title">connect dropbox</span>
-    <button class="settings-modal-close" onclick="this.closest('dialog').close()">✕</button>
-  </div>
-  <p class="settings-modal-hint">
-    Create a Dropbox app at
-    <a href="https://www.dropbox.com/developers/apps" target="_blank" rel="noopener">dropbox.com/developers/apps</a>.
-    On the <strong>Permissions</strong> tab, enable <code>files.metadata.read</code> and
-    <code>files.content.read</code>. Under <strong>Settings → OAuth 2</strong>, set token expiration to
-    <strong>No expiration</strong> and click <strong>Generate</strong> to get a permanent access token.
-  </p>
-  <form method="POST" action="/settings/integrations/dropbox/credentials" class="settings-modal-form">
-    <input type="password" name="access_token" placeholder="access token" class="form-input" required />
-    <input type="text" name="folder_path" value="/Apps/WahooFitness" class="form-input"
-      style="color: var(--text-muted)" oninput="this.style.color = ''" />
-    <div class="settings-modal-actions">
-      <button type="button" class="btn-secondary" onclick="this.closest('dialog').close()">cancel</button>
-      <button type="submit" class="btn-primary">connect</button>
-    </div>
-  </form>
+	<div class="settings-modal-header">
+		<span class="settings-modal-title">connect dropbox</span>
+		<button class="settings-modal-close" onclick="this.closest('dialog').close()">✕</button>
+	</div>
+	<p class="settings-modal-hint">
+		Create a Dropbox app at
+		<a href="https://www.dropbox.com/developers/apps" target="_blank" rel="noopener">dropbox.com/developers/apps</a>.
+		On the <strong>Permissions</strong> tab, enable <code>files.metadata.read</code> and
+		<code>files.content.read</code>. Under <strong>Settings → OAuth 2</strong>, set token expiration to
+		<strong>No expiration</strong> and click <strong>Generate</strong> to get a permanent access token.
+	</p>
+	<form method="POST" action="/settings/integrations/dropbox/credentials" class="settings-modal-form">
+		<input type="password" name="access_token" placeholder="access token" class="form-input" required />
+		<input type="text" name="folder_path" value="/Apps/WahooFitness" class="form-input"
+			style="color: var(--text-muted)" oninput="this.style.color = ''" />
+		<div class="settings-modal-actions">
+			<button type="button" class="btn-secondary" onclick="this.closest('dialog').close()">cancel</button>
+			<button type="submit" class="btn-primary">connect</button>
+		</div>
+	</form>
 </dialog>
 
 <dialog id="modal-dropbox-settings" class="settings-modal">
-  <div class="settings-modal-header">
-    <span class="settings-modal-title">update dropbox settings</span>
-    <button class="settings-modal-close" onclick="this.closest('dialog').close()">✕</button>
-  </div>
-  <form method="POST" action="/settings/integrations/dropbox/credentials" class="settings-modal-form">
-    <input type="password" name="access_token" placeholder="access token" class="form-input" required />
-    <input type="text" name="folder_path" placeholder="Dropbox folder (e.g. /Apps/WahooFitness)"
-      class="form-input" value="{{.DropboxFolder}}" />
-    <div class="settings-modal-actions">
-      <button type="button" class="btn-secondary" onclick="this.closest('dialog').close()">cancel</button>
-      <button type="submit" class="btn-secondary">save</button>
-    </div>
-  </form>
+	<div class="settings-modal-header">
+		<span class="settings-modal-title">update dropbox settings</span>
+		<button class="settings-modal-close" onclick="this.closest('dialog').close()">✕</button>
+	</div>
+	<form method="POST" action="/settings/integrations/dropbox/credentials" class="settings-modal-form">
+		<input type="password" name="access_token" placeholder="access token" class="form-input" required />
+		<input type="text" name="folder_path" placeholder="Dropbox folder (e.g. /Apps/WahooFitness)"
+			class="form-input" value="{{ .DropboxFolder }}" />
+		<div class="settings-modal-actions">
+			<button type="button" class="btn-secondary" onclick="this.closest('dialog').close()">cancel</button>
+			<button type="submit" class="btn-secondary">save</button>
+		</div>
+	</form>
 </dialog>
 
 <!-- Google Drive modals -->
 <dialog id="modal-gdrive-connect" class="settings-modal">
-  <div class="settings-modal-header">
-    <span class="settings-modal-title">connect google drive</span>
-    <button class="settings-modal-close" onclick="this.closest('dialog').close()">✕</button>
-  </div>
-  <p class="settings-modal-hint">
-    Create an OAuth app in
-    <a href="https://console.cloud.google.com" target="_blank" rel="noopener">Google Cloud Console</a>
-    (Desktop application type), then enter your credentials below.
-  </p>
-  <form method="POST" action="/settings/integrations/gdrive/credentials" class="settings-modal-form">
-    <input type="text" name="client_id" placeholder="client id" class="form-input" required />
-    <input type="password" name="client_secret" placeholder="client secret" class="form-input" required />
-    <div class="settings-modal-actions">
-      <button type="button" class="btn-secondary" onclick="this.closest('dialog').close()">cancel</button>
-      <button type="submit" class="btn-primary">save credentials</button>
-    </div>
-  </form>
+	<div class="settings-modal-header">
+		<span class="settings-modal-title">connect google drive</span>
+		<button class="settings-modal-close" onclick="this.closest('dialog').close()">✕</button>
+	</div>
+	<p class="settings-modal-hint">
+		Create an OAuth app in
+		<a href="https://console.cloud.google.com" target="_blank" rel="noopener">Google Cloud Console</a>
+		(Desktop application type), then enter your credentials below.
+	</p>
+	<form method="POST" action="/settings/integrations/gdrive/credentials" class="settings-modal-form">
+		<input type="text" name="client_id" placeholder="client id" class="form-input" required />
+		<input type="password" name="client_secret" placeholder="client secret" class="form-input" required />
+		<div class="settings-modal-actions">
+			<button type="button" class="btn-secondary" onclick="this.closest('dialog').close()">cancel</button>
+			<button type="submit" class="btn-primary">save credentials</button>
+		</div>
+	</form>
 </dialog>
 
 <dialog id="modal-gdrive-creds" class="settings-modal">
-  <div class="settings-modal-header">
-    <span class="settings-modal-title">update google drive credentials</span>
-    <button class="settings-modal-close" onclick="this.closest('dialog').close()">✕</button>
-  </div>
-  {{if .GDriveClientID}}
-  <p class="settings-modal-hint">Current Client ID: <code>{{.GDriveClientID}}</code></p>
-  {{end}}
-  <form method="POST" action="/settings/integrations/gdrive/credentials" class="settings-modal-form">
-    <input type="text" name="client_id" placeholder="client id" class="form-input" required />
-    <input type="password" name="client_secret" placeholder="client secret" class="form-input" required />
-    <div class="settings-modal-actions">
-      <button type="button" class="btn-secondary" onclick="this.closest('dialog').close()">cancel</button>
-      <button type="submit" class="btn-secondary">save</button>
-    </div>
-  </form>
+	<div class="settings-modal-header">
+		<span class="settings-modal-title">update google drive credentials</span>
+		<button class="settings-modal-close" onclick="this.closest('dialog').close()">✕</button>
+	</div>
+	{{ if .GDriveClientID }}
+		<p class="settings-modal-hint">Current Client ID: <code>{{ .GDriveClientID }}</code></p>
+	{{ end }}
+	<form method="POST" action="/settings/integrations/gdrive/credentials" class="settings-modal-form">
+		<input type="text" name="client_id" placeholder="client id" class="form-input" required />
+		<input type="password" name="client_secret" placeholder="client secret" class="form-input" required />
+		<div class="settings-modal-actions">
+			<button type="button" class="btn-secondary" onclick="this.closest('dialog').close()">cancel</button>
+			<button type="submit" class="btn-secondary">save</button>
+		</div>
+	</form>
 </dialog>
 
 <!-- ── Danger Zone ──────────────────────────────────────── -->
 <div class="settings-section">
-  <div class="settings-section-header">
-    <span class="settings-section-title">danger zone</span>
-  </div>
-  <section class="card danger-zone-card">
-    <div class="danger-row">
-      <div>
-        <div class="danger-label">delete all workouts</div>
-        <div class="muted" style="font-size: 13px">
-          permanently removes every workout, stream, and power curve from the database. the archive folder is not touched.
-        </div>
-      </div>
-      <button class="btn-danger" id="delete-all-workouts">delete all workouts</button>
-    </div>
-  </section>
+	<div class="settings-section-header">
+		<span class="settings-section-title">danger zone</span>
+	</div>
+	<section class="card danger-zone-card">
+		<div class="danger-row">
+			<div>
+				<div class="danger-label">delete all workouts</div>
+				<div class="muted" style="font-size: 13px">
+					permanently removes every workout, stream, and power curve from the database. the archive folder is not touched.
+				</div>
+			</div>
+			<button class="btn-danger" id="delete-all-workouts">delete all workouts</button>
+		</div>
+	</section>
 </div>
 
-{{end}} {{define "scripts"}}
+{{ end }} 
+{{ define "scripts" }}
 <script>
   // ── AI coach model picker ─────────────────────────────────────────────────
   (function () {
@@ -819,7 +824,7 @@
     d.addEventListener("click", e => { if (e.target === d) d.close(); });
   });
 </script>
-{{if .GDriveConnected}}
+{{ if .GDriveConnected }}
 <script>
   document.getElementById("gdrive-disconnect").addEventListener("click", async () => {
     if (!confirm("Disconnect Google Drive? Backed-up files on Drive will not be deleted.")) return;
@@ -831,8 +836,8 @@
     }
   });
 </script>
-{{end}}
-{{if .DropboxConnected}}
+{{ end }}
+{{ if .DropboxConnected }}
 <script>
   document.getElementById("dropbox-disconnect").addEventListener("click", async () => {
     if (!confirm("Disconnect Dropbox? Your imported workouts will not be deleted.")) return;
@@ -844,8 +849,8 @@
     }
   });
 </script>
-{{end}}
-{{if .IntervalsConnected}}
+{{ end }}
+{{ if .IntervalsConnected }}
 <script>
   document.getElementById("intervals-ftp-sync").addEventListener("click", () => {
     if (!confirm("This will replace your FTP history with data from intervals.icu and recompute TSS for all power-based workouts. Continue?")) return;
@@ -861,7 +866,7 @@
     }
   });
 </script>
-{{end}}
+{{ end }}
 <script>
   // Mutual exclusivity for auto-sync toggles.
   (function () {
@@ -916,4 +921,4 @@
       .catch(e => alert("Delete failed: " + e.message));
   });
 </script>
-{{end}}
+{{ end }}

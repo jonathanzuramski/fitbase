@@ -1,6 +1,6 @@
-{{define "title"}}fitbase — dashboard{{end}}
+{{ define "title" }}fitbase — dashboard{{ end }}
 
-{{define "content"}}
+{{ define "content" }}
 <div class="page-header">
 	<h1>dashboard</h1>
 	<div class="upload-group" id="upload-group">
@@ -34,15 +34,15 @@
 	</div>
 </div>
 
-{{if .FTPIsDefault}}
-<div class="alert-banner">
-	<span class="alert-icon">&#9888;</span>
-	FTP is set to the default of {{.FTPWatts}}W — your power zones and TSS may be inaccurate.
-	<a href="/settings" class="alert-link">update in settings →</a>
-</div>
-{{end}}
+{{ if .FTPIsDefault }}
+	<div class="alert-banner">
+		<span class="alert-icon">&#9888;</span>
+		FTP is set to the default of {{ .FTPWatts }}W — your power zones and TSS may be inaccurate.
+		<a href="/settings" class="alert-link">update in settings →</a>
+	</div>
+{{ end }}
 
-{{$imperial := .Imperial}}
+{{ $imperial := .Imperial }}
 
 <div class="home-layout">
 
@@ -52,15 +52,15 @@
 		<section class="card streak-card">
 			<div class="streak-header">
 				<h3 class="streak-title">this week</h3>
-				<span class="streak-count">{{.StreakActive}} / 7</span>
+				<span class="streak-count">{{ .StreakActive }} / 7</span>
 			</div>
 			<div class="streak-grid">
-				{{range .StreakDays}}
-				<div class="streak-day{{if .IsToday}} today{{end}}{{if .Active}} active{{end}}">
-					<div class="streak-dot"></div>
-					<div class="streak-lbl">{{.Label}}</div>
-				</div>
-				{{end}}
+				{{ range .StreakDays }}
+					<div class="streak-day{{ if .IsToday }} today{{ end }}{{ if .Active }} active{{ end }}">
+						<div class="streak-dot"></div>
+						<div class="streak-lbl">{{ .Label }}</div>
+					</div>
+				{{ end }}
 			</div>
 		</section>
 
@@ -68,134 +68,139 @@
 		<section class="card goal-card">
 			<h2 class="card-title">mileage goals</h2>
 			<div class="filter-tabs goal-sport-tabs">
-				{{range .GoalViews}}
-				<button class="filter-tab goal-sport-tab{{if .Active}} active{{end}}"
-					data-sport="{{.Sport}}">{{.Sport}}</button>
-				{{end}}
+				{{ range .GoalViews }}
+					<button class="filter-tab goal-sport-tab{{ if .Active }} active{{ end }}"
+						data-sport="{{ .Sport }}">{{ .Sport }}</button>
+				{{ end }}
 			</div>
 
-			{{range .GoalViews}}
-			<div class="goal-sport-panel{{if .Active}} active{{end}}" data-sport="{{.Sport}}">
-				<div class="goal-circles">
-					<div class="goal-circle goal-circle-sport-{{.Sport}}" style="--pct:{{formatFloat1 .WeekPct}}">
-						<div class="goal-circle-content">
-							<span class="goal-circle-val">{{formatDistance .WeekMeters $imperial}}</span>
-							{{if gt .WeeklyGoalMeters 0.0}}<span class="goal-circle-target">/ {{formatDistance
-								.WeeklyGoalMeters $imperial}}</span>{{end}}
-							<span class="goal-circle-lbl">week</span>
-						</div>
-					</div>
-					<div class="goal-circle goal-circle-sport-{{.Sport}}" style="--pct:{{formatFloat1 .YearPct}}">
-						<div class="goal-circle-content">
-							<span class="goal-circle-val">{{formatDistance .YearMeters $imperial}}</span>
-							{{if gt .YearlyGoalMeters 0.0}}<span class="goal-circle-target">/ {{formatDistance
-								.YearlyGoalMeters $imperial}}</span>{{end}}
-							<span class="goal-circle-lbl">year</span>
-						</div>
-					</div>
-				</div>
-				<div class="goal-section">
-					<div class="goal-section-label">this week</div>
-					<div class="goal-distance-row">
-						<span class="goal-distance-val">{{formatDistance .WeekMeters $imperial}}</span>
-						{{if gt .WeeklyGoalMeters 0.0}}<span class="goal-distance-sep"> / </span><span
-							class="goal-distance-target">{{formatDistance .WeeklyGoalMeters $imperial}}</span>{{end}}
-					</div>
-					<div class="goal-week-chart">
-						{{range .WeekDays}}
-						<div class="goal-day-col{{if .IsToday}} today{{end}}">
-							<div class="goal-bar-wrap">
-								<div class="goal-bar" style="height:{{formatFloat1 .HeightPct}}%"></div>
+			{{ range .GoalViews }}
+				<div class="goal-sport-panel{{ if .Active }} active{{ end }}" data-sport="{{ .Sport }}">
+					<div class="goal-circles">
+						<div class="goal-circle goal-circle-sport-{{ .Sport }}" style="--pct:{{ formatFloat1 .WeekPct }}">
+							<div class="goal-circle-content">
+								<span class="goal-circle-val">{{ formatDistance .WeekMeters $imperial }}</span>
+								{{ if gt .WeeklyGoalMeters 0.0 }}<span class="goal-circle-target">/ {{ formatDistance .WeeklyGoalMeters $imperial }}</span>
+								{{ end }}
+								<span class="goal-circle-lbl">week</span>
 							</div>
-							<div class="goal-day-label">{{.Label}}</div>
 						</div>
-						{{end}}
+						<div class="goal-circle goal-circle-sport-{{ .Sport }}" style="--pct:{{ formatFloat1 .YearPct }}">
+							<div class="goal-circle-content">
+								<span class="goal-circle-val">{{ formatDistance .YearMeters $imperial }}</span>
+								{{ if gt .YearlyGoalMeters 0.0 }}<span class="goal-circle-target">/ {{ formatDistance .YearlyGoalMeters $imperial }}</span>
+								{{ end }}
+								<span class="goal-circle-lbl">year</span>
+							</div>
+						</div>
 					</div>
+					<div class="goal-section">
+						<div class="goal-section-label">this week</div>
+						<div class="goal-distance-row">
+							<span class="goal-distance-val">{{ formatDistance .WeekMeters $imperial }}</span>
+							{{ if gt .WeeklyGoalMeters 0.0 }}<span class="goal-distance-sep"> / </span><span
+									class="goal-distance-target">{{ formatDistance .WeeklyGoalMeters $imperial }}</span>
+							{{ end }}
+						</div>
+						<div class="goal-week-chart">
+							{{ range .WeekDays }}
+								<div class="goal-day-col{{ if .IsToday }} today{{ end }}">
+									<div class="goal-bar-wrap">
+										<div class="goal-bar" style="height:{{ formatFloat1 .HeightPct }}%"></div>
+									</div>
+									<div class="goal-day-label">{{ .Label }}</div>
+								</div>
+							{{ end }}
+						</div>
+					</div>
+					<div class="goal-divider"></div>
+					<div class="goal-section">
+						<div class="goal-section-label">this year</div>
+						<div class="goal-distance-row">
+							<span class="goal-distance-val">{{ formatDistance .YearMeters $imperial }}</span>
+							{{ if gt .YearlyGoalMeters 0.0 }}<span class="goal-distance-sep"> / </span><span
+									class="goal-distance-target">{{ formatDistance .YearlyGoalMeters $imperial }}</span>
+							{{ end }}
+						</div>
+						{{ if gt .YearlyGoalMeters 0.0 }}
+							<div class="goal-year-track-wrap">
+								<div class="goal-year-track">
+									<div class="goal-year-bar sport-{{ .Sport }}" style="width:{{ formatFloat1 .YearPct }}%"></div>
+								</div>
+								<div class="goal-pace-anchor" style="left:{{ formatFloat1 .YearPacePct }}%">
+									<div class="goal-pace-tick"></div>
+									<div class="goal-pace-today-label">today</div>
+								</div>
+							</div>
+							<div class="goal-pace-diff{{ if .AheadOfPace }} ahead{{ end }}">{{ formatDistance .PaceDiffMeters $imperial }} {{ if .AheadOfPace }}ahead of{{ else }}behind{{ end }} pace</div>
+						{{ end }}
+					</div>
+					<button class="goal-manage-btn" data-sport="{{ .Sport }}">manage goals →</button>
 				</div>
-				<div class="goal-divider"></div>
-				<div class="goal-section">
-					<div class="goal-section-label">this year</div>
-					<div class="goal-distance-row">
-						<span class="goal-distance-val">{{formatDistance .YearMeters $imperial}}</span>
-						{{if gt .YearlyGoalMeters 0.0}}<span class="goal-distance-sep"> / </span><span
-							class="goal-distance-target">{{formatDistance .YearlyGoalMeters $imperial}}</span>{{end}}
-					</div>
-					{{if gt .YearlyGoalMeters 0.0}}
-					<div class="goal-year-track-wrap">
-						<div class="goal-year-track">
-							<div class="goal-year-bar sport-{{.Sport}}" style="width:{{formatFloat1 .YearPct}}%"></div>
-						</div>
-						<div class="goal-pace-anchor" style="left:{{formatFloat1 .YearPacePct}}%">
-							<div class="goal-pace-tick"></div>
-							<div class="goal-pace-today-label">today</div>
-						</div>
-					</div>
-					<div class="goal-pace-diff{{if .AheadOfPace}} ahead{{end}}">{{formatDistance .PaceDiffMeters
-						$imperial}} {{if .AheadOfPace}}ahead of{{else}}behind{{end}} pace</div>
-					{{end}}
-				</div>
-				<button class="goal-manage-btn" data-sport="{{.Sport}}">manage goals →</button>
-			</div>
-			{{end}}
+			{{ end }}
 
-			{{range .GoalViews}}
-			<form class="goal-edit-form" action="/goals/mileage" method="POST" data-sport="{{.Sport}}" hidden>
-				<p class="goal-edit-title">goals — {{.Sport}}</p>
-				<input type="hidden" name="sport" value="{{.Sport}}">
-				<div class="goal-inputs">
-					<label class="goal-input-label">
-						weekly ({{if $imperial}}mi{{else}}km{{end}})
-						<input type="number" name="weekly" step="0.1" min="0"
-							value="{{goalDisplayDist .WeeklyGoalMeters $imperial}}">
-					</label>
-					<label class="goal-input-label">
-						yearly ({{if $imperial}}mi{{else}}km{{end}})
-						<input type="number" name="yearly" step="1" min="0"
-							value="{{goalDisplayDist .YearlyGoalMeters $imperial}}">
-					</label>
-				</div>
-				<div class="goal-form-actions">
-					<button type="submit" class="goal-save-btn">save</button>
-					<button type="button" class="goal-cancel-btn">cancel</button>
-				</div>
-			</form>
-			{{end}}
+			{{ range .GoalViews }}
+				<form class="goal-edit-form" action="/goals/mileage" method="POST" data-sport="{{ .Sport }}" hidden>
+					<p class="goal-edit-title">goals — {{ .Sport }}</p>
+					<input type="hidden" name="sport" value="{{ .Sport }}">
+					<div class="goal-inputs">
+						<label class="goal-input-label">
+							weekly ({{ if $imperial }}mi{{ else }}km{{ end }})
+							<input type="number" name="weekly" step="0.1" min="0"
+								value="{{ goalDisplayDist .WeeklyGoalMeters $imperial }}">
+						</label>
+						<label class="goal-input-label">
+							yearly ({{ if $imperial }}mi{{ else }}km{{ end }})
+							<input type="number" name="yearly" step="1" min="0"
+								value="{{ goalDisplayDist .YearlyGoalMeters $imperial }}">
+						</label>
+					</div>
+					<div class="goal-form-actions">
+						<button type="submit" class="goal-save-btn">save</button>
+						<button type="button" class="goal-cancel-btn">cancel</button>
+					</div>
+				</form>
+			{{ end }}
 		</section>
 
 		<!-- ── Training Load (compact, sidebar) ──────────────────────────────────── -->
 		<section class="card" id="card-training-load">
 			<h3 class="card-title">training load</h3>
-			{{if .TodayFitness}}
-			<div class="load-ctf-row">
-				<div class="load-ctf-item">
-					<div class="load-ctf-val ctl-color">{{formatFloat1 .TodayFitness.Fitness}}</div>
-					<div class="load-ctf-lbl">fitness</div>
+			{{ if .TodayFitness }}
+				<div class="load-ctf-row">
+					<div class="load-ctf-item">
+						<div class="load-ctf-val ctl-color">{{ formatFloat1 .TodayFitness.Fitness }}</div>
+						<div class="load-ctf-lbl">fitness</div>
+					</div>
+					<div class="load-ctf-item">
+						<div class="load-ctf-val atl-color">{{ formatFloat1 .TodayFitness.Fatigue }}</div>
+						<div class="load-ctf-lbl">fatigue</div>
+					</div>
+					<div class="load-ctf-item">
+						<div class="load-ctf-val {{ tsbClass .TodayFitness.Form }}">{{ formatFloat1 .TodayFitness.Form }}</div>
+						<div class="load-ctf-lbl">form</div>
+					</div>
 				</div>
-				<div class="load-ctf-item">
-					<div class="load-ctf-val atl-color">{{formatFloat1 .TodayFitness.Fatigue}}</div>
-					<div class="load-ctf-lbl">fatigue</div>
-				</div>
-				<div class="load-ctf-item">
-					<div class="load-ctf-val {{tsbClass .TodayFitness.Form}}">{{formatFloat1 .TodayFitness.Form}}</div>
-					<div class="load-ctf-lbl">form</div>
-				</div>
-			</div>
-			<div class="goal-divider"></div>
-			{{end}}
+				<div class="goal-divider"></div>
+			{{ end }}
 			<div class="stat-blocks">
 				<div class="stat-block">
 					<div class="stat-block-hdr">week</div>
-					<div class="stat-block-row"><span class="stat-td">{{formatFloat1 .WeekSummary.TSS}}</span><span
-							class="stat-lbl">tss</span></div>
-					<div class="stat-block-row"><span class="stat-td">{{formatDuration
-							.WeekSummary.DurationSecs}}</span><span class="stat-lbl">time</span></div>
+					<div class="stat-block-row"><span class="stat-td">{{ formatFloat1 .WeekSummary.TSS }}</span><span
+							class="stat-lbl">tss</span>
+					</div>
+					<div class="stat-block-row"><span class="stat-td">{{ formatDuration
+	.WeekSummary.DurationSecs
+}}</span><span class="stat-lbl">time</span></div>
 				</div>
 				<div class="stat-block">
 					<div class="stat-block-hdr">year</div>
-					<div class="stat-block-row"><span class="stat-td">{{formatFloat1 .YearSummary.TSS}}</span><span
-							class="stat-lbl">tss</span></div>
-					<div class="stat-block-row"><span class="stat-td">{{formatDuration
-							.YearSummary.DurationSecs}}</span><span class="stat-lbl">time</span></div>
+					<div class="stat-block-row"><span class="stat-td">{{ formatFloat1 .YearSummary.TSS }}</span><span
+							class="stat-lbl">tss</span>
+					</div>
+					<div class="stat-block-row"><span class="stat-td">{{ formatDuration
+	.YearSummary.DurationSecs
+}}</span><span class="stat-lbl">time</span></div>
 				</div>
 			</div>
 		</section>
@@ -205,91 +210,96 @@
 	<main class="home-main">
 
 		<!-- ── Fitness chart ─────────────────────────────────────────────────────── -->
-		{{if .Fitness}}
-		<section class="card">
-			<h2 class="card-title">fitness <span class="muted">fitness / fatigue / form — 90 days</span></h2>
-			<div id="fitness-chart"></div>
-			<div class="tsb-legend-row">
-				<div class="tsb-legend">
-					<div class="tsb-legend-item">
-						<span class="tsb-swatch tsb-swatch-fresh"></span>
-						<span class="tsb-legend-label">form &gt; +5</span>
-						<span class="tsb-legend-desc">Fresh — race ready</span>
+		{{ if .Fitness }}
+			<section class="card">
+				<h2 class="card-title">fitness <span class="muted">fitness / fatigue / form — 90 days</span></h2>
+				<div id="fitness-chart"></div>
+				<div class="tsb-legend-row">
+					<div class="tsb-legend">
+						<div class="tsb-legend-item">
+							<span class="tsb-swatch tsb-swatch-fresh"></span>
+							<span class="tsb-legend-label">form &gt; +5</span>
+							<span class="tsb-legend-desc">Fresh — race ready</span>
+						</div>
+						<div class="tsb-legend-item">
+							<span class="tsb-swatch tsb-swatch-optimal"></span>
+							<span class="tsb-legend-label">−10 to +5</span>
+							<span class="tsb-legend-desc">Optimal form</span>
+						</div>
+						<div class="tsb-legend-item">
+							<span class="tsb-swatch tsb-swatch-productive"></span>
+							<span class="tsb-legend-label">−30 to −10</span>
+							<span class="tsb-legend-desc">Productive training</span>
+						</div>
+						<div class="tsb-legend-item">
+							<span class="tsb-swatch tsb-swatch-overreach"></span>
+							<span class="tsb-legend-label">−50 to −30</span>
+							<span class="tsb-legend-desc">Overreaching — recover</span>
+						</div>
 					</div>
-					<div class="tsb-legend-item">
-						<span class="tsb-swatch tsb-swatch-optimal"></span>
-						<span class="tsb-legend-label">−10 to +5</span>
-						<span class="tsb-legend-desc">Optimal form</span>
-					</div>
-					<div class="tsb-legend-item">
-						<span class="tsb-swatch tsb-swatch-productive"></span>
-						<span class="tsb-legend-label">−30 to −10</span>
-						<span class="tsb-legend-desc">Productive training</span>
-					</div>
-					<div class="tsb-legend-item">
-						<span class="tsb-swatch tsb-swatch-overreach"></span>
-						<span class="tsb-legend-label">−50 to −30</span>
-						<span class="tsb-legend-desc">Overreaching — recover</span>
-					</div>
+					<div id="fitness-recommendation"></div>
 				</div>
-				<div id="fitness-recommendation"></div>
-			</div>
-		</section>
-		{{end}}
+			</section>
+		{{ end }}
 
 		<div id="mobile-card-inject"></div>
 
 		<section class="card" id="ai-coach-card">
 			<div class="card-header-row">
-				<h2 class="card-title">AI coach{{if .AIProviderLabel}} <span class="muted">powered by
-						{{.AIProviderLabel}}</span>{{end}}</h2>
+				<h2 class="card-title">AI coach
+					{{ if .AIProviderLabel }} <span class="muted">powered by
+							{{ .AIProviderLabel }}</span>
+					{{ end }}</h2>
 				<div class="ai-coach-header-actions">
-					{{if .AIConfigured}}
-					<div class="ai-coach-actions">
-						<span id="ai-generated-at" class="muted" style="font-size:12px" hidden></span>
-						<button class="btn-secondary" id="ai-generate-btn" onclick="generateInsights()">generate
-							insights</button>
-					</div>
-					{{end}}
+					{{ if .AIConfigured }}
+						<div class="ai-coach-actions">
+							<span id="ai-generated-at" class="muted" style="font-size:12px" hidden></span>
+							<button class="btn-secondary" id="ai-generate-btn" onclick="generateInsights()">generate
+								insights
+							</button>
+						</div>
+					{{ end }}
 					<button type="button" class="ai-collapse-btn" id="ai-collapse-btn" aria-controls="ai-body"
 						aria-expanded="true" aria-label="Collapse AI coach" title="Hide AI coach">▾</button>
 				</div>
 			</div>
 			<div id="ai-body">
-				{{if .AIConfigured}}
-				<div id="ai-empty" class="muted" style="font-size:13px" hidden>No insights yet — click generate to
-					analyze your training.</div>
-				<div id="ai-insights" class="ai-insights markdown-body" hidden></div>
-				<div id="ai-error" class="ai-error" hidden></div>
-
-				{{if .AIChatCapable}}
-				<div class="coach-chat">
-					<div class="coach-chat-header">
-						<span class="coach-chat-title">Ask the coach</span>
-						<button type="button" class="coach-chat-clear" id="chat-clear" hidden>clear</button>
+				{{ if .AIConfigured }}
+					<div id="ai-empty" class="muted" style="font-size:13px" hidden>No insights yet — click generate to
+						analyze your training.
 					</div>
-					<div id="chat-log" class="coach-chat-log" hidden></div>
-					<p id="chat-hint" class="muted coach-chat-hint">
-						Ask anything about your training — the coach pulls your real data to answer.
-						Try “how did my last block go?” or “am I fresh enough to race Saturday?”
+					<div id="ai-insights" class="ai-insights markdown-body" hidden></div>
+					<div id="ai-error" class="ai-error" hidden></div>
+
+					{{ if .AIChatCapable }}
+						<div class="coach-chat">
+							<div class="coach-chat-header">
+								<span class="coach-chat-title">Ask the coach</span>
+								<button type="button" class="coach-chat-clear" id="chat-clear" hidden>clear</button>
+							</div>
+							<div id="chat-log" class="coach-chat-log" hidden></div>
+							<p id="chat-hint" class="muted coach-chat-hint">
+								Ask anything about your training — the coach pulls your real data to answer.
+								Try “how did my last block go?” or “am I fresh enough to race Saturday?”
+							</p>
+							<form id="chat-form" class="coach-chat-form" autocomplete="off">
+								<textarea id="chat-input" class="coach-chat-input" rows="1"
+									placeholder="Ask about your training…" required></textarea>
+								<button type="submit" class="btn-secondary" id="chat-send">send</button>
+							</form>
+						</div>
+					{{ else }}
+						<p class="muted coach-chat-hint">
+							Chat with the coach needs {{ .AIChatLabels }} — switch the provider in <a
+								href="/settings">settings</a>.
+							Generate insights still works with your current provider.
+						</p>
+					{{ end }}
+				{{ else }}
+					<p class="muted" style="font-size:13px">Configure an AI provider in <a href="/settings">settings</a> to
+						get personalized coaching insights.
 					</p>
-					<form id="chat-form" class="coach-chat-form" autocomplete="off">
-						<textarea id="chat-input" class="coach-chat-input" rows="1"
-							placeholder="Ask about your training…" required></textarea>
-						<button type="submit" class="btn-secondary" id="chat-send">send</button>
-					</form>
-				</div>
-				{{else}}
-				<p class="muted coach-chat-hint">
-					Chat with the coach needs {{.AIChatLabels}} — switch the provider in <a
-						href="/settings">settings</a>.
-					Generate insights still works with your current provider.
-				</p>
-				{{end}}
-				{{else}}
-				<p class="muted" style="font-size:13px">Configure an AI provider in <a href="/settings">settings</a> to
-					get personalized coaching insights.</p>
-				{{end}}
+				{{ end }}
 			</div>
 		</section>
 
@@ -297,103 +307,96 @@
 			<div class="card-header-row">
 				<h2 class="card-title">
 					recent activities
-					{{if .ShowPagination}}
-					<span class="muted" style="font-size:12px;font-weight:400">page {{.Page}} of {{.TotalPages}}</span>
-					{{end}}
+					{{ if .ShowPagination }}
+						<span class="muted" style="font-size:12px;font-weight:400">page {{ .Page }} of {{ .TotalPages }}</span>
+					{{ end }}
 				</h2>
+				{{/* gotmplfmt-ignore-start: one line per link — the wrapped form is unreadable */}}
 				<div class="filter-tabs">
-					<a href="{{filterURL .Sort .Dir ""}}"
-						class="filter-tab{{if eq .TypeFilter ""}} active{{end}}">all</a>
-					<a href="{{filterURL .Sort .Dir " outdoor"}}" class="filter-tab{{if eq .TypeFilter " outdoor"}}
-						active{{end}}">outdoor</a>
-					<a href="{{filterURL .Sort .Dir " indoor"}}" class="filter-tab{{if eq .TypeFilter " indoor"}}
-						active{{end}}">indoor</a>
+					<a href="{{ filterURL .Sort .Dir "" }}" class="filter-tab{{ if eq .TypeFilter "" }} active{{ end }}">all</a>
+					<a href="{{ filterURL .Sort .Dir "outdoor" }}" class="filter-tab{{ if eq .TypeFilter "outdoor" }} active{{ end }}">outdoor</a>
+					<a href="{{ filterURL .Sort .Dir "indoor" }}" class="filter-tab{{ if eq .TypeFilter "indoor" }} active{{ end }}">indoor</a>
 				</div>
 				<div class="view-toggle">
 					<button class="view-btn" id="view-list-btn" title="List view">☰</button>
 					<button class="view-btn" id="view-map-btn" title="Map view">◎</button>
 				</div>
 			</div>
-			{{if .Workouts}}
-			<div id="activities-list">
-				<table class="workout-table">
-					<thead>
-						<tr>
-							<th><a href="{{sortURL .Sort .Dir " date" .TypeFilter}}" class="sort-link">date {{sortArrow
-									.Sort .Dir "date"}}</a></th>
-							<th><a href="{{sortURL .Sort .Dir " sport" .TypeFilter}}" class="sort-link">sport
-									{{sortArrow .Sort .Dir "sport"}}</a></th>
-							<th><a href="{{sortURL .Sort .Dir " duration" .TypeFilter}}" class="sort-link">duration
-									{{sortArrow .Sort .Dir "duration"}}</a></th>
-							<th><a href="{{sortURL .Sort .Dir " distance" .TypeFilter}}" class="sort-link">distance
-									{{sortArrow .Sort .Dir "distance"}}</a></th>
-							<th><a href="{{sortURL .Sort .Dir " power" .TypeFilter}}" class="sort-link">power / pace
-									{{sortArrow .Sort .Dir "power"}}</a></th>
-							<th><a href="{{sortURL .Sort .Dir " np" .TypeFilter}}" class="sort-link">NP {{sortArrow
-									.Sort .Dir "np"}}</a></th>
-							<th><a href="{{sortURL .Sort .Dir " tss" .TypeFilter}}" class="sort-link">TSS {{sortArrow
-									.Sort .Dir "tss"}}</a></th>
-							<th><a href="{{sortURL .Sort .Dir " hr" .TypeFilter}}" class="sort-link">avg hr {{sortArrow
-									.Sort .Dir "hr"}}</a></th>
-							<th><a href="{{sortURL .Sort .Dir " elev" .TypeFilter}}" class="sort-link">elev {{sortArrow
-									.Sort .Dir "elev"}}</a></th>
-							<th></th>
-						</tr>
-					</thead>
-					<tbody>
-						{{$imperial := .Imperial}}
-						{{range .Workouts}}
-						<tr class="workout-row" onclick="location.href='/workouts/{{.ID}}'">
-							<td class="date">{{.RecordedAt.Format "Jan 02 2006"}}</td>
-							<td><span class="sport-badge sport-{{.Sport}}">{{.Sport}}</span></td>
-							<td>{{formatDuration .DurationSecs}}</td>
-							<td>{{formatDistance .DistanceMeters $imperial}}</td>
-							<td>{{if .AvgPowerWatts}}{{formatOptFloat .AvgPowerWatts "W"}}{{else}}{{formatPace
-								.AvgSpeedMPS $imperial}}{{end}}</td>
-							<td>{{formatOptFloat .NormalizedPower "W"}}</td>
-							<td class="tss">{{formatOptFloat .TSS ""}}</td>
-							<td>{{formatOptInt .AvgHeartRate "bpm"}}</td>
-							<td>{{formatElevation .ElevationGainMeters $imperial}}</td>
-							<td class="row-actions">
-								<button class="delete-btn" onclick="deleteWorkout(event,'{{.ID}}')"
-									title="delete">✕</button>
-							</td>
-						</tr>
-						{{end}}
-					</tbody>
-				</table>
-			</div>{{/* end #activities-list */}}
-			<div id="activities-map" class="activities-map" hidden></div>
-			{{if .ShowPagination}}
-			<div class="pagination">
-				{{if .HasPrev}}
-				<a href="{{paginationURL .PrevPage .Sort .Dir .TypeFilter}}" class="page-btn">← prev</a>
-				{{else}}
-				<span class="page-btn disabled">← prev</span>
-				{{end}}
-				<span class="page-info">{{.Page}} / {{.TotalPages}}</span>
-				{{if .HasNext}}
-				<a href="{{paginationURL .NextPage .Sort .Dir .TypeFilter}}" class="page-btn">next →</a>
-				{{else}}
-				<span class="page-btn disabled">next →</span>
-				{{end}}
-			</div>
-			{{end}}
-			{{else}}
-			<div class="empty-state">
-				<p>no workouts yet.</p>
-				<p class="muted">drop a <code>.fit</code> or <code>.fit.gz</code> file into your watch directory, or use
-					the upload button.</p>
-			</div>
-			{{end}}
+			{{ if .Workouts }}
+				<div id="activities-list">
+					<table class="workout-table">
+						<thead>
+							<tr>
+								<th><a href="{{ sortURL .Sort .Dir "date" .TypeFilter }}" class="sort-link">date {{ sortArrow .Sort .Dir "date" }}</a></th>
+								<th><a href="{{ sortURL .Sort .Dir "sport" .TypeFilter }}" class="sort-link">sport {{ sortArrow .Sort .Dir "sport" }}</a></th>
+								<th><a href="{{ sortURL .Sort .Dir "duration" .TypeFilter }}" class="sort-link">duration {{ sortArrow .Sort .Dir "duration" }}</a></th>
+								<th><a href="{{ sortURL .Sort .Dir "distance" .TypeFilter }}" class="sort-link">distance {{ sortArrow .Sort .Dir "distance" }}</a></th>
+								<th><a href="{{ sortURL .Sort .Dir "power" .TypeFilter }}" class="sort-link">power / pace {{ sortArrow .Sort .Dir "power" }}</a></th>
+								<th><a href="{{ sortURL .Sort .Dir "np" .TypeFilter }}" class="sort-link">NP {{ sortArrow .Sort .Dir "np" }}</a></th>
+								<th><a href="{{ sortURL .Sort .Dir "tss" .TypeFilter }}" class="sort-link">TSS {{ sortArrow .Sort .Dir "tss" }}</a></th>
+								<th><a href="{{ sortURL .Sort .Dir "hr" .TypeFilter }}" class="sort-link">avg hr {{ sortArrow .Sort .Dir "hr" }}</a></th>
+								<th><a href="{{ sortURL .Sort .Dir "elev" .TypeFilter }}" class="sort-link">elev {{ sortArrow .Sort .Dir "elev" }}</a></th>
+								<th></th>
+							</tr>
+						</thead>
+						{{/* gotmplfmt-ignore-end */}}
+						<tbody>
+							{{ $imperial := .Imperial }}
+							{{ range .Workouts }}
+								<tr class="workout-row" onclick="location.href='/workouts/{{ .ID }}'">
+									<td class="date">{{ .RecordedAt.Format "Jan 02 2006" }}</td>
+									<td><span class="sport-badge sport-{{ .Sport }}">{{ .Sport }}</span></td>
+									<td>{{ formatDuration .DurationSecs }}</td>
+									<td>{{ formatDistance .DistanceMeters $imperial }}</td>
+									<td>
+										{{ if .AvgPowerWatts }}{{ formatOptFloat .AvgPowerWatts "W" }}
+										{{ else }}{{ formatPace	.AvgSpeedMPS $imperial }}
+										{{ end }}</td>
+									<td>{{ formatOptFloat .NormalizedPower "W" }}</td>
+									<td class="tss">{{ formatOptFloat .TSS "" }}</td>
+									<td>{{ formatOptInt .AvgHeartRate "bpm" }}</td>
+									<td>{{ formatElevation .ElevationGainMeters $imperial }}</td>
+									<td class="row-actions">
+										<button class="delete-btn" onclick="deleteWorkout(event,'{{ .ID }}')"
+											title="delete">✕</button>
+									</td>
+								</tr>
+							{{ end }}
+						</tbody>
+					</table>
+				</div>{{/* end #activities-list */}}
+				<div id="activities-map" class="activities-map" hidden></div>
+				{{ if .ShowPagination }}
+					<div class="pagination">
+						{{ if .HasPrev }}
+							<a href="{{ paginationURL .PrevPage .Sort .Dir .TypeFilter }}" class="page-btn">← prev</a>
+						{{ else }}
+							<span class="page-btn disabled">← prev</span>
+						{{ end }}
+						<span class="page-info">{{ .Page }} / {{ .TotalPages }}</span>
+						{{ if .HasNext }}
+							<a href="{{ paginationURL .NextPage .Sort .Dir .TypeFilter }}" class="page-btn">next →</a>
+						{{ else }}
+							<span class="page-btn disabled">next →</span>
+						{{ end }}
+					</div>
+				{{ end }}
+			{{ else }}
+				<div class="empty-state">
+					<p>no workouts yet.</p>
+					<p class="muted">drop a <code>.fit</code> or <code>.fit.gz</code> file into your watch directory, or use
+						the upload button.
+					</p>
+				</div>
+			{{ end }}
 		</section>
 
 	</main>{{/* end .home-main */}}
 
 </div>{{/* end .home-layout */}}
-{{end}}
+{{ end }}
 
-{{define "scripts"}}
+{{ define "scripts" }}
 <script src="/static/js/marked.min.js"></script>
 <script src="/static/js/purify.min.js"></script>
 <script>
@@ -1196,4 +1199,4 @@
 		return days + 'd ago';
 	}
 </script>
-{{end}}
+{{ end }}

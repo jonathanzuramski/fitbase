@@ -2,11 +2,60 @@ package web
 
 import (
 	"fmt"
+	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/fitbase/fitbase/internal/models"
 	"github.com/fitbase/fitbase/internal/timeutil"
 )
+
+// calendarView is the template data for the calendar page.
+type calendarView struct {
+	Imperial bool
+	Calendar CalendarData
+	FTP      int // used by the plan modal's power-profile preview
+}
+
+func (th *templateHandler) calendar(w http.ResponseWriter, r *http.Request) {
+	athlete, err := th.db.GetAthlete()
+	if err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+
+	// The calendar's "today" highlight and default month follow the viewer.
+	tz := timeutil.ViewerLocation(r, th.db.AthleteLocation())
+
+	now := time.Now().In(tz)
+	year, month := now.Year(), now.Month()
+	if y, err := strconv.Atoi(r.URL.Query().Get("year")); err == nil && y >= 2000 && y <= 2100 {
+		year = y
+	}
+	if m, err := strconv.Atoi(r.URL.Query().Get("month")); err == nil && m >= 1 && m <= 12 {
+		month = time.Month(m)
+	}
+
+	workouts, err := th.db.GetWorkoutsForMonth(year, month)
+	if err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+
+	first := time.Date(year, month, 1, 0, 0, 0, 0, time.UTC)
+	last := first.AddDate(0, 1, -1)
+	planned, err := th.db.ListPlannedWorkoutsBetween(first, last)
+	if err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+
+	renderTemplate(w, th.templates().calendar, "base", calendarView{
+		Imperial: th.isImperial(),
+		Calendar: buildCalendarData(year, month, workouts, planned, tz),
+		FTP:      athlete.FTPWatts,
+	})
+}
 
 // CalendarWorkout is a compact representation of a workout for the calendar grid.
 type CalendarWorkout struct {

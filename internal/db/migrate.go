@@ -80,6 +80,7 @@ var migrations = []func(*sql.Tx) error{
 	migrateAICoach,             // v4 — AI coach settings/cache, schedule drafts, decoupling cache
 	migrateRideLocalTime,       // v5 — per-ride UTC offset, start coords, county/state + backfill
 	migrateLedgerTombstones,    // v6 — imported_files.deleted flag so deletes survive auto-sync
+	migrateAchievements,        // v7 — per-workout PR trophies + chronological backfill
 }
 
 // migrate replays every migration the database hasn't run yet.
@@ -520,4 +521,49 @@ func migrateLedgerTombstones(tx *sql.Tx) error {
 		return nil
 	}
 	return err
+}
+
+// migrateAchievements (v7) creates the workout_achievements table and
+// backfills it by replaying every workout in chronological order, so each
+// ride's trophies reflect only what came before it — identical to what
+// import-time computation would have produced. All inputs (route matches,
+// power curves, summary metrics) are already in the database, so this is the
+// v3 "rederive in place" pattern; calling the live computeAchievements is
+// deliberate (the v3 / simplifyCoords precedent): a future scoring change
+// ships its own migration that recomputes these rows.
+func migrateAchievements(tx *sql.Tx) error {
+	if _, err := tx.Exec(`
+		CREATE TABLE IF NOT EXISTS workout_achievements (
+			workout_id TEXT NOT NULL REFERENCES workouts(id) ON DELETE CASCADE,
+			kind       TEXT NOT NULL,
+			rank       INTEGER NOT NULL,
+			value      REAL NOT NULL,
+			PRIMARY KEY (workout_id, kind)
+		) WITHOUT ROWID`); err != nil {
+		return fmt.Errorf("create workout_achievements: %w", err)
+	}
+
+	var ids []string
+	rows, err := tx.Query(`SELECT id FROM workouts ORDER BY recorded_at ASC, id ASC`)
+	if err != nil {
+		return fmt.Errorf("scan workouts for achievement backfill: %w", err)
+	}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	_ = rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err := computeAchievements(tx, id); err != nil {
+			return fmt.Errorf("backfill achievements for %s: %w", id, err)
+		}
+	}
+	return nil
 }

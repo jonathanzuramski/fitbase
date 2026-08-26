@@ -1,35 +1,35 @@
-{{define "title"}}heatmap — fitbase{{end}}
+{{ define "title" }}heatmap — fitbase{{ end }}
 
-{{define "head"}}
+{{ define "head" }}
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
-{{end}}
+{{ end }}
 
-{{define "mainClass"}} heatmap-page{{end}}
+{{ define "mainClass" }} heatmap-page{{ end }}
 
-{{define "content"}}
+{{ define "content" }}
 <div class="heatmap-wrap">
-  <div id="heatmap" class="heatmap-map"></div>
+	<div id="heatmap" class="heatmap-map"></div>
 
-  <div id="heatmap-loading" class="heatmap-loading">loading routes…</div>
+	<div id="heatmap-loading" class="heatmap-loading">loading routes…</div>
 
-  <div class="heatmap-overlay-tl">
-    <span class="heatmap-title">heatmap</span>
-    <div class="heatmap-filters" id="heatmap-filters"></div>
-  </div>
+	<div class="heatmap-overlay-tl">
+		<span class="heatmap-title">heatmap</span>
+		<div class="heatmap-filters" id="heatmap-filters"></div>
+	</div>
 
-  <div class="heatmap-info" id="heatmap-info">
-    <div class="heatmap-info-row">
-      <span class="heatmap-info-dot" id="heatmap-info-dot"></span>
-      <span class="heatmap-info-sport" id="heatmap-info-sport"></span>
-      <span class="heatmap-info-date" id="heatmap-info-date"></span>
-    </div>
-    <div class="heatmap-info-stats" id="heatmap-info-stats"></div>
-    <div class="heatmap-info-hint">click to open workout</div>
-  </div>
+	<div class="heatmap-info" id="heatmap-info">
+		<div class="heatmap-info-row">
+			<span class="heatmap-info-dot" id="heatmap-info-dot"></span>
+			<span class="heatmap-info-sport" id="heatmap-info-sport"></span>
+			<span class="heatmap-info-date" id="heatmap-info-date"></span>
+		</div>
+		<div class="heatmap-info-stats" id="heatmap-info-stats"></div>
+		<div class="heatmap-info-hint">click to open workout</div>
+	</div>
 </div>
-{{end}}
+{{ end }}
 
-{{define "scripts"}}
+{{ define "scripts" }}
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script src="/static/js/heatmap.js"></script>
 <script>
@@ -55,4 +55,4 @@
     });
   }
 </script>
-{{end}}
+{{ end }}

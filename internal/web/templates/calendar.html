@@ -1,158 +1,170 @@
-{{define "title"}}fitbase — calendar{{end}}
+{{ define "title" }}fitbase — calendar{{ end }}
 
-{{define "content"}}
-{{$cal := .Calendar}}
-{{$imperial := .Imperial}}
+{{ define "content" }}
+{{ $cal := .Calendar }}
+{{ $imperial := .Imperial }}
 <div class="page-header">
-  <h1>calendar</h1>
-  <div class="cal-nav">
-    <a href="/calendar?year={{$cal.PrevYear}}&month={{$cal.PrevMonth}}" class="cal-nav-btn"
-      title="Previous month">&larr;</a>
-    <span class="cal-nav-label">{{$cal.MonthLabel}}</span>
-    <a href="/calendar?year={{$cal.NextYear}}&month={{$cal.NextMonth}}" class="cal-nav-btn"
-      title="Next month">&rarr;</a>
-    <a href="/calendar" class="cal-nav-today" title="Jump to current month">today</a>
-  </div>
+	<h1>calendar</h1>
+	<div class="cal-nav">
+		<a href="/calendar?year={{ $cal.PrevYear }}&month={{ $cal.PrevMonth }}" class="cal-nav-btn"
+			title="Previous month">&larr;</a>
+		<span class="cal-nav-label">{{ $cal.MonthLabel }}</span>
+		<a href="/calendar?year={{ $cal.NextYear }}&month={{ $cal.NextMonth }}" class="cal-nav-btn"
+			title="Next month">&rarr;</a>
+		<a href="/calendar" class="cal-nav-today" title="Jump to current month">today</a>
+	</div>
 </div>
 
 <div class="cal-grid">
-  {{- /* Header row */ -}}
-  <div class="cal-header">Mon</div>
-  <div class="cal-header">Tue</div>
-  <div class="cal-header">Wed</div>
-  <div class="cal-header">Thu</div>
-  <div class="cal-header">Fri</div>
-  <div class="cal-header">Sat</div>
-  <div class="cal-header">Sun</div>
-  <div class="cal-header cal-header-week">Week</div>
+	{{- /* Header row */ -}}
+	<div class="cal-header">Mon</div>
+	<div class="cal-header">Tue</div>
+	<div class="cal-header">Wed</div>
+	<div class="cal-header">Thu</div>
+	<div class="cal-header">Fri</div>
+	<div class="cal-header">Sat</div>
+	<div class="cal-header">Sun</div>
+	<div class="cal-header cal-header-week">Week</div>
 
-  {{range $week := $cal.Weeks}}
-  {{range $day := $week.Days}}
-  <div class="cal-day{{if not $day.InMonth}} outside{{end}}{{if $day.IsToday}} today{{end}}"
-    data-date="{{$day.DateISO}}">
-    <div class="cal-date">
-      <span>{{$day.Date.Day}}</span>
-      {{if $day.InMonth}}
-      <button type="button" class="cal-add-btn" data-date="{{$day.DateISO}}" title="Plan a workout">+</button>
-      {{end}}
-    </div>
-    {{range $w := $day.Workouts}}
-    <a href="/workouts/{{$w.ID}}" class="cal-workout" title="{{$w.Sport}}">
-      <span class="cal-dot cal-dot-{{$w.Sport | lower}}"></span>
-      <span class="cal-workout-info">{{formatDuration $w.DurationSecs}}{{if gt $w.DistanceM 0.0}} · {{formatDistance
-        $w.DistanceM $imperial}}{{end}}</span>
-    </a>
-    {{end}}
-    {{range $p := $day.Planned}}
-    <div class="cal-planned{{if eq $p.Source "coach"}} cal-planned-coach{{end}}" data-id="{{$p.ID}}" role="button"
-      tabindex="0"
-      title="{{if $p.Title}}{{$p.Title}}{{else}}planned{{end}}{{if eq $p.Source "coach"}} · proposed by coach{{end}}">
-      <span class="cal-dot cal-dot-{{$p.Sport | lower}} cal-dot-planned"></span>
-      <span class="cal-planned-info">
-        {{if $p.Title}}<span class="cal-planned-title">{{$p.Title}}</span>{{end}}
-        <span class="cal-planned-target">{{formatDuration $p.DurationSecs}}{{if $p.TSS}} · {{formatOptFloat $p.TSS
-          "T"}}{{end}}</span>
-      </span>
-      <button type="button" class="cal-planned-del" data-id="{{$p.ID}}" title="Remove planned workout">×</button>
-    </div>
-    {{end}}
-  </div>
-  {{end}}
-  <div class="cal-week-summary">
-    {{if gt $week.TotalDurSecs 0}}
-    <div class="cal-week-stat">{{formatDuration $week.TotalDurSecs}}</div>
-    {{if gt $week.TotalDistM 0.0}}<div class="cal-week-stat">{{formatDistance $week.TotalDistM $imperial}}</div>{{end}}
-    {{if gt $week.TotalTSS 0.0}}<div class="cal-week-stat">{{printf "%.0f" $week.TotalTSS}} TSS</div>{{end}}
-    {{end}}
-  </div>
-  {{end}}
+	{{ range $week := $cal.Weeks }}
+		{{ range $day := $week.Days }}
+			<div class="cal-day{{ if not $day.InMonth }} outside{{ end }}{{ if $day.IsToday }} today{{ end }}"
+				data-date="{{ $day.DateISO }}">
+				<div class="cal-date">
+					<span>{{ $day.Date.Day }}</span>
+					{{ if $day.InMonth }}
+						<button type="button" class="cal-add-btn" data-date="{{ $day.DateISO }}" title="Plan a workout">+</button>
+					{{ end }}
+				</div>
+				{{ range $w := $day.Workouts }}
+					<a href="/workouts/{{ $w.ID }}" class="cal-workout" title="{{ $w.Sport }}">
+						<span class="cal-dot cal-dot-{{ $w.Sport | lower }}"></span>
+						<span class="cal-workout-info">{{ formatDuration $w.DurationSecs }}
+							{{ if gt $w.DistanceM 0.0 }} ·
+								{{ formatDistance
+									$w.DistanceM $imperial
+								}}
+							{{ end }}</span>
+					</a>
+				{{ end }}
+				{{ range $p := $day.Planned }}
+					<div class="cal-planned{{ if eq $p.Source " coach" }} cal-planned-coach{{ end }}" data-id="{{ $p.ID }}" role="button"
+						tabindex="0" title="{{ if $p.Title }}{{ $p.Title }}{{ else }}planned{{ end }}{{ if eq $p.Source " coach" }} · proposed
+						by coach{{ end }}">
+						<span class="cal-dot cal-dot-{{ $p.Sport | lower }} cal-dot-planned"></span>
+						<span class="cal-planned-info">
+							{{ if $p.Title }}<span class="cal-planned-title">{{ $p.Title }}</span>{{ end }}
+							<span class="cal-planned-target">{{ formatDuration $p.DurationSecs }}
+								{{ if $p.TSS }} · {{ formatOptFloat
+	$p.TSS
+	"T"
+}}
+								{{ end }}</span>
+						</span>
+						<button type="button" class="cal-planned-del" data-id="{{ $p.ID }}" title="Remove planned workout">×</button>
+					</div>
+				{{ end }}
+			</div>
+		{{ end }}
+		<div class="cal-week-summary">
+			{{ if gt $week.TotalDurSecs 0 }}
+				<div class="cal-week-stat">{{ formatDuration $week.TotalDurSecs }}</div>
+				{{ if gt $week.TotalDistM 0.0 }}<div class="cal-week-stat">{{ formatDistance $week.TotalDistM $imperial }}</div>
+				{{ end }}
+				{{ if gt $week.TotalTSS 0.0 }}<div class="cal-week-stat">{{ printf "%.0f" $week.TotalTSS }} TSS</div>{{ end }}
+			{{ end }}
+		</div>
+	{{ end }}
 </div>
 
 <dialog id="plan-dialog" class="modal">
-  <form method="dialog" id="plan-form" class="modal-body">
-    <div class="modal-header">
-      <h3 class="modal-title">Plan a workout</h3>
-      <button type="button" class="modal-close" id="plan-cancel" aria-label="Close">×</button>
-    </div>
-    <label class="modal-row">
-      <span>Title</span>
-      <input type="text" name="title" maxlength="80" placeholder="e.g. 4x5 VO2 max">
-    </label>
-    <label class="modal-row">
-      <span>Date</span>
-      <input type="date" name="date" id="plan-date" required>
-    </label>
-    <label class="modal-row">
-      <span>Sport</span>
-      <select name="sport">
-        <option value="cycling" selected>cycling</option>
-        <option value="running">running</option>
-        <option value="swimming">swimming</option>
-        <option value="walking">walking</option>
-      </select>
-    </label>
-    <label class="modal-row">
-      <span>Duration (min)</span>
-      <input type="number" name="duration_mins" id="plan-duration" min="1" max="600" required>
-    </label>
-    <label class="modal-row">
-      <span>IF (optional)</span>
-      <input type="number" name="intensity_factor" min="0.40" max="1.30" step="0.01" placeholder="0.85">
-    </label>
-    <label class="modal-row modal-row-checkbox">
-      <input type="checkbox" id="plan-use-intervals">
-      <span>Structured power intervals</span>
-    </label>
-    <div class="modal-intervals" id="plan-intervals-section" hidden>
-      <div class="plan-profile-wrap">
-        <canvas id="plan-profile" class="plan-profile" data-ftp="{{.FTP}}"></canvas>
-        <div class="plan-profile-meta" id="plan-profile-meta"></div>
-      </div>
-      <div class="plan-ivls-field">
-        <div class="plan-ivls-label">
-          <span>Intervals (JSON)</span>
-          <small class="modal-hint">seconds for durations, % FTP for power · <code>repeat</code>+<code>steps</code> for
-            sets · <code>target_pct_ftp_start/end</code> for a ramp (start &gt; end for a cooldown)</small>
-        </div>
-        <textarea name="intervals_json" id="plan-intervals-json" rows="9" spellcheck="false" class="mono"></textarea>
-      </div>
-    </div>
-    <label class="modal-row modal-row-wide">
-      <span>Notes</span>
-      <textarea name="description" rows="2" maxlength="500"></textarea>
-    </label>
-    <p class="modal-error" id="plan-error" hidden></p>
-    <div class="modal-actions">
-      <button type="button" class="btn-secondary" id="plan-cancel-btn">cancel</button>
-      <button type="submit" class="btn-primary" id="plan-submit">add to calendar</button>
-    </div>
-  </form>
+	<form method="dialog" id="plan-form" class="modal-body">
+		<div class="modal-header">
+			<h3 class="modal-title">Plan a workout</h3>
+			<button type="button" class="modal-close" id="plan-cancel" aria-label="Close">×</button>
+		</div>
+		<label class="modal-row">
+			<span>Title</span>
+			<input type="text" name="title" maxlength="80" placeholder="e.g. 4x5 VO2 max">
+		</label>
+		<label class="modal-row">
+			<span>Date</span>
+			<input type="date" name="date" id="plan-date" required>
+		</label>
+		<label class="modal-row">
+			<span>Sport</span>
+			<select name="sport">
+				<option value="cycling" selected>cycling</option>
+				<option value="running">running</option>
+				<option value="swimming">swimming</option>
+				<option value="walking">walking</option>
+			</select>
+		</label>
+		<label class="modal-row">
+			<span>Duration (min)</span>
+			<input type="number" name="duration_mins" id="plan-duration" min="1" max="600" required>
+		</label>
+		<label class="modal-row">
+			<span>IF (optional)</span>
+			<input type="number" name="intensity_factor" min="0.40" max="1.30" step="0.01" placeholder="0.85">
+		</label>
+		<label class="modal-row modal-row-checkbox">
+			<input type="checkbox" id="plan-use-intervals">
+			<span>Structured power intervals</span>
+		</label>
+		<div class="modal-intervals" id="plan-intervals-section" hidden>
+			<div class="plan-profile-wrap">
+				<canvas id="plan-profile" class="plan-profile" data-ftp="{{ .FTP }}"></canvas>
+				<div class="plan-profile-meta" id="plan-profile-meta"></div>
+			</div>
+			<div class="plan-ivls-field">
+				<div class="plan-ivls-label">
+					<span>Intervals (JSON)</span>
+					<small class="modal-hint">seconds for durations, % FTP for power ·
+						<code>repeat</code>+<code>steps</code> for
+						sets · <code>target_pct_ftp_start/end</code> for a ramp (start &gt; end for a cooldown)
+					</small>
+				</div>
+				<textarea name="intervals_json" id="plan-intervals-json" rows="9" spellcheck="false"
+					class="mono"></textarea>
+			</div>
+		</div>
+		<label class="modal-row modal-row-wide">
+			<span>Notes</span>
+			<textarea name="description" rows="2" maxlength="500"></textarea>
+		</label>
+		<p class="modal-error" id="plan-error" hidden></p>
+		<div class="modal-actions">
+			<button type="button" class="btn-secondary" id="plan-cancel-btn">cancel</button>
+			<button type="submit" class="btn-primary" id="plan-submit">add to calendar</button>
+		</div>
+	</form>
 </dialog>
 
 
 <dialog id="plan-detail-dialog" class="modal">
-  <div class="modal-body">
-    <div class="modal-header">
-      <h3 class="modal-title" id="plan-detail-title">Planned workout</h3>
-      <button type="button" class="modal-close" id="plan-detail-close" aria-label="Close">×</button>
-    </div>
-    <p class="plan-detail-sub" id="plan-detail-sub"></p>
-    <p class="plan-detail-meta" id="plan-detail-meta"></p>
-    <p class="plan-detail-desc" id="plan-detail-desc" hidden></p>
-    <div class="plan-profile-wrap" id="plan-detail-profile-wrap" hidden>
-      <canvas id="plan-detail-profile" class="plan-profile" data-ftp="{{.FTP}}"></canvas>
-      <div class="plan-profile-meta" id="plan-detail-profile-meta"></div>
-    </div>
-    <p class="modal-error" id="plan-detail-error" hidden></p>
-    <div class="modal-actions">
-      <button type="button" class="btn-secondary" id="plan-detail-delete">remove from calendar</button>
-      <button type="button" class="btn-primary" id="plan-detail-done">close</button>
-    </div>
-  </div>
+	<div class="modal-body">
+		<div class="modal-header">
+			<h3 class="modal-title" id="plan-detail-title">Planned workout</h3>
+			<button type="button" class="modal-close" id="plan-detail-close" aria-label="Close">×</button>
+		</div>
+		<p class="plan-detail-sub" id="plan-detail-sub"></p>
+		<p class="plan-detail-meta" id="plan-detail-meta"></p>
+		<p class="plan-detail-desc" id="plan-detail-desc" hidden></p>
+		<div class="plan-profile-wrap" id="plan-detail-profile-wrap" hidden>
+			<canvas id="plan-detail-profile" class="plan-profile" data-ftp="{{ .FTP }}"></canvas>
+			<div class="plan-profile-meta" id="plan-detail-profile-meta"></div>
+		</div>
+		<p class="modal-error" id="plan-detail-error" hidden></p>
+		<div class="modal-actions">
+			<button type="button" class="btn-secondary" id="plan-detail-delete">remove from calendar</button>
+			<button type="button" class="btn-primary" id="plan-detail-done">close</button>
+		</div>
+	</div>
 </dialog>
-{{end}}
+{{ end }}
 
-{{define "scripts"}}
+{{ define "scripts" }}
 <script src="/static/js/plan-profile.js"></script>
 <script src="/static/js/plan-modal.js"></script>
-{{end}}
+{{ end }}

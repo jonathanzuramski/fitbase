@@ -336,6 +336,29 @@ func (h *Handler) GetWorkoutRoute(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GET /api/workouts/{id}/achievements — the workout's personal-best trophies
+func (h *Handler) GetWorkoutAchievements(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	workout, err := h.db.GetWorkout(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "database error")
+		return
+	}
+	if workout == nil {
+		writeError(w, http.StatusNotFound, "workout not found")
+		return
+	}
+	achievements, err := h.db.GetWorkoutAchievements(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "database error")
+		return
+	}
+	if achievements == nil {
+		achievements = []models.Achievement{}
+	}
+	writeJSON(w, http.StatusOK, achievements)
+}
+
 // GET /api/workouts/routes?ids=id1,id2,...
 // Omit ids to return tracks for the 500 most recent outdoor workouts (heatmap).
 func (h *Handler) GetWorkoutRouteTracks(w http.ResponseWriter, r *http.Request) {

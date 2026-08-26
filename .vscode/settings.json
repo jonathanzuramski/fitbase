@@ -1,0 +1,12 @@
+{
+  // The .html files here are Go html/template sources, not plain HTML.
+  // Auto-formatters don't understand {{...}} actions and have shipped broken
+  // pages twice: split braces ("{ {if .X} }") that leaked template text into
+  // page scripts, and re-spaced attribute quoting that padded sort/filter
+  // keys into no-ops. Format-on-save stays off for HTML in this workspace;
+  // TestTemplatesNoMangledActions and TestTemplatesNoPaddedURLKeys are the
+  // backstop if a format sneaks through anyway.
+  "[html]": {
+    "editor.formatOnSave": false
+  }
+}
