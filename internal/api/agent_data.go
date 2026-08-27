@@ -19,12 +19,22 @@ import (
 // Backs GET /api/athlete/readiness and the coach's readiness tool. tz defines
 // "today" — the viewer's timezone for the REST route, the profile timezone for
 // the coach.
+//
+// "Current" means the last settled day (see db.GetFitnessOnDate): until a ride
+// with TSS is logged for today the values are yesterday's, so Form is the freshness the
+// rider carries into today rather than a zero-TSS forecast that — because
+// fatigue decays faster than fitness — would read several points too fresh.
+// AsOf reports which day that is.
 func readinessReport(database *db.DB, tz *time.Location) (models.ReadinessReport, error) {
 	today := time.Now().In(tz)
 
 	fp, err := database.GetFitnessOnDate(today, tz)
 	if err != nil {
 		return models.ReadinessReport{}, err
+	}
+	asOf := ""
+	if !fp.Date.IsZero() {
+		asOf = fp.Date.Format("2006-01-02")
 	}
 
 	lastDate, err := database.GetLastWorkoutDate()
@@ -44,6 +54,7 @@ func readinessReport(database *db.DB, tz *time.Location) (models.ReadinessReport
 	rec, detail := readinessRecommendation(fp.Form, rampRate, daysSince)
 	return models.ReadinessReport{
 		Date:                 today.Format("2006-01-02"),
+		AsOf:                 asOf,
 		Fitness:              math.Round(fp.Fitness*10) / 10,
 		Fatigue:              math.Round(fp.Fatigue*10) / 10,
 		Form:                 math.Round(fp.Form*10) / 10,

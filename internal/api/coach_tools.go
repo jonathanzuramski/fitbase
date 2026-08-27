@@ -166,6 +166,11 @@ func (h *CoachHandler) toolFitnessTrend(input json.RawMessage) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// The history ends on the last settled day (see db.GetFitnessHistory).
+	settledThrough := ""
+	if len(hist) > 0 {
+		settledThrough = hist[len(hist)-1].Date.Format("2006-01-02")
+	}
 	// Sample long windows so the model gets the shape without a wall of rows,
 	// using the same sampler as the insights payload.
 	step := 1
@@ -182,7 +187,7 @@ func (h *CoachHandler) toolFitnessTrend(input json.RawMessage) (string, error) {
 			Form:    round1(fp.Form),
 		}
 	}
-	return jsonResult(map[string]any{"window_days": days, "points": pts})
+	return jsonResult(map[string]any{"window_days": days, "settled_through": settledThrough, "points": pts})
 }
 
 // toolListRecentWorkouts returns the README's curated /summary shape

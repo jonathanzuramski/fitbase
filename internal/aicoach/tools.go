@@ -70,13 +70,13 @@ func CoachTools() []ToolSpec {
 		{
 			Name:        ToolGetReadiness,
 			Label:       "your current form",
-			Description: "Today's readiness snapshot: CTL (fitness), ATL (fatigue), TSB (form), days since last workout, 28-day CTL ramp rate, and a form-based recommendation. The right first call for 'how fresh am I', 'should I rest', or 'am I ready to race' questions.",
+			Description: "Today's readiness snapshot: CTL (fitness), ATL (fatigue), TSB (form), days since last workout, 28-day CTL ramp rate, and a form-based recommendation. Load values are settled through as_of — today once a ride with TSS is logged for today, otherwise yesterday — so TSB is the freshness the rider carries into today, not a forecast of a day off. The right first call for 'how fresh am I', 'should I rest', or 'am I ready to race' questions.",
 			InputSchema: objSchema(nil),
 		},
 		{
 			Name:        ToolGetFitnessTrend,
 			Label:       "your fitness trend",
-			Description: "Daily CTL/ATL/TSB series over the last N days (sampled for long windows). Use to discuss how fitness or form has trended, ramp rate, or build/taper trajectory.",
+			Description: "Daily CTL/ATL/TSB series over the last N days (sampled for long windows), ending on settled_through — the last day with final load, which is yesterday until a ride with TSS is logged today. Use to discuss how fitness or form has trended, ramp rate, or build/taper trajectory.",
 			InputSchema: objSchema(map[string]any{
 				"days": intProp("Look-back window in days, 7–365. Default 90 if omitted."),
 			}),

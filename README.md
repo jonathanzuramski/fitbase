@@ -20,7 +20,7 @@ Garmin, Wahoo, and TrainingPeaks lock your workouts behind their clouds and char
 - **Sync from anywhere** — intervals.icu (Wahoo/Garmin/Strava bridge), Dropbox, USB, or web upload
 - **Power analytics** — NP, IF, TSS, Variability Index, eFTP, and an all-time power curve overlaid on every ride
 - **Heart rate analytics** — hrTSS for non-power activities, HR zones, Efficiency Factor
-- **Training load** — Fitness/Fatigue/Form chart, accurate from day one thanks to a 180-day EMA warmup
+- **Training load** — Fitness/Fatigue/Form chart, accurate from day one thanks to a 180-day EMA warmup; today is drawn as a projection until a ride with TSS is logged for it, so form never reads as a day off you haven't taken
 - **AI coach** — bring your own API key (Anthropic, OpenAI, or Gemini): streamed training insights, plus a chat coach that answers questions from your real data via tool calls and drafts training schedules you approve onto the calendar (chat requires a tool-capable provider — currently Claude)
 - **Calendar & planned workouts** — schedule structured future workouts (intervals, target %FTP/zones) by hand or from a coach proposal
 - **Zone-colored charts + GPS route map** — power and HR colored by zone, route on a dark Leaflet map
