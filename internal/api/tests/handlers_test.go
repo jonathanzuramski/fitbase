@@ -371,8 +371,9 @@ func TestGetFitness_DefaultDays(t *testing.T) {
 	}
 	var points []models.FitnessPoint
 	decodeEnvelope(t, rr.Body.Bytes(), &points)
-	if len(points) != 91 {
-		t.Errorf("expected 91 points (default), got %d", len(points))
+	// 90 days back through yesterday; today is omitted until a ride is logged.
+	if len(points) != 90 {
+		t.Errorf("expected 90 points (default), got %d", len(points))
 	}
 }
 
@@ -384,8 +385,8 @@ func TestGetFitness_DaysParam(t *testing.T) {
 
 	var points []models.FitnessPoint
 	decodeEnvelope(t, rr.Body.Bytes(), &points)
-	if len(points) != 31 {
-		t.Errorf("days=30: got %d points", len(points))
+	if len(points) != 30 {
+		t.Errorf("days=30: got %d points, want 30 (through yesterday)", len(points))
 	}
 }
 

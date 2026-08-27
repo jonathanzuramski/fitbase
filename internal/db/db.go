@@ -1085,14 +1085,16 @@ func (db *DB) athleteLocation() *time.Location {
 //
 // Asking for today before a ride with TSS has been logged returns yesterday's
 // point — the state the rider carries into today — rather than a zero-TSS
-// forecast of today; the returned point's Date says which day the values are
-// settled through.
+// forecast of today (see GetFitnessHistory); the returned point's Date says
+// which day the values are settled through.
 func (db *DB) GetFitnessOnDate(date time.Time, tz *time.Location) (models.FitnessPoint, error) {
 	target := timeutil.LocalMidnight(date.In(tz))
 	today := timeutil.LocalMidnight(time.Now().In(tz))
 	daysAgo := max(int(today.Sub(target).Hours()/24), 0)
 	// Request daysAgo+90 days so the total lookback matches the chart (270 days).
-	// The target date lands at index 90 from the oldest point returned.
+	// The target date lands at index 90 from the oldest point returned, unless
+	// the target is an unsettled today, in which case the walk ends a day early
+	// and the last point is yesterday.
 	points, err := db.getFitnessHistory(daysAgo+90, 0, tz)
 	if err != nil {
 		return models.FitnessPoint{}, err
@@ -1100,27 +1102,25 @@ func (db *DB) GetFitnessOnDate(date time.Time, tz *time.Location) (models.Fitnes
 	if len(points) == 0 {
 		return models.FitnessPoint{}, nil
 	}
-	// points is oldest-first; index 90 is the target date. Only today can be
-	// unsettled in a projection-free walk, so Current falls back at most one day.
-	idx := 90
-	if len(points) <= 90 {
-		idx = 0
-	}
-	fp, ok := fitness.Current(points[:idx+1])
-	if !ok {
-		return models.FitnessPoint{}, nil
-	}
-	return fp, nil
+	return points[min(90, len(points)-1)], nil
 }
 
-// GetFitnessHistory returns daily Fitness/Fatigue/Form for the last n days.
-// tz anchors "today" — the last day of the walk.
+// GetFitnessHistory returns daily Fitness/Fatigue/Form for the last n days,
+// ending on the last settled day. tz anchors "today".
+//
+// Today is only settled once a workout with TSS has been logged for it. Until
+// then it is omitted: its point would be a day of zero-TSS decay — a forecast
+// of a day off, not a record of one — and because ATL decays ~6x faster than
+// CTL it overstates form by several points. So the last point is always the
+// rider's current state and its Date is the day the values are settled through.
 func (db *DB) GetFitnessHistory(days int, tz *time.Location) ([]models.FitnessPoint, error) {
 	return db.getFitnessHistory(days, 0, tz)
 }
 
-// GetFitnessHistoryForChart returns fitness history plus projected days assuming zero TSS.
-// tz anchors "today" — the boundary between history and projection.
+// GetFitnessHistoryForChart returns fitness history plus projected days assuming
+// zero TSS. tz anchors "today". Unlike GetFitnessHistory an unlogged today is
+// kept, flagged IsProjection alongside the forecast days so the chart draws it
+// dashed.
 func (db *DB) GetFitnessHistoryForChart(days, projection int, tz *time.Location) ([]models.FitnessPoint, error) {
 	return db.getFitnessHistory(days, projection, tz)
 }
@@ -1173,16 +1173,17 @@ func (db *DB) getFitnessHistory(days, projection int, tz *time.Location) ([]mode
 	for i := len(points) - projection; i < len(points); i++ {
 		points[i].IsProjection = true
 	}
-	// Today is only settled once a workout with TSS has been logged for it.
-	// Until then its point is a day of zero-TSS decay — a forecast of a day
-	// off, not a record of one — and because ATL decays ~6x faster than CTL it
-	// overstates form by several points. Flag it like the forecast days so the
-	// chart draws it dashed and "current" readers (readiness, the coach) fall
-	// back to yesterday via fitness.Settled/Current. A day with a logged ride
-	// but no TSS doesn't count: it contributes nothing to the EMA either way.
+	// An unlogged today is a forecast, not a record (see GetFitnessHistory):
+	// flag it with the projection days for the chart, drop it otherwise. A day
+	// with a logged ride but no TSS doesn't count: it contributes nothing to
+	// the EMA either way.
 	if _, ridden := tssByDay[today.Format("2006-01-02")]; !ridden {
 		if i := len(points) - projection - 1; i >= 0 {
-			points[i].IsProjection = true
+			if projection > 0 {
+				points[i].IsProjection = true
+			} else {
+				points = points[:i]
+			}
 		}
 	}
 	return points, nil

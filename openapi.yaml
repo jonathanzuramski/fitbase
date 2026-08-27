@@ -199,6 +199,10 @@ paths:
         - Fitness = long-term load, 42-day EMA
         - Fatigue = short-term load, 7-day EMA
         - Form    = Fitness minus Fatigue
+
+        The series ends on the last settled day: today once a workout with TSS
+        has been logged for it, otherwise yesterday. The last point is the
+        rider's current state going into today.
       parameters:
         - name: days
           in: query
@@ -935,12 +939,6 @@ components:
         fitness: { type: number, description: "Chronic Training Load (42-day EMA of TSS)" }
         fatigue: { type: number, description: "Acute Training Load (7-day EMA of TSS)" }
         form:    { type: number, description: "Fitness minus Fatigue" }
-        is_projection:
-          type: boolean
-          description: >-
-            Present and true when the day's load is not final: forecast days,
-            and today until a workout with TSS has been logged for it. Read
-            "current" fitness from the last point without this flag.
 
     ZonesReport:
       type: object

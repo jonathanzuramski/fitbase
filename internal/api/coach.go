@@ -423,10 +423,8 @@ func (h *CoachHandler) collectCoachingData() (*aicoach.CoachingData, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Drop an unlogged today so current_fitness is the state going into today,
-	// not a zero-TSS forecast that reads several points too fresh.
-	fitnessRaw = fitness.Settled(fitnessRaw)
 	fitnessPts := make([]aicoach.FitnessPoint, len(fitnessRaw))
+	// drop the isProject field, and use aicoach formatted struct
 	for i, fp := range fitnessRaw {
 		fitnessPts[i] = aicoach.FitnessPoint{
 			Date:    fp.Date.Format("2006-01-02"),

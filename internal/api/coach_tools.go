@@ -166,9 +166,7 @@ func (h *CoachHandler) toolFitnessTrend(input json.RawMessage) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// End on the last settled day: an unlogged today is zero-TSS decay that
-	// would read as a rest day with inflated form (see readinessReport).
-	hist = fitness.Settled(hist)
+	// The history ends on the last settled day (see db.GetFitnessHistory).
 	settledThrough := ""
 	if len(hist) > 0 {
 		settledThrough = hist[len(hist)-1].Date.Format("2006-01-02")
