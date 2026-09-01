@@ -86,9 +86,15 @@ function planFlatten(nodes, out, t) {
   return t;
 }
 
+// planFormatDuration renders an exact duration: "45s", "4m30s", "45m", "1h 15m".
+// Seconds are never rounded away — a 30s sprint must not read as "1m" (or a 15s
+// one as "0m"), since these labels are what a workout gets rebuilt from in Zwift.
 function planFormatDuration(sec) {
-  const h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60);
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  sec = Math.round(sec);
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  if (h > 0) return s > 0 ? `${h}h ${m}m ${s}s` : `${h}h ${m}m`;
+  if (m > 0) return s > 0 ? `${m}m${s}s` : `${m}m`;
+  return `${s}s`;
 }
 
 // planNiceStep rounds a rough axis step up to a clean 1/2/5 × 10ⁿ value so watt
@@ -112,7 +118,10 @@ function planDrawProfile(canvas, segments, total) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, cssW, cssH);
   ctx.font = CHART_THEME.font;
-  if (!segments.length || total <= 0) return;
+  if (!segments.length || total <= 0) {
+    canvas._planHit = null; // nothing hoverable
+    return;
+  }
 
   // Label the Y axis in watts when FTP is known, else fall back to %FTP.
   const hasW = PLAN_FTP > 0;
@@ -203,23 +212,22 @@ function planDrawProfile(canvas, segments, total) {
   ctx.fillText(hasW ? `FTP ${PLAN_FTP}w` : "FTP", cssW - padR - 2, fy - 1);
 
   // Per-block target + duration labels (actual watts, or %FTP when FTP is
-  // unknown) so the exact target is readable without eyeballing it against the
-  // axis. Drawn last so nothing overlaps them; on blocks too narrow for the full
-  // text the duration is dropped first, then the label is skipped entirely.
-  const wattAt = (pct) => Math.round((pct / 100) * PLAN_FTP);
+  // unknown) so the exact numbers are readable without eyeballing the axis.
+  // Drawn last so nothing overlaps them. On blocks too narrow for the full text
+  // the target is dropped first — bar height/color against the axis still hint
+  // at it, while the duration has no other visual cue — and blocks too narrow
+  // even for the duration alone stay label-free (the hover tooltip and the step
+  // breakdown under the chart cover those).
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   for (const s of segments) {
     if (s.free) continue;
     const x0 = xFor(s.start), x1 = Math.max(x0 + 1, xFor(s.start + s.dur));
-    const lo = hasW ? wattAt(s.lo) : Math.round(s.lo);
-    const hi = hasW ? wattAt(s.hi) : Math.round(s.hi);
-    const unit = hasW ? "w" : "%";
-    const target = lo === hi ? `${lo}${unit}` : `${lo}-${hi}${unit}`;
+    const target = planTargetLabel(s);
+    const dur = planFormatDuration(s.dur);
     const fits = (text) => x1 - x0 >= ctx.measureText(text).width + 6;
-    const full = `${target} · ${planFormatDuration(s.dur)}`;
-    const label = fits(full) ? full : target;
-    if (!fits(label)) continue; // too narrow even for the target alone
+    const label = [`${target} · ${dur}`, dur, target].find(fits);
+    if (!label) continue;
     const ly = Math.min(yFor(Math.max(s.lo, s.hi)) + 11, baseY - 7);
     ctx.save();
     ctx.fillStyle = "#fff";
@@ -244,4 +252,73 @@ function planDrawProfile(canvas, segments, total) {
     ctx.stroke();
     ctx.fillText(Math.round(t / 60) + "m", Math.min(cssW - padR, Math.max(padL, tx)), baseY + 5);
   }
+
+  // Stash hit-test geometry and wire the hover tooltip, so any block — even one
+  // squeezed below label width — reveals its exact target and duration.
+  canvas._planHit = { segments, total, padL, plotW };
+  planAttachTooltip(canvas);
+}
+
+// planTargetLabel formats a power target ("250w", "180-250w" for a ramp, or %FTP
+// when no FTP is set) for block labels, the tooltip, and the step breakdown.
+// Accepts anything with lo/hi %FTP fields (a flattened segment or planTargetPct).
+function planTargetLabel(t) {
+  const hasW = PLAN_FTP > 0;
+  const conv = (pct) => (hasW ? Math.round((pct / 100) * PLAN_FTP) : Math.round(pct));
+  const unit = hasW ? "w" : "%";
+  const lo = conv(t.lo), hi = conv(t.hi);
+  return lo === hi ? `${lo}${unit}` : `${lo}-${hi}${unit}`;
+}
+
+// planAttachTooltip wires a hover tooltip onto a profile canvas (once per
+// canvas). It reads the geometry stashed by planDrawProfile on every draw, so it
+// always reflects the most recent render.
+function planAttachTooltip(canvas) {
+  if (canvas._planTipWired) return;
+  canvas._planTipWired = true;
+  const tip = document.createElement("div");
+  tip.className = "plan-profile-tip";
+  tip.hidden = true;
+  canvas.parentElement.appendChild(tip); // .plan-profile-wrap anchors it (position: relative)
+  const hide = () => (tip.hidden = true);
+  canvas.addEventListener("mousemove", (e) => {
+    const hit = canvas._planHit;
+    if (!hit) return hide();
+    const rect = canvas.getBoundingClientRect();
+    const sec = ((e.clientX - rect.left - hit.padL) / hit.plotW) * hit.total;
+    const s = hit.segments.find((seg) => sec >= seg.start && sec < seg.start + seg.dur);
+    if (!s) return hide();
+    const what = s.free ? "free ride" : planTargetLabel(s);
+    tip.textContent = `${what} · ${planFormatDuration(s.dur)} (starts at ${planFormatDuration(s.start)})`;
+    tip.hidden = false;
+    // Follow the cursor, clamped so the tip never spills out of the panel.
+    const wrapRect = canvas.parentElement.getBoundingClientRect();
+    const left = Math.min(Math.max(e.clientX - wrapRect.left + 12, 4), wrapRect.width - tip.offsetWidth - 4);
+    tip.style.left = left + "px";
+    tip.style.top = rect.top - wrapRect.top + 6 + "px";
+  });
+  canvas.addEventListener("mouseleave", hide);
+}
+
+// planDescribeIntervals renders the interval tree as one exact, copyable line —
+// e.g. "10m 45-65% · 4× (30s @ 320w / 4m30s @ 55%) · 5m 55-40%" — so every
+// step's duration stays readable even when its block on the canvas is too
+// narrow to label.
+function planDescribeIntervals(nodes, sep = " · ") {
+  const parts = [];
+  for (const node of nodes) {
+    if (Array.isArray(node.steps) && node.steps.length) {
+      const reps = node.repeat && node.repeat > 1 ? node.repeat : 1;
+      const inner = planDescribeIntervals(node.steps, " / ");
+      parts.push(reps > 1 ? `${reps}× (${inner})` : inner);
+      continue;
+    }
+    const dur = +node.duration_secs || 0;
+    if (dur <= 0) continue;
+    const tgt = planTargetPct(node);
+    parts.push(tgt.free
+      ? `${planFormatDuration(dur)} free`
+      : `${planFormatDuration(dur)} @ ${planTargetLabel(tgt)}`);
+  }
+  return parts.join(sep);
 }

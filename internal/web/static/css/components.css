@@ -681,6 +681,7 @@ textarea.mono:focus {
 
 /* Chart panel mirrors the recessed look of the workout charts. */
 .plan-profile-wrap {
+  position: relative; /* anchors the hover tooltip */
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -705,4 +706,28 @@ textarea.mono:focus {
 
 .plan-profile-err {
   color: #ef4444;
+}
+
+/* Exact per-step breakdown under the profile — every duration in text, even for
+   blocks too narrow to label on the canvas. */
+.plan-profile-steps {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text);
+  letter-spacing: 0.02em;
+}
+
+/* Hover tooltip for profile blocks (created by plan-profile.js). */
+.plan-profile-tip {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-size: 11px;
+  color: var(--text);
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
 }

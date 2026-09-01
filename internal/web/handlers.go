@@ -25,6 +25,7 @@ type pageTemplates struct {
 	calendar  *template.Template
 	heatmap   *template.Template
 	importing *template.Template
+	progress  *template.Template
 }
 
 // fsys is used just so that updates in local dev are picked up
