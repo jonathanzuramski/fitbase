@@ -14,6 +14,7 @@
   const intervalsJSON = document.getElementById("plan-intervals-json");
   const profileCanvas = document.getElementById("plan-profile");
   const profileMeta = document.getElementById("plan-profile-meta");
+  const profileSteps = document.getElementById("plan-profile-steps");
 
   // A worked example inserted when the user enables structured intervals, so the
   // JSON shape (flat target, ramp, and a repeat group) is self-explanatory.
@@ -60,6 +61,7 @@
     intervalsState = { ok: false, intervals: [], total: 0, error: message };
     planDrawProfile(profileCanvas, [], 0);
     profileMeta.textContent = message;
+    profileSteps.textContent = "";
     profileMeta.classList.toggle("plan-profile-err", message !== "");
   }
 
@@ -85,6 +87,7 @@
     profileMeta.textContent = total > 0
       ? `Total ${planFormatDuration(total)} · ${segments.length} segment${segments.length === 1 ? "" : "s"}`
       : "No timed segments yet.";
+    profileSteps.textContent = total > 0 ? planDescribeIntervals(parsed) : "";
     if (total > 0) durationInput.value = Math.round(total / 60);
   }
 
@@ -246,6 +249,7 @@
   const detailProfileWrap = document.getElementById("plan-detail-profile-wrap");
   const detailProfile = document.getElementById("plan-detail-profile");
   const detailProfileMeta = document.getElementById("plan-detail-profile-meta");
+  const detailProfileSteps = document.getElementById("plan-detail-profile-steps");
   const detailError = document.getElementById("plan-detail-error");
   const detailDelete = document.getElementById("plan-detail-delete");
 
@@ -268,6 +272,7 @@
     planDrawProfile(detailProfile, segments, total);
     detailProfileMeta.textContent =
       `Total ${planFormatDuration(total)} · ${segments.length} segment${segments.length === 1 ? "" : "s"}`;
+    detailProfileSteps.textContent = planDescribeIntervals(detailIntervals);
   }
 
   async function openDetail(id) {
