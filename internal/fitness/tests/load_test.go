@@ -130,3 +130,4 @@ func TestSingleDayManual(t *testing.T) {
 		t.Errorf("TSB: got %.9f, want %.9f", p.Form, wantTSB)
 	}
 }
+

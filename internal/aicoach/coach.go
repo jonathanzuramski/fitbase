@@ -47,6 +47,8 @@ type FitnessMetrics struct {
 	Fitness float64 `json:"fitness_ctl"`
 	Fatigue float64 `json:"fatigue_atl"`
 	Form    float64 `json:"form_tsb"`
+	// AsOf is the last settled day — yesterday until a ride with TSS is logged today.
+	AsOf string `json:"as_of,omitempty"`
 }
 
 type FitnessPoint struct {
@@ -116,7 +118,7 @@ Read the last 4–8 weeks. Comment on volume and intensity (weekly TSS, hours, r
 Flag concrete signals of adaptation or stagnation — and keep load separate from fitness: rising CTL only proves the rider trained more, so never present it alone as "getting fitter". Real gains show up in the performance data: EF (efficiency factor) trend at matched intensity is your primary aerobic indicator — rising EF on similar-IF rides means real adaptation. An FTP increase in ftp_history is the most direct evidence of progression. Power curve PRs and W/kg at key durations (5s, 1min, 5min, 20min, 60min) show where the rider is sharpest and where they're soft. Aerobic decoupling >5% on long rides points to durability gaps; falling decoupling is progress even when peak power is flat. High variability index (>1.10) on what should be steady work suggests pacing or terrain issues. If CTL rose but EF is flat and there are no power PRs, say the load hasn't converted into fitness yet. Be honest about plateaus — don't manufacture progress that isn't in the numbers.
 
 ## Next 1–2 weeks
-Give a clear, prescriptive plan. Recommend a target weekly TSS range, the number of key sessions, and which energy systems to target based on what's underdeveloped. Tie it to current form (TSB) — recover if deeply negative, build if neutral, sharpen if positive. Suggest 1–2 specific workout types (e.g., "2×20 at 95% FTP", "3hr Z2 with 4×8min at sweet spot"). End with one thing to watch for.
+Give a clear, prescriptive plan. Recommend a target weekly TSS range, the number of key sessions, and which energy systems to target based on what's underdeveloped. Tie it to current form (TSB) — recover if deeply negative, build if neutral, sharpen if positive. current_fitness is settled through current_fitness.as_of; today is left out until a ride with TSS is logged for it, so don't read a missing today as a rest day. Suggest 1–2 specific workout types (e.g., "2×20 at 95% FTP", "3hr Z2 with 4×8min at sweet spot"). End with one thing to watch for.
 
 Tone rules:
 - Use cycling vocabulary the rider already knows (FTP, IF, TSS, sweet spot, Z2, threshold, VO2).
@@ -208,7 +210,7 @@ func BuildData(
 	var current FitnessMetrics
 	if len(fitnessHistory) > 0 {
 		last := fitnessHistory[len(fitnessHistory)-1]
-		current = FitnessMetrics{Fitness: last.Fitness, Fatigue: last.Fatigue, Form: last.Form}
+		current = FitnessMetrics{Fitness: last.Fitness, Fatigue: last.Fatigue, Form: last.Form, AsOf: last.Date}
 	}
 	return &CoachingData{
 		GeneratedAt:    time.Now().UTC().Format(time.RFC3339),

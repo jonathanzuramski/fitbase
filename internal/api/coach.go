@@ -424,6 +424,7 @@ func (h *CoachHandler) collectCoachingData() (*aicoach.CoachingData, error) {
 		return nil, err
 	}
 	fitnessPts := make([]aicoach.FitnessPoint, len(fitnessRaw))
+	// drop the isProject field, and use aicoach formatted struct
 	for i, fp := range fitnessRaw {
 		fitnessPts[i] = aicoach.FitnessPoint{
 			Date:    fp.Date.Format("2006-01-02"),

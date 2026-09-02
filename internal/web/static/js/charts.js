@@ -345,9 +345,12 @@ function renderFitnessChart(containerId, data) {
   const atlSeries = data.map((d) => Math.round(d.fatigue * 10) / 10);
   const tsbSeries = data.map((d) => Math.round(d.form * 10) / 10);
 
-  // Split real vs projected (future) points using the server-supplied flag,
-  // so we agree with the sidebar's notion of "today" regardless of timezone.
-  // Duplicate the last real point into the projected series so the lines connect.
+  // Split real vs projected points using the server-supplied flag, so we agree
+  // with the server's notion of "today" regardless of timezone. The server also
+  // flags today itself as projected until a ride with TSS is logged for it, so the solid
+  // line ends on the last day whose load is final and today joins the dashed
+  // forecast. Duplicate the last real point into the projected series so the
+  // lines connect.
   const lastReal = data.findLastIndex((d) => !d.is_projection);
   const projCtl = timestamps.map((_, i) => (i >= lastReal ? ctlSeries[i] : null));
   const projAtl = timestamps.map((_, i) => (i >= lastReal ? atlSeries[i] : null));
@@ -437,7 +440,8 @@ function renderFitnessChart(containerId, data) {
   const u = new uPlot(opts, [timestamps, ctlSeries, atlSeries, tsbSeries, projCtl, projAtl, projTsb], el);
   watchResize(el, u, 300);
 
-  // Recommendation badge based on today's TSB.
+  // Recommendation badge based on the last settled TSB — the form the rider
+  // carries into today (yesterday's value until a ride with TSS is logged today).
   const recEl = document.getElementById("fitness-recommendation");
   const lastTSB = tsbSeries.findLast((value) => value != null);
 
