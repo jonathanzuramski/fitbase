@@ -381,8 +381,9 @@
 
 /* ── Calendar (tablets) ──────────────────────────────── */
 @media (max-width: 900px) {
+  /* minmax(0, …): a day's nowrap entries must not widen its column. */
   .cal-grid {
-    grid-template-columns: repeat(7, 1fr);
+    grid-template-columns: repeat(7, minmax(0, 1fr));
   }
   .cal-header-week,
   .cal-week-summary {
@@ -652,5 +653,337 @@
   }
   .settings-modal-actions > * {
     flex: 1;
+  }
+}
+
+/* ── Touch screens: no hover, so hover-revealed controls stay visible ── */
+@media (hover: none) {
+  .cal-add-btn,
+  .cal-planned-del {
+    opacity: 0.7;
+  }
+}
+
+/* ── Narrow phones: fit the top nav ── */
+@media (max-width: 400px) {
+  .nav {
+    gap: 10px;
+  }
+  .nav-brand {
+    font-size: 15px;
+  }
+  .nav-links {
+    gap: 9px;
+    font-size: 12px;
+  }
+}
+
+/* ── App-wide (phones) ───────────────────────────────────
+   Carries the settings page's mobile patterns to the other pages: 16px/44px
+   fields (no iOS focus zoom), full-width actions, one-line table cells. */
+@media (max-width: 640px) {
+  /* ── Card headers: keep DOM order (title first); filters wrap below ── */
+  .card-header-row > * {
+    order: 1;
+  }
+  .card-header-row .card-title {
+    min-width: 0;
+  }
+  .filter-tab {
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* ── Dashboard: AI coach ── */
+  #ai-coach-card .card-title .muted {
+    display: block;
+    margin-top: 2px;
+  }
+  #ai-coach-card .btn-secondary {
+    min-height: 40px;
+  }
+  .coach-chat-input {
+    font-size: 16px;
+  }
+  .coach-chat-form .btn-secondary {
+    min-height: 44px;
+  }
+
+  /* ── Dashboard: goal edit form ── */
+  .goal-inputs {
+    flex-wrap: nowrap;
+  }
+  .goal-input-label {
+    flex: 1;
+    min-width: 0;
+  }
+  .goal-input-label .form-input {
+    width: 100%;
+    font-size: 16px;
+    padding: 8px 12px;
+  }
+  .goal-form-actions > * {
+    flex: 1;
+    min-height: 40px;
+  }
+
+  /* ── Activity + route history tables: one line per cell ── */
+  .workout-table th {
+    padding: 8px 6px;
+  }
+  .workout-row td {
+    padding: 10px 6px;
+    white-space: nowrap;
+  }
+  .workout-table .sport-badge {
+    font-size: 10px;
+    padding: 2px 6px;
+  }
+
+  /* ── Workout detail ── */
+  .metric-row {
+    gap: 10px 8px;
+  }
+  .metric-value {
+    font-size: 19px;
+  }
+  .page-header .btn-danger {
+    min-height: 36px;
+  }
+
+  /* ── Calendar header: [title  + plan] then full-width month nav ── */
+  .cal-page-header .cal-header-actions {
+    display: contents;
+  }
+  .cal-page-header h1 {
+    flex: 1;
+  }
+  .cal-add-btn.cal-plan-btn {
+    order: 1;
+    min-height: 40px;
+  }
+  .cal-nav {
+    order: 2;
+    flex-basis: 100%;
+    justify-content: space-between;
+  }
+  .cal-nav-btn {
+    min-width: 40px;
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .cal-nav-label {
+    flex: 1;
+    min-width: 0;
+  }
+  .cal-nav-today {
+    padding: 6px 12px;
+  }
+
+  /* ── Calendar grid: days shrink to dots (details are in the agenda) ── */
+  .cal-grid {
+    margin-top: 4px;
+  }
+  .cal-header {
+    padding: 6px 0;
+    font-size: 10px;
+  }
+  .cal-day {
+    min-height: 48px;
+    padding: 4px 3px;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    gap: 3px;
+  }
+  .cal-date {
+    flex-basis: 100%;
+    font-size: 11px;
+    margin-bottom: 0;
+  }
+  .cal-add-btn:not(.cal-plan-btn),
+  .cal-workout-info,
+  .cal-planned-info,
+  .cal-planned-del {
+    display: none;
+  }
+  .cal-workout,
+  .cal-planned {
+    padding: 2px;
+    border: none;
+  }
+  .cal-dot {
+    width: 7px;
+    height: 7px;
+  }
+  .cal-day.today {
+    border-left: none;
+    box-shadow: inset 0 0 0 1px var(--accent);
+  }
+
+  /* ── Calendar agenda: one row per entry ── */
+  .cal-agenda {
+    display: flex;
+    flex-direction: column;
+    margin-top: 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .cal-agenda:not(:has(.cal-agenda-day))::after {
+    content: "nothing logged or planned this month";
+    padding: 16px;
+    font-size: 13px;
+    color: var(--text-muted);
+    text-align: center;
+  }
+  .cal-agenda-day {
+    display: flex;
+    gap: 12px;
+    padding: 10px 14px;
+  }
+  .cal-agenda-day + .cal-agenda-day {
+    border-top: 1px solid var(--border);
+  }
+  .cal-agenda-date {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 36px;
+    flex-shrink: 0;
+    padding-top: 4px;
+  }
+  .cal-agenda-dow {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+  }
+  .cal-agenda-num {
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1.2;
+  }
+  .cal-agenda-day.today .cal-agenda-dow,
+  .cal-agenda-day.today .cal-agenda-num {
+    color: var(--accent);
+  }
+  .cal-agenda-items {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .cal-agenda .cal-agenda-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 44px;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    text-decoration: none;
+  }
+  .cal-agenda .cal-agenda-planned {
+    border-style: dashed;
+    color: var(--text-muted);
+  }
+  .cal-agenda .cal-planned-coach {
+    border-color: var(--accent);
+  }
+  .cal-agenda .cal-dot {
+    width: 8px;
+    height: 8px;
+  }
+  .cal-agenda-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .cal-agenda-meta {
+    font-size: 13px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── Dialogs (calendar planner) ── */
+  .modal {
+    width: calc(100vw - 24px);
+    max-width: calc(100vw - 24px);
+  }
+  .modal-body {
+    padding: 16px;
+  }
+  .modal-row {
+    grid-template-columns: 92px 1fr;
+  }
+  .modal-row input:not([type="checkbox"]),
+  .modal-row select,
+  .modal-row textarea,
+  textarea.mono {
+    font-size: 16px;
+  }
+  .modal-row input:not([type="checkbox"]),
+  .modal-row select {
+    min-height: 44px;
+  }
+  .modal-actions > * {
+    flex: 1;
+    min-height: 44px;
+  }
+
+  /* ── Welcome ── */
+  .welcome-body {
+    padding: 24px 12px;
+  }
+  .welcome-field input,
+  .welcome-field select {
+    font-size: 16px;
+    min-height: 44px;
+  }
+  .units-radio {
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+  }
+  .welcome-actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .welcome-submit {
+    min-height: 48px;
+  }
+  .welcome-skip {
+    text-align: center;
+    padding: 8px;
+  }
+
+  /* ── Heatmap overlays ── */
+  .heatmap-overlay-tl {
+    top: 12px;
+    left: 12px;
+  }
+  .heatmap-filter {
+    padding: 6px 12px;
+    font-size: 13px;
+  }
+  .heatmap-info {
+    left: 12px;
+    right: 12px;
+    bottom: 16px;
   }
 }

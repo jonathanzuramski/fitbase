@@ -71,6 +71,29 @@ func TestTemplatesNoPaddedURLKeys(t *testing.T) {
 	})
 }
 
+// nameOrCompareCall finds actions whose string literals are template names or
+// comparison operands, for TestTemplatesNoPaddedLiterals.
+var nameOrCompareCall = regexp.MustCompile(`\{\{[^{}]*\b(?:block|template|define|eq|ne)\b[^{}]*\}\}`)
+
+// TestTemplatesNoPaddedLiterals flags template names and comparison literals
+// that grew padding — `block " mainClass"` or `eq .Source " coach"`. Neither
+// fails parsing: a padded block name renders its empty default instead of the
+// page's define, and a padded comparison is simply never true. Both shipped:
+// every page lost its mainClass, and coach-proposed workouts lost their
+// calendar highlight.
+func TestTemplatesNoPaddedLiterals(t *testing.T) {
+	forEachTemplateLine(t, func(name string, n int, line string) {
+		for _, call := range nameOrCompareCall.FindAllString(line, -1) {
+			for _, lit := range stringLit.FindAllStringSubmatch(call, -1) {
+				if lit[1] != strings.TrimSpace(lit[1]) {
+					t.Errorf("%s:%d: padded literal %q in %s (formatter damage?)",
+						name, n, lit[1], call)
+				}
+			}
+		}
+	})
+}
+
 // forEachTemplateLine runs fn for every line of every embedded template.
 func forEachTemplateLine(t *testing.T, fn func(name string, lineNo int, line string)) {
 	t.Helper()

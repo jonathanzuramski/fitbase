@@ -25,6 +25,8 @@ input[type="number"] {
   --yellow: #eab308;
   --red: #ef4444;
   --orange: #f97316;
+  /* Recessed panels inside cards: coach insights, chat bubbles, chart toggles. */
+  --surface: var(--bg);
 
   --power-color: #60a5fa;
   --hr-color: #f87171;
@@ -121,6 +123,7 @@ code {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
   padding: 0 clamp(16px, 3vw, 48px);
   height: 48px;
   border-bottom: 1px solid var(--border);
@@ -153,6 +156,15 @@ code {
 }
 .nav-links a:hover {
   color: var(--text);
+}
+
+/* Current section (set by base.html's nav script). */
+.nav-links a.active {
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-color: var(--accent);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 6px;
 }
 
 .units-toggle {

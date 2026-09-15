@@ -146,18 +146,18 @@
 					<div class="goal-inputs">
 						<label class="goal-input-label">
 							weekly ({{ if $imperial }}mi{{ else }}km{{ end }})
-							<input type="number" name="weekly" step="0.1" min="0"
+							<input type="number" name="weekly" step="0.1" min="0" class="form-input"
 								value="{{ goalDisplayDist .WeeklyGoalMeters $imperial }}">
 						</label>
 						<label class="goal-input-label">
 							yearly ({{ if $imperial }}mi{{ else }}km{{ end }})
-							<input type="number" name="yearly" step="1" min="0"
+							<input type="number" name="yearly" step="1" min="0" class="form-input"
 								value="{{ goalDisplayDist .YearlyGoalMeters $imperial }}">
 						</label>
 					</div>
 					<div class="goal-form-actions">
-						<button type="submit" class="goal-save-btn">save</button>
-						<button type="button" class="goal-cancel-btn">cancel</button>
+						<button type="submit" class="btn-primary goal-save-btn">save</button>
+						<button type="button" class="btn-secondary goal-cancel-btn">cancel</button>
 					</div>
 				</form>
 			{{ end }}

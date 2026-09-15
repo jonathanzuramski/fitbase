@@ -8,6 +8,8 @@
 .heatmap-wrap {
   position: relative;
   height: calc(100vh - 48px);
+  /* Mobile Safari: 100vh includes the collapsing toolbar; dvh is the visible area. */
+  height: calc(100dvh - 48px);
   overflow: hidden;
 }
 

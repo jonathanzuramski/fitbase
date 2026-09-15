@@ -490,6 +490,30 @@
   color: var(--text-muted, #888);
 }
 
+/* AI coach provider form: provider/model/key on one wrapping row, then the
+   refresh row, then save — spaced instead of touching. */
+.credentials-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.credentials-form .ai-model-refresh-row {
+  flex-basis: 100%;
+  margin-top: 0;
+}
+
+.credentials-summary {
+  color: var(--accent);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.credentials-details[open] .credentials-summary {
+  margin-bottom: 10px;
+}
+
 /* ── Section jump bar ─────────────────────────────────── */
 /* Phones only — laid out in responsive.css. */
 .settings-jump {

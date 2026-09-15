@@ -28,8 +28,33 @@
   font-size: 12px;
   padding: 3px 10px;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: 6px;
   margin-left: 4px;
+}
+
+.cal-header-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+/* Shares .cal-add-btn so plan-modal.js opens the dialog; undo the in-cell
+   "+" look and keep the .btn-secondary one. */
+.cal-add-btn.cal-plan-btn {
+  width: auto;
+  height: auto;
+  opacity: 1;
+  padding: 6px 14px;
+  font-size: 13px;
+  line-height: normal;
+  border-style: solid;
+  border-radius: 6px;
+}
+
+/* Phone-only month list; laid out in responsive.css. */
+.cal-agenda {
+  display: none;
 }
 .cal-nav-today:hover {
   color: var(--text);

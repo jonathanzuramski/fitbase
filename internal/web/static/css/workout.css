@@ -123,24 +123,26 @@
   display: flex;
   gap: 4px;
 }
+/* Same look as .filter-tab, so every toggle in the app reads alike. */
 .pc-view-btn {
-  background: none;
-  border: 1px solid var(--border);
+  background: transparent;
+  border: 1px solid transparent;
   color: var(--text-muted);
-  font-size: 11px;
-  font-family: var(--mono);
-  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 12px;
   border-radius: 4px;
   cursor: pointer;
-  transition: border-color 0.15s, color 0.15s;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
 }
 .pc-view-btn:hover {
-  border-color: var(--accent);
+  border-color: var(--border);
   color: var(--text);
 }
 .pc-view-btn.active {
-  border-color: var(--accent);
-  color: var(--accent);
+  color: var(--text);
+  background: var(--bg-hover);
+  border-color: var(--border);
 }
 
 /* ── Power curve ──────────────────────────────────────── */

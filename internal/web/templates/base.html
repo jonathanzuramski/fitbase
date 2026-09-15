@@ -49,11 +49,25 @@
 				</form>
 			</div>
 		</nav>
-		<main class="container{{ block " mainClass" . }}{{ end }}">{{ block "content" . }}{{ end }}</main>
+		<main class="container{{ block "mainClass" . }}{{ end }}">{{ block "content" . }}{{ end }}</main>
 
 	<script src="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.iife.min.js"></script>
 	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.min.css" />
 	<script src="/static/js/charts.js"></script>
+	<script>
+		// Mark the nav link for the current section; workout pages belong to the dashboard.
+		(function () {
+			var path = location.pathname;
+			document.querySelectorAll(".nav-links a").forEach(function (a) {
+				var href = a.getAttribute("href");
+				var on = href === "/" ? path === "/" || path.indexOf("/workouts/") === 0 : path.indexOf(href) === 0;
+				if (on) {
+					a.classList.add("active");
+					a.setAttribute("aria-current", "page");
+				}
+			});
+		})();
+	</script>
 		{{ block "scripts" . }}{{ end }}
 	</body>
 

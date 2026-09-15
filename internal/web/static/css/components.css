@@ -182,26 +182,6 @@
   background: rgba(239, 68, 68, 0.1);
 }
 
-.delete-btn-lg {
-  display: inline;
-  background: none;
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 12px;
-  padding: 5px 12px;
-  border-radius: 5px;
-  font-family: inherit;
-  transition:
-    color 0.15s,
-    border-color 0.15s;
-}
-
-.delete-btn-lg:hover {
-  color: var(--red);
-  border-color: var(--red);
-}
-
 /* ── Pagination ────────────────────────────────────────── */
 .pagination {
   display: flex;
@@ -755,4 +735,29 @@ textarea.mono:focus {
   color: var(--text);
   white-space: nowrap;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+/* ── Map controls (MapLibre) ──────────────────────────── */
+/* The default white zoom/compass group glares on the dark theme. MapLibre's
+   stylesheet loads after ours, so each selector is one class more specific
+   than the rule it overrides. */
+.maplibregl-map .maplibregl-ctrl.maplibregl-ctrl-group {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+}
+
+.maplibregl-map .maplibregl-ctrl.maplibregl-ctrl-group:not(:empty) {
+  box-shadow: none;
+}
+
+.maplibregl-map .maplibregl-ctrl-group button + button {
+  border-top: 1px solid var(--border);
+}
+
+.maplibregl-map .maplibregl-ctrl-group button:not(:disabled):hover {
+  background-color: var(--bg-hover);
+}
+
+.maplibregl-map .maplibregl-ctrl-group .maplibregl-ctrl-icon {
+  filter: invert(0.85);
 }
