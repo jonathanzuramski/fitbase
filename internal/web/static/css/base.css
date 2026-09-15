@@ -131,6 +131,9 @@ code {
 }
 
 .nav-brand {
+  display: flex; 
+  justify-content: space-between;
+  align-items: center;
   font-size: 16px;
   font-weight: 700;
   letter-spacing: -0.5px;
@@ -139,6 +142,7 @@ code {
 
 .nav-links {
   display: flex;
+  align-items: center;
   gap: 20px;
   font-size: 13px;
   color: var(--text-muted);
