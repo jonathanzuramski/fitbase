@@ -119,11 +119,20 @@ code {
 }
 
 /* ── Navigation ───────────────────────────────────────── */
+/* Grid, not flex: the row of labels is centered in the bar as a group
+   (align-content) while every label — brand, links, the km/mi button — sits
+   on one shared text baseline (align-items). Centering each item's box on its
+   own left the mixed font sizes and fonts at different heights. */
 .nav {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: auto auto;
   justify-content: space-between;
+  align-content: center;
+  align-items: baseline;
   gap: 16px;
+  /* Line boxes hug the text, so centering the row centers the text itself
+     rather than the extra leading around it. */
+  line-height: 1;
   padding: 0 clamp(16px, 3vw, 48px);
   height: 48px;
   border-bottom: 1px solid var(--border);
@@ -134,9 +143,6 @@ code {
 }
 
 .nav-brand {
-  display: flex; 
-  justify-content: space-between;
-  align-items: center;
   font-size: 16px;
   font-weight: 700;
   letter-spacing: -0.5px;
@@ -145,7 +151,7 @@ code {
 
 .nav-links {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 20px;
   font-size: 13px;
   color: var(--text-muted);
@@ -169,7 +175,7 @@ code {
 
 .units-toggle {
   display: flex;
-  align-items: center;
+  align-items: baseline;
 }
 
 .units-btn {
