@@ -59,13 +59,28 @@ func (db *DB) SaveAISettings(s AISettings) error {
 	return err
 }
 
+// ZoneTotals is a zone-time aggregate over a window plus the coverage counts
+// that make it safe to read. Power and HR are counted from the same rides, but
+// a ride recorded without a heart-rate strap contributes power seconds and zero
+// HR seconds — so the two arrays do not share a denominator. Without
+// WorkoutsWithHR a consumer computing "percent of time in HR Z2" divides by the
+// wrong total and silently under-reports every HR zone.
+type ZoneTotals struct {
+	Power             [7]int
+	HR                [5]int
+	SweetSpotSecs     int
+	Workouts          int // workouts in the window with a zone-times row
+	WorkoutsWithHR    int // of those, how many recorded time in any HR zone
+	WorkoutsWithPower int // of those, how many recorded time in any power zone
+}
+
 // GetRecentZoneTotals sums time in each power zone (7 zones), HR zone (5 zones),
 // and the Sweet Spot reference band for all workouts in the last N days. SS is
 // a parallel counter — it overlaps Z3/Z4 and is not part of the 7-zone
 // partition. The window is cut on training_day — SQLite's date('now') is
 // UTC-now, which would shift the boundary by a day for athletes west of
 // Greenwich.
-func (db *DB) GetRecentZoneTotals(days int) ([7]int, [5]int, int, error) {
+func (db *DB) GetRecentZoneTotals(days int) (ZoneTotals, error) {
 	cutoff := timeutil.LocalMidnight(time.Now().In(db.athleteLocation())).
 		AddDate(0, 0, -days).Format("2006-01-02")
 	rows, err := db.Query(`
@@ -74,33 +89,41 @@ func (db *DB) GetRecentZoneTotals(days int) ([7]int, [5]int, int, error) {
 		JOIN workouts w ON w.id = wzt.workout_id
 		WHERE w.training_day >= ?`, cutoff)
 	if err != nil {
-		return [7]int{}, [5]int{}, 0, err
+		return ZoneTotals{}, err
 	}
 	defer rows.Close() //nolint:errcheck
-	var power [7]int
-	var hr [5]int
-	var ss int
+	var totals ZoneTotals
 	for rows.Next() {
 		var ps, hs string
 		var ssRow sql.NullInt64
 		if err := rows.Scan(&ps, &hs, &ssRow); err != nil {
-			return [7]int{}, [5]int{}, 0, err
+			return ZoneTotals{}, err
 		}
 		var p [7]int
 		var h [5]int
 		_ = json.Unmarshal([]byte(ps), &p)
 		_ = json.Unmarshal([]byte(hs), &h)
+		totals.Workouts++
+		var anyPower, anyHR bool
 		for i := range p {
-			power[i] += p[i]
+			totals.Power[i] += p[i]
+			anyPower = anyPower || p[i] > 0
 		}
 		for i := range h {
-			hr[i] += h[i]
+			totals.HR[i] += h[i]
+			anyHR = anyHR || h[i] > 0
+		}
+		if anyPower {
+			totals.WorkoutsWithPower++
+		}
+		if anyHR {
+			totals.WorkoutsWithHR++
 		}
 		if ssRow.Valid {
-			ss += int(ssRow.Int64)
+			totals.SweetSpotSecs += int(ssRow.Int64)
 		}
 	}
-	return power, hr, ss, rows.Err()
+	return totals, rows.Err()
 }
 
 // ListWorkoutsSince returns workouts with recorded_at >= since, newest first.

@@ -187,10 +187,11 @@ func (imp *Importer) Import(path string) (string, error) {
 				pz = fitness.PowerZones(athlete.FTPWatts)[:7]
 				ssLow, ssHigh = fitness.SweetSpotBand(athlete.FTPWatts)
 			}
-			var hz []models.HRZone
-			if athlete.ThresholdHR > 0 {
-				hz = fitness.ResolveHRZones(athlete)
-			}
+			// Not gated on ThresholdHR: a rider can configure custom HR zone
+			// bounds without ever setting an LTHR, and every display path
+			// honors them via ResolveHRZones. Gating here left those riders
+			// with permanently zeroed hr_secs while the UI showed their zones.
+			hz := fitness.UsableHRZones(athlete)
 			pw, hr, ss := fitness.ComputeZoneTimes(result.Streams, pz, hz, ssLow, ssHigh)
 			ssArg := ss
 			if ssLow == 0 || ssHigh == 0 {
@@ -391,10 +392,11 @@ func (imp *Importer) ImportBytes(data []byte, filename string) (string, error) {
 				pz = fitness.PowerZones(athlete.FTPWatts)[:7]
 				ssLow, ssHigh = fitness.SweetSpotBand(athlete.FTPWatts)
 			}
-			var hz []models.HRZone
-			if athlete.ThresholdHR > 0 {
-				hz = fitness.ResolveHRZones(athlete)
-			}
+			// Not gated on ThresholdHR: a rider can configure custom HR zone
+			// bounds without ever setting an LTHR, and every display path
+			// honors them via ResolveHRZones. Gating here left those riders
+			// with permanently zeroed hr_secs while the UI showed their zones.
+			hz := fitness.UsableHRZones(athlete)
 			pw, hr, ss := fitness.ComputeZoneTimes(result.Streams, pz, hz, ssLow, ssHigh)
 			ssArg := ss
 			if ssLow == 0 || ssHigh == 0 {
