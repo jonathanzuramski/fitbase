@@ -68,43 +68,7 @@
     display: none;
   }
 
-  /* ── Settings ── */
-  .athlete-form {
-    flex-direction: column;
-  }
-  .zones-grid {
-    grid-template-columns: 1fr;
-  }
-  .metrics-split,
-  .zones-split {
-    grid-template-columns: 1fr;
-  }
-  .metrics-profile-col {
-    padding-right: 0;
-    border-right: none;
-    padding-bottom: 20px;
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 20px;
-  }
-  .metrics-ftp-col {
-    padding-left: 0;
-  }
-  .zones-power-col {
-    padding-right: 0;
-    border-right: none;
-    padding-bottom: 20px;
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 20px;
-  }
-  .zones-hr-col {
-    padding-left: 0;
-  }
-  .athlete-fields-grid {
-    grid-template-columns: 1fr;
-  }
-  .ftp-history-add-form {
-    grid-template-columns: 1fr;
-  }
+  /* Settings page: see the "Settings (phones)" block at the end of the file. */
 
   /* ── Workout detail: stats row (HR / Cadence / Training Load) ── */
   .stats-row {
@@ -427,5 +391,266 @@
   .cal-day {
     min-height: 70px;
     padding: 4px;
+  }
+}
+
+/* ── Settings (phones) ───────────────────────────────────
+   Its own block at the end so it wins over the generic mobile .card rules
+   above (e.g. .integrations-card needs its zero padding back). */
+@media (max-width: 640px) {
+  /* ── Fields & buttons ── */
+  /* iOS Safari zooms the page on focus when an input's font is under 16px. */
+  .form-input {
+    font-size: 16px;
+    height: 44px;
+  }
+  select.form-input {
+    -webkit-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2364748b' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 32px;
+  }
+  .settings-section .btn-primary,
+  .settings-section .btn-secondary,
+  .settings-section .btn-danger,
+  .settings-modal .btn-primary,
+  .settings-modal .btn-secondary {
+    min-height: 40px;
+  }
+  /* Units sit inside the field instead of trailing it. */
+  .settings-section .form-control-group {
+    position: relative;
+    gap: 0;
+  }
+  .settings-section .form-control-group .form-input {
+    width: 100%;
+    padding-right: 44px;
+  }
+  .settings-section .form-control-group .form-unit {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    pointer-events: none;
+  }
+
+  /* ── Section jump bar: sticky pills under the nav ── */
+  .settings-jump {
+    display: flex;
+    gap: 6px;
+    position: sticky;
+    top: 48px;
+    z-index: 50;
+    margin: -8px -16px 16px;
+    padding: 8px 16px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+  }
+  .settings-jump::-webkit-scrollbar {
+    display: none;
+  }
+  .settings-jump-link {
+    flex-shrink: 0;
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: 99px;
+    font-size: 13px;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  .settings-jump-link:hover {
+    color: var(--text);
+    text-decoration: none;
+  }
+  .settings-jump-link.active {
+    color: var(--text);
+    background: var(--bg-hover);
+    border-color: var(--accent);
+  }
+  /* nav (48) + jump bar (~46) + breathing room */
+  .settings-section,
+  .metrics-ftp-col {
+    scroll-margin-top: 108px;
+  }
+
+  /* ── Split cards stack ── */
+  .metrics-split,
+  .zones-split {
+    grid-template-columns: 1fr;
+  }
+  .metrics-profile-col,
+  .zones-power-col {
+    padding-right: 0;
+    border-right: none;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 20px;
+  }
+  .metrics-ftp-col,
+  .zones-hr-col {
+    padding-left: 0;
+  }
+
+  /* ── Profile: label left, field right, one row per metric ── */
+  .athlete-fields-grid {
+    gap: 0;
+  }
+  .athlete-field {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .athlete-field:first-child {
+    padding-top: 0;
+  }
+  .athlete-field label {
+    flex: 1;
+    min-width: 0;
+  }
+  .athlete-field .form-control-group {
+    width: 132px;
+    flex-shrink: 0;
+  }
+  .athlete-field .form-input {
+    max-width: none;
+  }
+  .form-actions-end .btn-primary {
+    width: 100%;
+  }
+
+  /* ── FTP history: [date | watts] then full-width add ── */
+  .ftp-history-add-form {
+    grid-template-columns: 1fr 1fr;
+  }
+  .ftp-history-add-form .btn-secondary {
+    grid-column: 1 / -1;
+  }
+  .ftp-history-actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .ftp-history-actions-hint {
+    text-align: center;
+  }
+
+  /* ── Zone tables: keep ranges on one line ── */
+  .zone-table th,
+  .zone-row td {
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+  .zone-table th,
+  .zone-pct,
+  .zone-range {
+    white-space: nowrap;
+  }
+  .zones-col-actions > * {
+    flex: 1 1 auto;
+  }
+  .zones-col-actions form button {
+    width: 100%;
+  }
+
+  /* ── Integrations: name, status, then a button grid ── */
+  .integrations-card {
+    padding: 0;
+  }
+  .integration-item {
+    padding: 14px;
+  }
+  .integration-item-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+  .integration-item-name {
+    min-width: 0;
+    font-size: 14px;
+  }
+  /* Long statuses wrap — keep the dot on the first line. */
+  .integration-item .integration-status {
+    align-items: flex-start;
+  }
+  .integration-item .status-dot {
+    margin-top: 6px;
+  }
+  /* Grid, not wrapping flex: flex sizes the row from the label's wrapped
+     min-content height, leaving single-line buttons oversized. */
+  .integration-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 6px;
+  }
+  .integration-actions > * {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+  /* An odd button out (or a lone "configure") spans the full width. */
+  .integration-actions > :last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+
+  /* ── AI coach form (no desktop styles exist for these) ── */
+  .credentials-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .credentials-form .form-input {
+    width: 100%;
+  }
+  .ai-model-refresh-row {
+    margin-top: 0;
+    flex-wrap: wrap;
+  }
+  .credentials-form > button[type="submit"] {
+    width: 100%;
+    margin-top: 4px;
+  }
+  .credentials-summary {
+    padding: 6px 0;
+    color: var(--accent);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .credentials-details[open] .credentials-summary {
+    margin-bottom: 8px;
+  }
+
+  /* ── Danger zone: stack, full-width button ── */
+  /* Doubled class beats the page's inline <style>, which loads after this. */
+  .danger-zone-card .danger-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .danger-zone-card .btn-danger {
+    width: 100%;
+    color: var(--red);
+    border-color: rgba(239, 68, 68, 0.35);
+  }
+
+  /* ── Modals: fields fill the dialog ── */
+  .settings-modal {
+    padding: 18px;
+  }
+  .settings-modal .form-input:not(.hr-zone-input) {
+    width: 100%;
+  }
+  .settings-modal-actions > * {
+    flex: 1;
   }
 }

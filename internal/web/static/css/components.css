@@ -417,6 +417,31 @@
   border-color: var(--accent);
 }
 
+/* iOS Safari draws date inputs natively: it ignores width/padding, centers the
+   value, and collapses an empty field. Dropping the native appearance makes
+   them size like every other text field; min-height = one line + padding +
+   border of each field style. */
+input[type="date"].form-input,
+.modal-row input[type="date"] {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+}
+
+input[type="date"].form-input {
+  min-height: calc(1lh + 18px);
+}
+
+.modal-row input[type="date"] {
+  min-height: calc(1lh + 14px);
+}
+
+input[type="date"].form-input::-webkit-date-and-time-value,
+.modal-row input[type="date"]::-webkit-date-and-time-value {
+  text-align: left;
+  margin: 0;
+}
+
 .form-unit {
   font-size: 13px;
   color: var(--text-muted);

@@ -489,3 +489,16 @@
   font-size: 0.85em;
   color: var(--text-muted, #888);
 }
+
+/* ── Section jump bar ─────────────────────────────────── */
+/* Phones only — laid out in responsive.css. */
+.settings-jump {
+  display: none;
+}
+
+/* Jump targets (pills, and the #ftp-history redirect after add/delete) land
+   below the sticky nav instead of under it. */
+.settings-section,
+.metrics-ftp-col {
+  scroll-margin-top: 64px;
+}

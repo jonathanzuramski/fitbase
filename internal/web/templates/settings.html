@@ -6,6 +6,16 @@
 	<h1>settings</h1>
 </div>
 
+<!-- Section jump bar — shown on phones only (see responsive.css) -->
+<nav class="settings-jump" aria-label="settings sections">
+	<a href="#profile" class="settings-jump-link">profile</a>
+	<a href="#ftp-history" class="settings-jump-link">FTP history</a>
+	<a href="#zones" class="settings-jump-link">zones</a>
+	<a href="#integrations" class="settings-jump-link">integrations</a>
+	<a href="#ai-coach" class="settings-jump-link">AI coach</a>
+	<a href="#danger-zone" class="settings-jump-link">danger zone</a>
+</nav>
+
 <!-- Sync progress overlay -->
 <div class="bulk-overlay" id="sync-overlay" hidden>
 	<div class="bulk-modal">
@@ -23,7 +33,7 @@
 </div>
 
 <!-- ── Athlete Metrics ─────────────────────────────────── -->
-<div class="settings-section">
+<div class="settings-section" id="profile">
 	<div class="settings-section-header">
 		<span class="settings-section-title">athlete metrics</span>
 	</div>
@@ -78,7 +88,7 @@
 			</div>
 
 			<!-- Right: FTP History -->
-			<div class="metrics-col metrics-ftp-col">
+			<div class="metrics-col metrics-ftp-col" id="ftp-history">
 				<h2 class="card-title">
 					FTP history <span class="muted">historical FTP for past-workout TSS</span>
 				</h2>
@@ -140,7 +150,7 @@
 </div>
 
 <!-- ── Training Zones ──────────────────────────────────── -->
-<div class="settings-section">
+<div class="settings-section" id="zones">
 	<div class="settings-section-header">
 		<span class="settings-section-title">training zones</span>
 	</div>
@@ -249,7 +259,7 @@
 </dialog>
 
 <!-- ── Integrations & Backups ──────────────────────────── -->
-<div class="settings-section">
+<div class="settings-section" id="integrations">
 	<div class="settings-section-header">
 		<span class="settings-section-title">integrations & backups</span>
 	</div>
@@ -377,7 +387,7 @@
 </div>
 
 <!-- ── AI Coach ───────────────────────────────────────────── -->
-<div class="settings-section">
+<div class="settings-section" id="ai-coach">
 	<div class="settings-section-header">
 		<span class="settings-section-title">AI coach</span>
 	</div>
@@ -551,7 +561,7 @@
 </dialog>
 
 <!-- ── Danger Zone ──────────────────────────────────────── -->
-<div class="settings-section">
+<div class="settings-section" id="danger-zone">
 	<div class="settings-section-header">
 		<span class="settings-section-title">danger zone</span>
 	</div>
@@ -903,6 +913,41 @@
 
     setupToggle(dbxToggle, "/api/integrations/dropbox/longpoll", intToggle, "intervals.icu");
     setupToggle(intToggle, "/api/integrations/intervals/autosync", dbxToggle, "Dropbox");
+  })();
+</script>
+<script>
+  // ── Mobile section jump bar ───────────────────────────────────────────────
+  // Highlights the pill for the section under the sticky bar and scrolls that
+  // pill into view. The bar is display:none on desktop, where this is inert.
+  (function () {
+    const bar = document.querySelector(".settings-jump");
+    if (!bar) return;
+    const links = Array.from(bar.querySelectorAll("a"));
+    const targets = links.map(a => document.querySelector(a.getAttribute("href")));
+    let current = -1, queued = false;
+
+    function update() {
+      queued = false;
+      const line = bar.getBoundingClientRect().bottom + 16;
+      let idx = 0;
+      targets.forEach((t, i) => { if (t && t.getBoundingClientRect().top <= line) idx = i; });
+      // Short trailing sections can never reach the line — pin the last pill
+      // once the page is scrolled to the bottom (but not on an unscrolled page
+      // that merely fits the viewport).
+      if (window.scrollY > 0 &&
+          window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4) {
+        idx = targets.length - 1;
+      }
+      if (idx === current) return;
+      current = idx;
+      links.forEach((a, i) => a.classList.toggle("active", i === idx));
+      bar.scrollTo({ left: links[idx].offsetLeft - 16, behavior: "smooth" });
+    }
+
+    window.addEventListener("scroll", () => {
+      if (!queued) { queued = true; requestAnimationFrame(update); }
+    }, { passive: true });
+    update();
   })();
 </script>
 <script>
