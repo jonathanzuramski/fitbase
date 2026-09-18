@@ -339,3 +339,62 @@ func TestComputeZoneTimes_GapResetsDelta(t *testing.T) {
 		t.Errorf("ss = %d, want 2 (gap clamped to 1s per sample)", ss)
 	}
 }
+
+// A rider can save custom HR zone bounds without ever setting an LTHR. Those
+// bounds are real and every display path honors them, so time-in-zone must be
+// computed against them too.
+func TestUsableHRZones_CustomBoundsWithoutThresholdHR(t *testing.T) {
+	a := &models.Athlete{HRZonesJSON: "[120,145,160,175,0,0]"}
+
+	zones := fitness.UsableHRZones(a)
+	if len(zones) != 5 {
+		t.Fatalf("got %d zones, want 5", len(zones))
+	}
+	if zones[0].BPMHigh != 120 || zones[3].BPMHigh != 175 {
+		t.Errorf("bounds = %d/%d, want 120/175", zones[0].BPMHigh, zones[3].BPMHigh)
+	}
+	if zones[4].BPMHigh != 0 {
+		t.Errorf("Z5 BPMHigh = %d, want 0 (open-ended)", zones[4].BPMHigh)
+	}
+
+	// Labels must survive the missing LTHR as well, or the coach can name a
+	// zone but not the bpm range behind it.
+	labels := fitness.HRZoneRangeLabels(zones, a.ThresholdHR)
+	if len(labels) != 5 || labels[1] != "121–145 bpm" {
+		t.Errorf("labels = %v, want Z2 = 121–145 bpm", labels)
+	}
+}
+
+// With neither an LTHR nor custom bounds every zone is open-ended, and
+// hrZoneIdx would funnel every heartbeat into Z1. Recording nothing is the
+// honest answer.
+func TestUsableHRZones_NilWhenNothingConfigured(t *testing.T) {
+	if zones := fitness.UsableHRZones(&models.Athlete{}); zones != nil {
+		t.Errorf("got %v, want nil", zones)
+	}
+	if labels := fitness.HRZoneRangeLabels(fitness.HRZones(0), 0); labels != nil {
+		t.Errorf("labels = %v, want nil", labels)
+	}
+}
+
+// hrStream builds samples one second apart carrying the given heart rates.
+func hrStream(bpms ...int) []models.Stream {
+	base := time.Date(2024, 3, 15, 8, 0, 0, 0, time.UTC)
+	streams := make([]models.Stream, len(bpms))
+	for i, b := range bpms {
+		b := b
+		streams[i] = models.Stream{Timestamp: base.Add(time.Duration(i) * time.Second), HeartRateBPM: &b}
+	}
+	return streams
+}
+
+func TestComputeZoneTimes_HonorsCustomZonesWithoutThresholdHR(t *testing.T) {
+	a := &models.Athlete{HRZonesJSON: "[120,145,160,175,0,0]"}
+	streams := hrStream(130, 130, 130, 150, 190)
+
+	_, hr, _ := fitness.ComputeZoneTimes(streams, nil, fitness.UsableHRZones(a), 0, 0)
+
+	if want := ([5]int{0, 3, 1, 0, 1}); hr != want {
+		t.Errorf("hr = %v, want %v", hr, want)
+	}
+}

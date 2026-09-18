@@ -475,14 +475,15 @@ func (h *CoachHandler) collectCoachingData() (*aicoach.CoachingData, error) {
 		})
 	}
 
-	powerZones, hrZones, ssSecs, err := h.db.GetRecentZoneTotals(56)
+	totals, err := h.db.GetRecentZoneTotals(56)
 	if err != nil {
 		return nil, err
 	}
 	zones := aicoach.ZoneDist{
-		PowerZones:    formatZoneValues(powerZones[:]),
-		HRZones:       formatZoneValues(hrZones[:]),
-		SweetSpotSecs: ssSecs,
+		PowerZones:    formatZoneValues(totals.Power[:]),
+		HRZones:       formatZoneValues(totals.HR[:]),
+		SweetSpotSecs: totals.SweetSpotSecs,
+		HRCoverage:    hrCoverageNote(totals),
 	}
 
 	// FTP history, oldest-first, capped to the last 12 changes so the payload
@@ -570,6 +571,23 @@ func formatZoneValues(secs []int) aicoach.ZoneValues {
 		values[i] = float64((s + 30) / 60) // round to nearest minute
 	}
 	return aicoach.ZoneValues{Unit: "minutes", Values: values}
+}
+
+// hrCoverageNote warns when the HR array covers fewer rides than the power
+// array. Rides recorded without a strap contribute power seconds and zero HR
+// seconds, so the two distributions do not share a denominator — percentages
+// taken off ride time rather than off the HR total under-report every HR zone.
+// Returns "" when every ride in the window has HR (nothing to caveat).
+func hrCoverageNote(t db.ZoneTotals) string {
+	if t.Workouts == 0 || t.WorkoutsWithHR == t.Workouts {
+		return ""
+	}
+	if t.WorkoutsWithHR == 0 {
+		return "No ride in this window recorded heart rate — the hr_zones values are all zero because there is no HR data, NOT because the rider trained at low intensity. Do not draw HR-based conclusions; use the power zones."
+	}
+	return fmt.Sprintf(
+		"Only %d of %d rides in this window recorded heart rate, so hr_zones covers less time than power_zones. Compute HR-zone percentages against the hr_zones total, never against total ride time.",
+		t.WorkoutsWithHR, t.Workouts)
 }
 
 // decouplingForWorkout returns a workout's aerobic decoupling, computing it

@@ -2044,3 +2044,51 @@ func TestGetFitnessOnDate_TodayFallsBackToLastSettled(t *testing.T) {
 		t.Errorf("today's ride should raise fatigue above yesterday's %.2f, got %.2f", yesterday.Fatigue, fp.Fatigue)
 	}
 }
+
+func TestGetRecentZoneTotals_CountsHRCoverageSeparately(t *testing.T) {
+	d := newTestDB(t)
+
+	// Two rides in the window: one with HR, one recorded without a strap.
+	// Both contribute power time, so the power and HR arrays cover different
+	// amounts of riding — the counts are what let a caller say so.
+	withHR := sampleWorkout("zonecoverage0001")
+	withHR.RecordedAt = time.Now().Add(-48 * time.Hour)
+	noHR := sampleWorkout("zonecoverage0002")
+	noHR.RecordedAt = time.Now().Add(-24 * time.Hour)
+	for _, w := range []*models.Workout{withHR, noHR} {
+		if err := d.InsertWorkout(w, nil); err != nil {
+			t.Fatalf("InsertWorkout %s: %v", w.ID, err)
+		}
+	}
+	if err := d.InsertZoneTimes(withHR.ID, [7]int{60, 120, 0, 0, 0, 0, 0}, [5]int{30, 150, 0, 0, 0}, 40); err != nil {
+		t.Fatalf("InsertZoneTimes: %v", err)
+	}
+	if err := d.InsertZoneTimes(noHR.ID, [7]int{0, 300, 0, 0, 0, 0, 0}, [5]int{}, 10); err != nil {
+		t.Fatalf("InsertZoneTimes: %v", err)
+	}
+
+	totals, err := d.GetRecentZoneTotals(7)
+	if err != nil {
+		t.Fatalf("GetRecentZoneTotals: %v", err)
+	}
+	if want := ([7]int{60, 420, 0, 0, 0, 0, 0}); totals.Power != want {
+		t.Errorf("power = %v, want %v", totals.Power, want)
+	}
+	if want := ([5]int{30, 150, 0, 0, 0}); totals.HR != want {
+		t.Errorf("hr = %v, want %v", totals.HR, want)
+	}
+	if totals.SweetSpotSecs != 50 {
+		t.Errorf("ss = %d, want 50", totals.SweetSpotSecs)
+	}
+	if totals.Workouts != 2 {
+		t.Errorf("workouts = %d, want 2", totals.Workouts)
+	}
+	if totals.WorkoutsWithPower != 2 {
+		t.Errorf("workouts with power = %d, want 2", totals.WorkoutsWithPower)
+	}
+	// The strapless ride must not be counted as HR coverage — that miscount is
+	// exactly what makes an HR-zone percentage come out too low.
+	if totals.WorkoutsWithHR != 1 {
+		t.Errorf("workouts with HR = %d, want 1", totals.WorkoutsWithHR)
+	}
+}

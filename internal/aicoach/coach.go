@@ -41,6 +41,19 @@ type AthleteProfile struct {
 	WeightKG    float64 `json:"weight_kg"`
 	ThresholdHR int     `json:"threshold_hr_bpm,omitempty"`
 	MaxHR       int     `json:"max_hr_bpm,omitempty"`
+	// HRZones are the rider's effective HR zone boundaries — custom bounds if
+	// they set them, otherwise the Coggan %LTHR model. Sent explicitly because
+	// a rider with custom zones has boundaries that cannot be derived from
+	// LTHR, so the model has no other way to name a bpm range.
+	HRZones []ZoneBand `json:"hr_zones,omitempty"`
+}
+
+// ZoneBand names one zone and its range, so a time-in-zone number can be
+// reported as "Z3 (148–163 bpm)" instead of a bare array position.
+type ZoneBand struct {
+	Label string `json:"label"`
+	Name  string `json:"name"`
+	Range string `json:"range"`
 }
 
 type FitnessMetrics struct {
@@ -103,6 +116,10 @@ type ZoneDist struct {
 	PowerZones    ZoneValues `json:"power_zones"`
 	HRZones       ZoneValues `json:"hr_zones"`
 	SweetSpotSecs int        `json:"sweet_spot_secs"` // 88–94% FTP, overlaps Z3/Z4
+	// HRCoverage is set only when some rides in the window lack heart-rate
+	// data, in which case hr_zones covers less time than power_zones and a
+	// percentage taken off ride time under-reports every HR zone.
+	HRCoverage string `json:"hr_coverage_caveat,omitempty"`
 }
 
 // ── Prompt ────────────────────────────────────────────────────────────────────

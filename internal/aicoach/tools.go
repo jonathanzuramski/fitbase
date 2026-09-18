@@ -64,7 +64,7 @@ func CoachTools() []ToolSpec {
 		{
 			Name:        ToolGetAthleteProfile,
 			Label:       "your profile",
-			Description: "The rider's profile: FTP (watts), weight (kg), threshold HR and max HR. These numbers are normally already in your system prompt as the 'Rider profile' block — call this only if that block is missing or the rider asks you to verify their profile.",
+			Description: "The rider's profile: FTP (watts), weight (kg), threshold HR, max HR, and their effective HR zone boundaries (custom bounds if they set them, otherwise the %LTHR model). The scalar numbers are normally already in your system prompt as the 'Rider profile' block — call this if that block is missing, if the rider asks you to verify their profile, or when you need the actual bpm range behind an HR zone (custom zones cannot be derived from LTHR).",
 			InputSchema: objSchema(nil),
 		},
 		{
@@ -138,7 +138,7 @@ func CoachTools() []ToolSpec {
 		{
 			Name:        ToolGetZoneDistribution,
 			Label:       "your zone distribution",
-			Description: "Time spent in each power zone (7) and HR zone (5) over the last N days, plus a parallel Sweet Spot (88–94% FTP) total. SS overlaps Z3/Z4 — it is reported alongside, not as an 8th bucket, so 'did the rider do sweet spot work?' is answerable independently of how Z3/Z4 are split. Use for polarized-vs-threshold distribution and intensity-balance questions.",
+			Description: "Time spent in each power zone (7) and HR zone (5) over the last N days, plus a parallel Sweet Spot (88–94% FTP) total. Each zone comes back labeled with its name and its watt/bpm range, so quote those ranges rather than inventing boundaries. SS overlaps Z3/Z4 — it is reported alongside, not as an 8th bucket, so 'did the rider do sweet spot work?' is answerable independently of how Z3/Z4 are split. HR and power do NOT share a denominator: rides recorded without a strap contribute power time and zero HR time, so take HR-zone percentages against the HR total only, and heed hr_coverage_caveat when present — zero HR time means no data recorded, not easy riding. Use for polarized-vs-threshold distribution and intensity-balance questions.",
 			InputSchema: objSchema(map[string]any{
 				"days": intProp("Look-back window in days, 1–365. Default 56 if omitted."),
 			}),

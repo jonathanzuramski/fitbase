@@ -137,11 +137,25 @@ func (h *CoachHandler) toolAthleteProfile() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// The rider's effective HR zones travel with the profile: custom zones are
+	// not derivable from LTHR, and without the boundaries the model can only
+	// report HR time as an unnamed array position.
+	hrDefs := fitness.ResolveHRZones(a)
+	hrRanges := fitness.HRZoneRangeLabels(hrDefs, a.ThresholdHR)
+	var bands []aicoach.ZoneBand
+	for i, z := range hrDefs {
+		b := aicoach.ZoneBand{Label: z.Label, Name: z.Name}
+		if i < len(hrRanges) {
+			b.Range = hrRanges[i]
+		}
+		bands = append(bands, b)
+	}
 	return jsonResult(aicoach.AthleteProfile{
 		FTPWatts:    a.FTPWatts,
 		WeightKG:    a.WeightKG,
 		ThresholdHR: a.ThresholdHR,
 		MaxHR:       a.MaxHR,
+		HRZones:     bands,
 	})
 }
 
@@ -624,22 +638,73 @@ func (h *CoachHandler) toolZoneDistribution(input json.RawMessage) (string, erro
 	_ = json.Unmarshal(input, &args)
 	days := clampInt(args.Days, 56, 1, 365)
 
-	power, hr, ssSecs, err := h.db.GetRecentZoneTotals(days)
+	totals, err := h.db.GetRecentZoneTotals(days)
 	if err != nil {
 		return "", err
 	}
+	athlete, err := h.db.GetAthlete()
+	if err != nil {
+		return "", err
+	}
+
+	// Zones go out labeled and with their bpm/watt ranges. A bare array leaves
+	// the model to guess that index 0 is Z1 and to re-derive the boundaries
+	// from FTP/LTHR — and a rider on custom HR zones has boundaries that cannot
+	// be derived from LTHR at all, so the HR numbers were unanchored.
+	powerDefs := fitness.PowerZones(athlete.FTPWatts)[:7]
+	powerRanges := fitness.PowerZoneRangeLabels(athlete.FTPWatts)
+	hrDefs := fitness.ResolveHRZones(athlete)
+	hrRanges := fitness.HRZoneRangeLabels(hrDefs, athlete.ThresholdHR)
+
 	// SS is a parallel band (88–94% FTP) that overlaps Z3/Z4 — surface as a
 	// single value alongside the partitioned zones so the model treats it as a
 	// quality indicator, not as an 8th bucket.
-	ss := formatZoneValues([]int{ssSecs})
-	return jsonResult(map[string]any{
-		"window_days": days,
-		"power_zones": formatZoneValues(power[:]),
-		"hr_zones":    formatZoneValues(hr[:]),
+	ss := formatZoneValues([]int{totals.SweetSpotSecs})
+	out := map[string]any{
+		"window_days":   days,
+		"workout_count": totals.Workouts,
+		"power_zones":   labeledZones(formatZoneValues(totals.Power[:]), powerDefs, powerRanges),
+		"hr_zones":      labeledZones(formatZoneValues(totals.HR[:]), hrDefs, hrRanges),
 		"sweet_spot": map[string]any{
 			"unit":  ss.Unit,
 			"value": ss.Values[0],
 			"note":  "Sweet Spot (88–94% FTP) overlaps Z3/Z4 — counted in parallel, not subtracted from the 7-zone totals.",
 		},
-	})
+	}
+	if note := hrCoverageNote(totals); note != "" {
+		out["hr_coverage_caveat"] = note
+	}
+	return jsonResult(out)
+}
+
+// zoneEntry is one labeled bucket of a zone distribution.
+type zoneEntry struct {
+	Label string  `json:"label"`
+	Name  string  `json:"name"`
+	Range string  `json:"range,omitempty"`
+	Value float64 `json:"value"`
+}
+
+// labeledZones pairs each zone time with its label, name, and range. defs and
+// ranges are best-effort: ranges is nil when FTP or the HR zones are not
+// configured, and a short defs slice simply leaves those entries unnamed rather
+// than dropping the number.
+func labeledZones[Z models.PowerZone | models.HRZone](vals aicoach.ZoneValues, defs []Z, ranges []string) map[string]any {
+	entries := make([]zoneEntry, len(vals.Values))
+	for i, v := range vals.Values {
+		e := zoneEntry{Value: v}
+		if i < len(defs) {
+			switch z := any(defs[i]).(type) {
+			case models.PowerZone:
+				e.Label, e.Name = z.Label, z.Name
+			case models.HRZone:
+				e.Label, e.Name = z.Label, z.Name
+			}
+		}
+		if i < len(ranges) {
+			e.Range = ranges[i]
+		}
+		entries[i] = e
+	}
+	return map[string]any{"unit": vals.Unit, "zones": entries}
 }

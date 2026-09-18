@@ -99,6 +99,22 @@ func ResolveHRZones(a *models.Athlete) []models.HRZone {
 	return HRZones(a.ThresholdHR)
 }
 
+// UsableHRZones returns the athlete's HR zones only if they carry real
+// boundaries, and nil otherwise. HRZones(0) yields five zones whose upper
+// bounds are all 0, which hrZoneIdx would read as "Z1 is open-ended" and dump
+// every heartbeat into Z1 — worse than recording no HR time at all. Callers
+// that compute time-in-zone use this instead of ResolveHRZones so that a rider
+// with custom bounds but no LTHR is still bucketed correctly.
+func UsableHRZones(a *models.Athlete) []models.HRZone {
+	zones := ResolveHRZones(a)
+	for _, z := range zones {
+		if z.BPMHigh > 0 {
+			return zones
+		}
+	}
+	return nil
+}
+
 // ComputeZoneTimes returns seconds spent in each power zone [7], HR zone [5],
 // and the Sweet Spot reference band (88–94% FTP). SS overlaps Z3/Z4 by design,
 // so it is counted independently and is NOT subtracted from the 7-zone totals.
@@ -177,8 +193,21 @@ func PowerZoneRangeLabels(ftp int) []string {
 
 // HRZoneRangeLabels returns display strings like "< 139 bpm", "139–167 bpm", "≥ 168 bpm"
 // for each HR zone. Returns nil if thresholdHR <= 0.
+// thresholdHR is accepted for symmetry with PowerZoneRangeLabels but is not
+// required: custom zones carry explicit bpm bounds with no LTHR set, and those
+// still deserve labels.
 func HRZoneRangeLabels(zones []models.HRZone, thresholdHR int) []string {
-	if thresholdHR <= 0 || len(zones) == 0 {
+	if len(zones) == 0 {
+		return nil
+	}
+	bounded := false
+	for _, z := range zones {
+		if z.BPMHigh > 0 {
+			bounded = true
+			break
+		}
+	}
+	if !bounded {
 		return nil
 	}
 	labels := make([]string, len(zones))
