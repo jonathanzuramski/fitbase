@@ -249,3 +249,85 @@ func (w *Workout) ToSummary() WorkoutSummary {
 		IntensityFactor: w.IntensityFactor,
 	}
 }
+
+// WorkoutShape is the interval-level view of one ride: efforts auto-detected
+// from the power stream, repeated efforts grouped into sets, a coarse
+// time-bucketed profile, and whatever was planned for that day. It exists so a
+// consumer (the AI coach above all) can judge how a structured session was
+// executed — whole-ride averages make 5×4min VO2 and steady tempo look alike.
+type WorkoutShape struct {
+	WorkoutID   string `json:"workout_id"`
+	TrainingDay string `json:"training_day"`
+	Sport       string `json:"sport"`
+	ElapsedSecs int    `json:"elapsed_secs"`
+	// FTPWatts is the FTP in effect on the ride's date; every pct_ftp and the
+	// detection thresholds are relative to it.
+	FTPWatts       int                `json:"ftp_watts,omitempty"`
+	Detection      *EffortDetection   `json:"detection,omitempty"`
+	Efforts        []EffortSummary    `json:"efforts"`
+	OmittedEfforts int                `json:"omitted_efforts,omitempty"`
+	Sets           []EffortSetSummary `json:"sets"`
+	Profile        ShapeProfile       `json:"profile"`
+	Planned        []PlannedWorkout   `json:"planned,omitempty"`
+	Notes          []string           `json:"notes,omitempty"`
+}
+
+// EffortDetection states the thresholds an effort was detected against, so a
+// reader knows what was (and wasn't) counted.
+type EffortDetection struct {
+	StartWatts int    `json:"start_watts"`
+	FloorWatts int    `json:"floor_watts"`
+	MinSecs    int    `json:"min_secs"`
+	Rule       string `json:"rule"`
+}
+
+// EffortSummary is one detected effort. N is its 1-based position in the
+// ride; Start is elapsed time from the start of the recording (h:mm:ss).
+type EffortSummary struct {
+	N                 int    `json:"n"`
+	Start             string `json:"start"`
+	DurationSecs      int    `json:"duration_secs"`
+	AvgWatts          int    `json:"avg_watts"`
+	PctFTP            int    `json:"pct_ftp"`
+	NPWatts           *int   `json:"np_watts,omitempty"`
+	MaxWatts          int    `json:"max_watts"`
+	AvgHR             *int   `json:"avg_hr_bpm,omitempty"`
+	MaxHR             *int   `json:"max_hr_bpm,omitempty"`
+	AvgCadence        *int   `json:"avg_cadence_rpm,omitempty"`
+	RecoveryAfterSecs *int   `json:"recovery_after_secs,omitempty"`
+	RecoveryAvgWatts  *int   `json:"recovery_avg_watts,omitempty"`
+}
+
+// EffortSetSummary condenses a run of similar efforts ("5×4min") into the
+// numbers a coach reads first: per-rep power and HR, fade, and HR creep.
+type EffortSetSummary struct {
+	FirstEffort      int     `json:"first_effort"` // N of the first rep
+	Reps             int     `json:"reps"`
+	AvgDurationSecs  int     `json:"avg_duration_secs"`
+	AvgWatts         int     `json:"avg_watts"`
+	AvgPctFTP        int     `json:"avg_pct_ftp"`
+	RepAvgWatts      []int   `json:"rep_avg_watts"`
+	RepMaxHR         []int   `json:"rep_max_hr_bpm,omitempty"`
+	FadePct          float64 `json:"fade_pct"`               // last rep vs first rep avg power
+	HRCreepBPM       *int    `json:"hr_creep_bpm,omitempty"` // last rep max HR minus first rep's
+	AvgRecoverySecs  *int    `json:"avg_recovery_secs,omitempty"`
+	AvgRecoveryWatts *int    `json:"avg_recovery_watts,omitempty"`
+}
+
+// ShapeProfile is the ride cut into fixed-length buckets (≤ 30). Buckets that
+// fall entirely inside a stop are omitted.
+type ShapeProfile struct {
+	BucketSecs int           `json:"bucket_secs"`
+	Buckets    []ShapeBucket `json:"buckets"`
+}
+
+// ShapeBucket averages one slice of the ride over its recorded seconds.
+// AvgSpeedKPH is only set on rides without power.
+type ShapeBucket struct {
+	Start       string   `json:"start"`
+	AvgWatts    *int     `json:"avg_watts,omitempty"`
+	PctFTP      *int     `json:"pct_ftp,omitempty"`
+	AvgHR       *int     `json:"avg_hr_bpm,omitempty"`
+	AvgCadence  *int     `json:"avg_cadence_rpm,omitempty"`
+	AvgSpeedKPH *float64 `json:"avg_speed_kph,omitempty"`
+}

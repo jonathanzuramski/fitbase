@@ -26,6 +26,7 @@ func NewRouter(h *Handler, dropbox *DropboxHandler, intervalsH *IntervalsHandler
 			r.Get("/streams", h.GetStreams)
 			r.Get("/summary", h.GetWorkoutSummary)
 			r.Get("/analysis", h.GetWorkoutAnalysis)
+			r.Get("/shape", h.GetWorkoutShape)
 			r.Get("/download", h.DownloadFIT)
 			r.Get("/route", h.GetWorkoutRoute)
 			r.Get("/achievements", h.GetWorkoutAchievements)

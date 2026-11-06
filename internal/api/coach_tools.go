@@ -23,11 +23,14 @@ import (
 // can never report different numbers. Windows are clamped so a bad argument
 // can't pull unbounded data.
 
-// briefFromWorkout enriches a stored workout with EF/VI and (for long rides)
-// aerobic decoupling. This is the *insights* path's helper (collectCoachingData
-// in coach.go) — it intentionally pays a per-ride stream fetch for decoupling.
-// The chat list tool deliberately uses the cheaper ToSummary() instead and
-// only computes decoupling for a single workout in get_workout_detail.
+// briefFromWorkout enriches a stored workout with EF/VI, (for long rides)
+// aerobic decoupling, and (for rides with power) a one-line summary of the
+// intervals inside it. This is the *insights* path's helper
+// (collectCoachingData in coach.go) — it intentionally pays a per-ride stream
+// fetch for decoupling and shape, each only on the first call for a ride:
+// both are cached (workout_decoupling, workout_shape). The chat list tool
+// deliberately uses the cheaper ToSummary() instead and leaves the drill-down
+// to get_workout_detail and get_workout_intervals.
 func (h *CoachHandler) briefFromWorkout(w models.Workout) aicoach.WorkoutBrief {
 	day := w.TrainingDay
 	if day == "" {
@@ -58,6 +61,14 @@ func (h *CoachHandler) briefFromWorkout(w models.Workout) aicoach.WorkoutBrief {
 		if dec, ok := h.decouplingForWorkout(w.ID); ok {
 			r := round2(dec)
 			brief.DecouplingPct = &r
+		}
+	}
+	if w.AvgPowerWatts != nil || w.NormalizedPower != nil {
+		// Same FTP-of-the-day rule as get_workout_intervals, so the insights
+		// line and the tool always describe a ride with the same numbers.
+		ftp := h.db.GetFTPAtDate(w.RecordedAt)
+		if shape, err := rideShape(h.db, w.ID, ftp); err == nil {
+			brief.Structure = shapeHeadline(shape, ftp)
 		}
 	}
 	return brief
@@ -102,6 +113,8 @@ func (h *CoachHandler) execTool(_ context.Context, name string, input json.RawMe
 		return h.toolListRecentWorkouts(input)
 	case aicoach.ToolGetWorkoutDetail:
 		return h.toolWorkoutDetail(input)
+	case aicoach.ToolGetWorkoutIntervals:
+		return h.toolWorkoutIntervals(input)
 	case aicoach.ToolGetWeeklyBreakdown:
 		return h.toolWeeklyBreakdown(input)
 	case aicoach.ToolGetPowerCurve:
@@ -273,6 +286,31 @@ func (h *CoachHandler) toolWorkoutDetail(input json.RawMessage) (string, error) 
 	return jsonResult(res)
 }
 
+// toolWorkoutIntervals reuses the workoutShape core behind
+// GET /api/workouts/{id}/shape: detected efforts, sets with fade and HR creep,
+// a coarse profile, and the workout planned for that day. Kept separate from
+// get_workout_detail because it pays a full stream fetch and a few KB of
+// output — worth it when the question is about execution, not on every
+// broad "review my week" drill-down.
+func (h *CoachHandler) toolWorkoutIntervals(input json.RawMessage) (string, error) {
+	var args struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(input, &args)
+	id := strings.TrimSpace(args.ID)
+	if id == "" {
+		return "", fmt.Errorf("id is required")
+	}
+	shape, err := workoutShape(h.db, id)
+	if err != nil {
+		return "", err
+	}
+	if shape == nil {
+		return jsonResult(map[string]any{"error": "no workout with that id"})
+	}
+	return jsonResult(shape)
+}
+
 // toolWeeklyBreakdown returns the same rows as GET /api/training/weekly.
 func (h *CoachHandler) toolWeeklyBreakdown(input json.RawMessage) (string, error) {
 	var args struct {
@@ -431,11 +469,11 @@ func (h *CoachHandler) toolListPlannedWorkouts(input json.RawMessage) (string, e
 		})
 	}
 	return jsonResult(map[string]any{
-		"count":    len(out),
-		"planned":  out,
-		"note":     "source 'coach' entries on a date are replaced when the rider accepts a new proposal covering that date; 'manual' entries are never touched — avoid double-booking those days.",
-		"today":    now.Format("2006-01-02"),
-		"window":   fmt.Sprintf("%s to %s", now.AddDate(0, 0, -7).Format("2006-01-02"), now.AddDate(0, 0, days).Format("2006-01-02")),
+		"count":   len(out),
+		"planned": out,
+		"note":    "source 'coach' entries on a date are replaced when the rider accepts a new proposal covering that date; 'manual' entries are never touched — avoid double-booking those days.",
+		"today":   now.Format("2006-01-02"),
+		"window":  fmt.Sprintf("%s to %s", now.AddDate(0, 0, -7).Format("2006-01-02"), now.AddDate(0, 0, days).Format("2006-01-02")),
 	})
 }
 
