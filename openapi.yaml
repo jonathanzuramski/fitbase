@@ -548,6 +548,14 @@ paths:
                     properties:
                       role:    { type: string, enum: [user, assistant] }
                       content: { type: string }
+                mode:
+                  type: string
+                  enum: [weekly_plan]
+                  description: |
+                    Applies to this turn only. `weekly_plan` has the coach review
+                    the last weeks (grading key sessions interval by interval) and
+                    propose a schedule for the 7 days starting tomorrow, in the
+                    athlete's timezone. Omit for a normal question.
       responses:
         "200":
           description: SSE stream of tool progress and the answer
@@ -555,7 +563,7 @@ paths:
             text/event-stream:
               schema: { type: string }
         "400":
-          description: Invalid history, or the configured provider does not support tool use
+          description: Invalid history or mode, or the configured provider does not support tool use
         "503":
           description: AI coach not configured (no provider or API key saved)
 
