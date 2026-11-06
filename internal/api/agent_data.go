@@ -1,7 +1,10 @@
 package api
 
 import (
+	"fmt"
 	"math"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/fitbase/fitbase/internal/db"
@@ -247,4 +250,329 @@ func workoutAnalysis(database *db.DB, id string) (*models.WorkoutAnalysis, error
 	}
 
 	return analysis, nil
+}
+
+// maxShapeEfforts caps the effort list. A hilly outdoor ride can throw up
+// dozens of 20s+ surges; past this many, the efforts with the least work are
+// dropped from the list (sets still summarize every rep they contain).
+const maxShapeEfforts = 40
+
+// workoutShape detects the efforts and sets inside one ride, builds a coarse
+// time-bucketed profile, and attaches the workout planned for that day so
+// execution can be compared against the prescription. Returns (nil, nil) when
+// no workout has the given id. Backs GET /api/workouts/{id}/shape and the
+// coach's get_workout_intervals tool.
+func workoutShape(database *db.DB, id string) (*models.WorkoutShape, error) {
+	w, err := database.GetWorkout(id)
+	if err != nil {
+		return nil, err
+	}
+	if w == nil {
+		return nil, nil
+	}
+	// The FTP of the ride's day, not today's: "118% FTP" should mean what it
+	// meant when the rider did the work — the same FTP its TSS/IF used.
+	ftp := database.GetFTPAtDate(w.RecordedAt)
+	shape, err := rideShape(database, id, ftp)
+	if err != nil {
+		return nil, err
+	}
+
+	day := w.TrainingDay
+	if day == "" {
+		day = w.RecordedAt.Format("2006-01-02")
+	}
+	out := &models.WorkoutShape{
+		WorkoutID:   id,
+		TrainingDay: day,
+		Sport:       w.Sport,
+		ElapsedSecs: shape.ElapsedSecs,
+		Efforts:     []models.EffortSummary{},
+		Sets:        []models.EffortSetSummary{},
+		Profile:     models.ShapeProfile{BucketSecs: shape.BucketSecs, Buckets: []models.ShapeBucket{}},
+	}
+	if ftp > 0 {
+		out.FTPWatts = ftp
+	}
+	pctOf := func(watts float64) int {
+		return int(math.Round(watts / float64(ftp) * 100))
+	}
+	intPtr := func(v float64) *int {
+		r := int(math.Round(v))
+		return &r
+	}
+
+	if shape.HasPower && ftp > 0 {
+		out.Detection = &models.EffortDetection{
+			StartWatts: int(math.Round(float64(ftp) * fitness.EffortStartPctFTP / 100)),
+			FloorWatts: int(math.Round(float64(ftp) * fitness.EffortFloorPctFTP / 100)),
+			MinSecs:    fitness.EffortMinSecs,
+			Rule: fmt.Sprintf("An effort starts when power (9s smoothed) reaches %d%% FTP and lasts while it holds above the higher of %d%% FTP and %d%% of the effort's own average, bridging dips of up to %ds. Efforts under %ds are ignored, and work below %d%% FTP (tempo, endurance) is never an effort — read it from the profile.",
+				fitness.EffortStartPctFTP, fitness.EffortFloorPctFTP, int(fitness.EffortRelativeFloor*100),
+				fitness.EffortMaxDipSecs, fitness.EffortMinSecs, fitness.EffortStartPctFTP),
+		}
+	}
+
+	shortWithHR := false
+	all := make([]models.EffortSummary, len(shape.Efforts))
+	for i, e := range shape.Efforts {
+		s := models.EffortSummary{
+			N:            i + 1,
+			Start:        formatClock(e.StartSecs),
+			DurationSecs: e.DurationSecs,
+			AvgWatts:     int(math.Round(e.AvgWatts)),
+			PctFTP:       pctOf(e.AvgWatts),
+			MaxWatts:     e.MaxWatts,
+		}
+		if e.NPWatts > 0 {
+			s.NPWatts = intPtr(e.NPWatts)
+		}
+		if e.AvgHR > 0 {
+			s.AvgHR = intPtr(e.AvgHR)
+			s.MaxHR = intPtr(float64(e.MaxHR))
+			if e.DurationSecs < 120 {
+				shortWithHR = true
+			}
+		}
+		if e.AvgCadence > 0 {
+			s.AvgCadence = intPtr(e.AvgCadence)
+		}
+		if i < len(shape.Efforts)-1 {
+			rec := e.RecoverySecs
+			s.RecoveryAfterSecs = &rec
+			if e.RecoveryAvgWatts > 0 {
+				s.RecoveryAvgWatts = intPtr(e.RecoveryAvgWatts)
+			}
+		}
+		all[i] = s
+	}
+	if len(all) > maxShapeEfforts {
+		// Keep the efforts with the most work, then restore ride order. N keeps
+		// the original numbering so sets and the rider's chart still line up.
+		idx := make([]int, len(all))
+		for i := range idx {
+			idx[i] = i
+		}
+		work := func(i int) float64 { return shape.Efforts[i].AvgWatts * float64(shape.Efforts[i].DurationSecs) }
+		sort.SliceStable(idx, func(a, b int) bool { return work(idx[a]) > work(idx[b]) })
+		idx = idx[:maxShapeEfforts]
+		sort.Ints(idx)
+		kept := make([]models.EffortSummary, len(idx))
+		for k, i := range idx {
+			kept[k] = all[i]
+		}
+		out.OmittedEfforts = len(all) - len(kept)
+		all = kept
+	}
+	out.Efforts = all
+
+	for _, set := range shape.Sets {
+		reps := shape.Efforts[set.First : set.First+set.Count]
+		ss := models.EffortSetSummary{
+			FirstEffort: set.First + 1,
+			Reps:        set.Count,
+			RepAvgWatts: make([]int, len(reps)),
+		}
+		var durSum, wattSum, recSecs, recWatts float64
+		var recN, recWN int
+		allHR := true
+		for i, r := range reps {
+			durSum += float64(r.DurationSecs)
+			wattSum += r.AvgWatts
+			ss.RepAvgWatts[i] = int(math.Round(r.AvgWatts))
+			if r.MaxHR == 0 {
+				allHR = false
+			}
+			if i < len(reps)-1 { // recoveries inside the set
+				recSecs += float64(r.RecoverySecs)
+				recN++
+				if r.RecoveryAvgWatts > 0 {
+					recWatts += r.RecoveryAvgWatts
+					recWN++
+				}
+			}
+		}
+		ss.AvgDurationSecs = int(math.Round(durSum / float64(len(reps))))
+		avg := wattSum / float64(len(reps))
+		ss.AvgWatts = int(math.Round(avg))
+		ss.AvgPctFTP = pctOf(avg)
+		first, last := reps[0], reps[len(reps)-1]
+		if first.AvgWatts > 0 {
+			ss.FadePct = math.Round((last.AvgWatts-first.AvgWatts)/first.AvgWatts*1000) / 10
+		}
+		if allHR {
+			ss.RepMaxHR = make([]int, len(reps))
+			for i, r := range reps {
+				ss.RepMaxHR[i] = r.MaxHR
+			}
+			creep := last.MaxHR - first.MaxHR
+			ss.HRCreepBPM = &creep
+		}
+		if recN > 0 {
+			ss.AvgRecoverySecs = intPtr(recSecs / float64(recN))
+		}
+		if recWN > 0 {
+			ss.AvgRecoveryWatts = intPtr(recWatts / float64(recWN))
+		}
+		out.Sets = append(out.Sets, ss)
+	}
+
+	for _, b := range shape.Buckets {
+		pb := models.ShapeBucket{Start: formatClock(b.StartSecs)}
+		if shape.HasPower {
+			pb.AvgWatts = intPtr(b.AvgWatts)
+			if ftp > 0 {
+				p := pctOf(b.AvgWatts)
+				pb.PctFTP = &p
+			}
+		}
+		if b.AvgHR > 0 {
+			pb.AvgHR = intPtr(b.AvgHR)
+		}
+		if b.AvgCadence > 0 {
+			pb.AvgCadence = intPtr(b.AvgCadence)
+		}
+		if !shape.HasPower && shape.HasSpeed {
+			kph := math.Round(b.AvgSpeedMPS*36) / 10
+			pb.AvgSpeedKPH = &kph
+		}
+		out.Profile.Buckets = append(out.Profile.Buckets, pb)
+	}
+
+	if dayT, perr := time.Parse("2006-01-02", day); perr == nil {
+		planned, err := database.ListPlannedWorkoutsBetween(dayT, dayT)
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range planned {
+			if strings.EqualFold(p.Sport, w.Sport) {
+				out.Planned = append(out.Planned, p)
+			}
+		}
+	}
+
+	switch {
+	case shape.ElapsedSecs == 0:
+		out.Notes = append(out.Notes, "This workout has no recorded stream data, so its shape can't be analyzed.")
+	case !shape.HasPower:
+		out.Notes = append(out.Notes, "No power data on this ride — efforts can't be detected. The profile shows heart rate and speed only.")
+	case ftp <= 0:
+		out.Notes = append(out.Notes, "FTP is not set, so efforts can't be detected against a threshold. The profile still shows power and heart rate.")
+	case len(shape.Efforts) == 0:
+		out.Notes = append(out.Notes, fmt.Sprintf("No sustained efforts at or above %d%% FTP — a steady or endurance-type ride. Judge pacing and drift from the profile.", fitness.EffortStartPctFTP))
+	}
+	if out.OmittedEfforts > 0 {
+		out.Notes = append(out.Notes, fmt.Sprintf("%d lower-work efforts were left out of the list to keep it readable; n keeps the ride's original numbering.", out.OmittedEfforts))
+	}
+	if shortWithHR {
+		out.Notes = append(out.Notes, "Heart rate lags power by a minute or more: on efforts under ~2 min, max_hr_bpm understates the real response. Compare reps against each other rather than against HR zones.")
+	}
+	if len(out.Planned) > 0 {
+		out.Notes = append(out.Notes, "A workout was planned for this day. Compare the efforts and sets with its intervals — target_pct_ftp is relative to ftp_watts, and start times run from the start of the recording, so the planned warmup is the time before effort 1.")
+	}
+	return out, nil
+}
+
+// formatClock renders elapsed seconds as h:mm:ss.
+func formatClock(secs int) string {
+	return fmt.Sprintf("%d:%02d:%02d", secs/3600, secs/60%60, secs%60)
+}
+
+// formatDur renders a duration the way riders write intervals: "4:00",
+// "20:00", or "1:05:00" past an hour.
+func formatDur(secs int) string {
+	if secs >= 3600 {
+		return formatClock(secs)
+	}
+	return fmt.Sprintf("%d:%02d", secs/60, secs%60)
+}
+
+// rideShape returns a workout's shape against ftp — from the workout_shape
+// cache when a row for this FTP and detector version exists, otherwise
+// computed from the streams and cached. A stream-read failure is returned
+// without caching so the next call retries.
+func rideShape(database *db.DB, workoutID string, ftp int) (fitness.RideShape, error) {
+	if s, ok, err := database.GetWorkoutShape(workoutID, ftp); err == nil && ok {
+		return s, nil
+	}
+	streams, err := database.GetStreams(workoutID)
+	if err != nil {
+		return fitness.RideShape{}, err
+	}
+	s := fitness.AnalyzeShape(streams, ftp)
+	_ = database.SaveWorkoutShape(workoutID, ftp, s) // best-effort: a miss just recomputes
+	return s, nil
+}
+
+// maxHeadlineEfforts bounds how many loose efforts shapeHeadline names.
+const maxHeadlineEfforts = 4
+
+// shapeHeadline condenses a ride's shape into one line for the insights
+// payload, where every recent ride appears and the full per-effort detail
+// would swamp the prompt: "5×4:00 @ 117% FTP, last rep -6.3% vs first, HR +8".
+// Returns "" when there is nothing to say (no power or no FTP).
+func shapeHeadline(s fitness.RideShape, ftp int) string {
+	if !s.HasPower || ftp <= 0 {
+		return ""
+	}
+	if len(s.Efforts) == 0 {
+		return fmt.Sprintf("steady — no efforts at or above %d%% FTP", fitness.EffortStartPctFTP)
+	}
+	pct := func(w float64) int { return int(math.Round(w / float64(ftp) * 100)) }
+
+	inSet := make([]bool, len(s.Efforts))
+	var parts []string
+	for _, set := range s.Sets {
+		reps := s.Efforts[set.First : set.First+set.Count]
+		var dur, watts float64
+		for i := range reps {
+			inSet[set.First+i] = true
+			dur += float64(reps[i].DurationSecs)
+			watts += reps[i].AvgWatts
+		}
+		n := float64(len(reps))
+		part := fmt.Sprintf("%d×%s @ %d%% FTP", len(reps), formatDur(int(math.Round(dur/n))), pct(watts/n))
+		first, last := reps[0], reps[len(reps)-1]
+		if first.AvgWatts > 0 {
+			part += fmt.Sprintf(", last rep %+.1f%% vs first", (last.AvgWatts-first.AvgWatts)/first.AvgWatts*100)
+		}
+		if first.MaxHR > 0 && last.MaxHR > 0 {
+			part += fmt.Sprintf(", HR %+d", last.MaxHR-first.MaxHR)
+		}
+		parts = append(parts, part)
+	}
+
+	// Efforts outside any set: name the ones with the most work, in ride order.
+	var loose []int
+	for i := range s.Efforts {
+		if !inSet[i] {
+			loose = append(loose, i)
+		}
+	}
+	if len(loose) > 0 {
+		shown := append([]int(nil), loose...)
+		work := func(i int) float64 { return s.Efforts[i].AvgWatts * float64(s.Efforts[i].DurationSecs) }
+		sort.SliceStable(shown, func(a, b int) bool { return work(shown[a]) > work(shown[b]) })
+		if len(shown) > maxHeadlineEfforts {
+			shown = shown[:maxHeadlineEfforts]
+		}
+		sort.Ints(shown)
+		names := make([]string, len(shown))
+		for k, i := range shown {
+			names[k] = fmt.Sprintf("%s @ %d%%", formatDur(s.Efforts[i].DurationSecs), pct(s.Efforts[i].AvgWatts))
+		}
+		label := "efforts"
+		if len(loose) == 1 {
+			label = "effort"
+		}
+		if len(parts) > 0 {
+			label = "other " + label
+		}
+		part := fmt.Sprintf("%d %s: %s", len(loose), label, strings.Join(names, ", "))
+		if more := len(loose) - len(shown); more > 0 {
+			part += fmt.Sprintf(" +%d more", more)
+		}
+		parts = append(parts, part)
+	}
+	return strings.Join(parts, "; ")
 }

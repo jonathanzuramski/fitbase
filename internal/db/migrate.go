@@ -81,6 +81,7 @@ var migrations = []func(*sql.Tx) error{
 	migrateRideLocalTime,       // v5 — per-ride UTC offset, start coords, county/state + backfill
 	migrateLedgerTombstones,    // v6 — imported_files.deleted flag so deletes survive auto-sync
 	migrateAchievements,        // v7 — per-workout PR trophies + chronological backfill
+	migrateWorkoutShapeCache,   // v8 — lazily filled per-workout interval-shape cache
 }
 
 // migrate replays every migration the database hasn't run yet.
@@ -564,6 +565,27 @@ func migrateAchievements(tx *sql.Tx) error {
 		if err := computeAchievements(tx, id); err != nil {
 			return fmt.Errorf("backfill achievements for %s: %w", id, err)
 		}
+	}
+	return nil
+}
+
+// migrateWorkoutShapeCache (v8) creates the per-workout ride-shape cache
+// (efforts, sets, profile — see fitness.AnalyzeShape). Like workout_decoupling
+// it is filled lazily by the first coach/API call that needs a ride's shape,
+// so there is nothing to backfill. Unlike decoupling the result depends on FTP
+// and on the detector itself, so each row records the ftp_watts and
+// fitness.ShapeVersion it was computed with; a row that no longer matches is
+// stale and is recomputed on read — an FTP-history edit or a detector change
+// needs no migration or invalidation hook of its own.
+func migrateWorkoutShapeCache(tx *sql.Tx) error {
+	if _, err := tx.Exec(`
+		CREATE TABLE IF NOT EXISTS workout_shape (
+			workout_id TEXT PRIMARY KEY REFERENCES workouts(id) ON DELETE CASCADE,
+			ftp_watts  INTEGER NOT NULL,
+			version    INTEGER NOT NULL,
+			shape_json TEXT NOT NULL
+		)`); err != nil {
+		return fmt.Errorf("create workout_shape: %w", err)
 	}
 	return nil
 }

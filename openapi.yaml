@@ -454,6 +454,30 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/workouts/{id}/shape:
+    get:
+      summary: Get workout shape (intervals)
+      description: |
+        What happened inside one ride. Efforts are auto-detected from the power
+        stream (sustained work at or above ~85% FTP of the ride date), repeated
+        efforts are grouped into sets with per-rep power, fade, and HR creep, and
+        a coarse time-bucketed profile (at most 30 buckets) covers pacing and
+        drift. Workouts planned for the same day and sport are attached so
+        execution can be compared with the prescription.
+      parameters:
+        - $ref: "#/components/parameters/WorkoutID"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:  { $ref: "#/components/schemas/WorkoutShape" }
+                  error: { type: string, nullable: true }
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/coach/insights:
     get:
       summary: Get cached coaching insights
@@ -1033,6 +1057,76 @@ components:
         avg_tss_90day:          { type: number, nullable: true }
         avg_if_90day:           { type: number, nullable: true }
         avg_duration_90day_secs: { type: number, nullable: true }
+
+    EffortSummary:
+      type: object
+      properties:
+        n:                   { type: integer, description: "1-based position of the effort in the ride" }
+        start:               { type: string, example: "0:10:00", description: "Elapsed time from the start of the recording (h:mm:ss)" }
+        duration_secs:       { type: integer }
+        avg_watts:           { type: integer }
+        pct_ftp:             { type: integer, description: "avg_watts as % of the FTP in effect on the ride date" }
+        np_watts:            { type: integer, nullable: true, description: "Only on efforts of 60s or more" }
+        max_watts:           { type: integer }
+        avg_hr_bpm:          { type: integer, nullable: true }
+        max_hr_bpm:          { type: integer, nullable: true }
+        avg_cadence_rpm:     { type: integer, nullable: true, description: "Pedaling samples only" }
+        recovery_after_secs: { type: integer, nullable: true, description: "Time until the next effort; absent on the last" }
+        recovery_avg_watts:  { type: integer, nullable: true }
+
+    EffortSetSummary:
+      type: object
+      description: A run of consecutive efforts of similar duration with short recoveries — e.g. 5×4min.
+      properties:
+        first_effort:       { type: integer, description: "n of the first rep" }
+        reps:               { type: integer }
+        avg_duration_secs:  { type: integer }
+        avg_watts:          { type: integer }
+        avg_pct_ftp:        { type: integer }
+        rep_avg_watts:      { type: array, items: { type: integer } }
+        rep_max_hr_bpm:     { type: array, items: { type: integer }, nullable: true, description: "Present only when every rep has HR" }
+        fade_pct:           { type: number, description: "Last rep's avg power vs the first rep's, in percent (negative = faded)" }
+        hr_creep_bpm:       { type: integer, nullable: true, description: "Last rep's max HR minus the first rep's" }
+        avg_recovery_secs:  { type: integer, nullable: true }
+        avg_recovery_watts: { type: integer, nullable: true }
+
+    WorkoutShape:
+      type: object
+      properties:
+        workout_id:      { type: string }
+        training_day:    { type: string, format: date }
+        sport:           { type: string }
+        elapsed_secs:    { type: integer }
+        ftp_watts:       { type: integer, nullable: true, description: "FTP in effect on the ride date; every pct_ftp and the detection thresholds use it" }
+        detection:
+          type: object
+          nullable: true
+          description: Thresholds the efforts were detected against. Absent without power data or FTP.
+          properties:
+            start_watts: { type: integer, description: "85% FTP" }
+            floor_watts: { type: integer, description: "70% FTP" }
+            min_secs:    { type: integer }
+            rule:        { type: string }
+        efforts:         { type: array, items: { $ref: "#/components/schemas/EffortSummary" } }
+        omitted_efforts: { type: integer, nullable: true, description: "Efforts left out of the list (lowest work first) when a ride has more than 40" }
+        sets:            { type: array, items: { $ref: "#/components/schemas/EffortSetSummary" } }
+        profile:
+          type: object
+          properties:
+            bucket_secs: { type: integer }
+            buckets:
+              type: array
+              items:
+                type: object
+                properties:
+                  start:           { type: string, example: "0:10:00" }
+                  avg_watts:       { type: integer, nullable: true }
+                  pct_ftp:         { type: integer, nullable: true }
+                  avg_hr_bpm:      { type: integer, nullable: true }
+                  avg_cadence_rpm: { type: integer, nullable: true }
+                  avg_speed_kph:   { type: number, nullable: true, description: "Only on rides without power" }
+        planned:         { type: array, nullable: true, items: { $ref: "#/components/schemas/PlannedWorkout" }, description: "Workouts planned for the same day and sport" }
+        notes:           { type: array, nullable: true, items: { type: string } }
 
     ReadinessReport:
       type: object
