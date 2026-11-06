@@ -275,12 +275,18 @@
 						<div class="coach-chat">
 							<div class="coach-chat-header">
 								<span class="coach-chat-title">Ask the coach</span>
-								<button type="button" class="coach-chat-clear" id="chat-clear" hidden>clear</button>
+								<div class="coach-chat-header-actions">
+									<button type="button" class="coach-chat-plan" id="chat-plan-week"
+										title="Review how your training has gone and draft the next 7 days">plan my week</button>
+									<button type="button" class="coach-chat-clear" id="chat-clear" hidden>clear</button>
+								</div>
 							</div>
 							<div id="chat-log" class="coach-chat-log" hidden></div>
 							<p id="chat-hint" class="muted coach-chat-hint">
 								Ask anything about your training — the coach pulls your real data to answer.
-								Try “how did my last block go?” or “am I fresh enough to race Saturday?”
+								Try “how did my intervals go yesterday?” or “am I fresh enough to race Saturday?”
+								Or press <strong>plan my week</strong> for a review and a draft schedule — type any
+								constraints first, like “no riding Wednesday, long ride Saturday”.
 							</p>
 							<form id="chat-form" class="coach-chat-form" autocomplete="off">
 								<textarea id="chat-input" class="coach-chat-input" rows="1"
@@ -813,6 +819,7 @@
 		const log = document.getElementById('chat-log');
 		const hint = document.getElementById('chat-hint');
 		const clear = document.getElementById('chat-clear');
+		const planWeek = document.getElementById('chat-plan-week');
 
 		// Conversation history sent verbatim each turn (user/assistant text only).
 		// Persisted to localStorage so navigating to another page doesn't lose the
@@ -975,7 +982,7 @@
 		// were on another page (the event stream replays identically either way).
 		async function runTurn(fetcher) {
 			busy = true;
-			send.disabled = input.disabled = true;
+			send.disabled = input.disabled = planWeek.disabled = true;
 			hint.hidden = true;
 			log.hidden = false;
 			clear.hidden = false;
@@ -1047,22 +1054,36 @@
 				saveHistory();
 			} finally {
 				busy = false;
-				send.disabled = input.disabled = false;
+				send.disabled = input.disabled = planWeek.disabled = false;
 				input.focus();
 				log.scrollTop = log.scrollHeight;
 			}
 		}
 
-		function ask(text) {
+		// mode (optional) applies to this turn only — e.g. 'weekly_plan' makes the
+		// server append its review-and-plan playbook. Follow-ups go out without it.
+		function ask(text, mode) {
 			history.push({ role: 'user', content: text });
 			saveHistory();
 			addRow('user').textContent = text;
+			const body = { messages: history };
+			if (mode) body.mode = mode;
 			return runTurn(() => fetch('/api/coach/chat', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
-				body: JSON.stringify({ messages: history }),
+				body: JSON.stringify(body),
 			}));
 		}
+
+		// "plan my week": whatever is typed in the box rides along as constraints,
+		// so the rider can say "no riding Wednesday" without a second round trip.
+		planWeek.addEventListener('click', () => {
+			if (busy) return;
+			const notes = input.value.trim();
+			input.value = '';
+			autoGrow();
+			ask('Plan my week.' + (notes ? '\n\nConstraints: ' + notes : ''), 'weekly_plan');
+		});
 
 		// resumeIfActive re-attaches to a turn that was in flight when this page
 		// was last unloaded. If the turn is gone (superseded, or the server

@@ -126,8 +126,11 @@ func SupportsChat(name string) bool {
 }
 
 // maxToolRounds caps the agentic loop so a misbehaving model can't fetch data
-// forever. Six rounds is generous — most questions resolve in one or two.
-const maxToolRounds = 6
+// forever. Most questions resolve in one or two rounds; a weekly plan needs a
+// gather round, a get_workout_intervals drill-down round, and a
+// propose_schedule round, and models that call tools one at a time need slack
+// beyond that — so eight, not six.
+const maxToolRounds = 8
 
 // ChatSystemPrompt steers the conversational coach. Unlike SystemPrompt it has
 // no fixed output structure: the model answers the rider's actual question and

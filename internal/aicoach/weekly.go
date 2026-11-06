@@ -1,0 +1,59 @@
+package aicoach
+
+import (
+	"fmt"
+	"time"
+)
+
+// ChatModeWeeklyPlan marks a chat turn started from the "plan my week"
+// button. The turn runs through the normal tool-using chat — so the rider can
+// push back afterwards ("I can't ride Wednesday") and get a re-proposal — but
+// the server appends WeeklyPlanBrief to the system context for that turn so
+// the review and the plan follow a consistent playbook.
+const ChatModeWeeklyPlan = "weekly_plan"
+
+// WeeklyPlanDays is the length of the window a weekly plan covers.
+const WeeklyPlanDays = 7
+
+// WeeklyPlanWindow returns the first and last day a weekly plan covers: the
+// seven days starting tomorrow in the rider's timezone. Starting tomorrow
+// (rather than next Monday) means the button is useful on any day of the week
+// and never leaves a gap between today and the plan.
+func WeeklyPlanWindow(now time.Time) (start, end time.Time) {
+	y, m, d := now.Date()
+	start = time.Date(y, m, d+1, 0, 0, 0, 0, now.Location())
+	end = start.AddDate(0, 0, WeeklyPlanDays-1)
+	return start, end
+}
+
+// WeeklyPlanBrief is the playbook for one weekly review-and-plan turn. It
+// names the exact window so the model never has to infer "next week" from a
+// weekday, and spells out the data to gather — in particular grading last
+// week's key sessions with get_workout_intervals, because progressing a plan
+// from whole-ride averages alone is exactly the guesswork it replaces.
+func WeeklyPlanBrief(start, end time.Time) string {
+	return fmt.Sprintf(`Weekly plan request — the rider pressed "plan my week". Review how their training has been going, then plan %s through %s (%d days, starting tomorrow).
+
+Gather first — request independent tools together in one round:
+- get_readiness, get_weekly_breakdown (weeks: 6), get_fitness_trend (days: 42), get_performance_trend (days: 90), get_power_curve (days: 42), get_goal_progress.
+- list_planned_workouts — it includes the past 7 days, so you can compare what was planned with what was done, and it shows manual entries in the new window that the plan must work around.
+- list_recent_workouts (days: 14), then get_workout_intervals on every key session from the last 7–10 days (IF ≥ 0.80, or a day that had a structured plan). This is how you know whether the rider hit last week's targets — never grade intervals from IF or average power.
+
+Then write, in Markdown:
+## How the last week went
+Volume (TSS, hours, rides) against the previous weeks and against what was planned. Grade each key session on execution — reps completed, power vs target, fade_pct, HR creep — and name specific sessions and numbers.
+## Progress
+What is improving and what is stalling, from performance signals (FTP history, recent-vs-all-time power, EF at matched IF, decoupling) — not from CTL alone. Be honest about plateaus.
+## Focus for the week
+One or two priorities and why, tied to form (TSB), ramp rate, and what is underdeveloped.
+
+Then call propose_schedule for the window — one entry per training day, rest days skipped, dates %s to %s only. Build the key sessions from what the rider actually executed:
+- Reps completed with fade under ~3%% and HR settling between reps → progress one step: one more rep, +2–3%% target, or longer reps — not all three.
+- Fade over ~5%%, missed reps, or a session abandoned → repeat the same session, or cut a rep.
+- Deeply negative TSB (below about -25) or a ramp rate above ~8 CTL/week → make it a recovery or consolidation week regardless.
+Respect the rider's mileage goals when set, and any constraints they mention in their message or earlier in the conversation.
+
+Finish with a short paragraph summarizing the week and one thing to watch, and point the rider to the preview card. Keep the prose to roughly 250–400 words — the schedule itself goes in the tool call, not in prose.`,
+		start.Format("Monday, 2006-01-02"), end.Format("Monday, 2006-01-02"), WeeklyPlanDays,
+		start.Format("2006-01-02"), end.Format("2006-01-02"))
+}
