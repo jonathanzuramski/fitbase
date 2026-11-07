@@ -10,7 +10,7 @@
 	const metaRow = $('wp-meta-row'), meta = $('wp-meta'), toggleBtn = $('wp-toggle');
 	const status = $('wp-status'), review = $('wp-review'), week = $('wp-week');
 	const actions = $('wp-actions'), acceptBtn = $('wp-accept'), discardBtn = $('wp-discard');
-	const errEl = $('wp-error'), body = $('wp-body');
+	const errEl = $('wp-error'), body = $('wp-body'), chip = $('wp-chip');
 	const dayBoxes = Array.from(document.querySelectorAll('#wp-prefs .wp-day input'));
 	const hoursInput = $('wp-hours'), savedEl = $('wp-prefs-saved');
 	if (!runBtn) return;
@@ -24,6 +24,14 @@
 	function showError(msg) {
 		errEl.textContent = msg || '';
 		errEl.hidden = !msg;
+	}
+
+	// setChip labels the collapsed panel's header ("plan ready", "planning…")
+	// so a plan waiting for review isn't missed while the panel is hidden.
+	function setChip(text) {
+		if (!chip) return;
+		chip.textContent = text || '';
+		chip.hidden = !text;
 	}
 
 	function setBusy(b) {
@@ -141,6 +149,7 @@
 		status.hidden = true;
 		toggleBtn.hidden = true;
 		body.classList.remove('wp-split');
+		setChip(plan && plan.status === 'ready' ? 'plan ready' : '');
 		if (!plan) {
 			intro.hidden = false;
 			metaRow.hidden = review.hidden = week.hidden = actions.hidden = reviseBtn.hidden = true;
@@ -205,6 +214,7 @@
 		showError('');
 		intro.hidden = metaRow.hidden = week.hidden = actions.hidden = toggleBtn.hidden = true;
 		body.classList.remove('wp-split');
+		setChip('planning…');
 		review.innerHTML = '';
 		review.hidden = false;
 		status.hidden = false;

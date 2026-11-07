@@ -353,8 +353,9 @@
 }
 .weekly-plan-link:hover { text-decoration: underline; }
 
-/* Phones show the short duration ("1:33"); see responsive.css. */
-.cal-dur-short { display: none; }
+/* Shown only in the phone day list (responsive.css). */
+.cal-dow,
+.cal-workout-tss { display: none; }
 
 /* Long coach prose is hard to read at full desktop width. */
 .weekly-plan-review > * { max-width: 80ch; }
@@ -379,3 +380,29 @@
   .wp-split .weekly-plan-week { grid-area: week; }
   .wp-split .weekly-plan-actions { grid-area: actions; }
 }
+
+/* Weekly plan collapse (state remembered per browser; see calendar.html). */
+.weekly-plan-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.weekly-plan.wp-collapsed .weekly-plan-content,
+.weekly-plan.wp-collapsed .weekly-plan-auto { display: none; }
+.weekly-plan.wp-collapsed .weekly-plan-collapse { transform: rotate(-90deg); }
+/* A plan waiting for review (or being generated) stays visible as a chip on
+   the collapsed header; clicking it opens the panel. */
+.weekly-plan-chip {
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: var(--accent);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  vertical-align: middle;
+  cursor: pointer;
+}
+.weekly-plan:not(.wp-collapsed) .weekly-plan-chip { display: none; }
