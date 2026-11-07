@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 
 	"github.com/fitbase/fitbase/internal/aicoach"
 )
@@ -81,6 +82,7 @@ func (anthropicProvider) Stream(ctx context.Context, cfg aicoach.CallConfig, onC
 	}
 	defer body.Close() //nolint:errcheck
 
+	var usage anthropicUsage
 	return aicoach.ScanSSE(body, func(data []byte) error {
 		var evt struct {
 			Type  string `json:"type"`
@@ -88,6 +90,12 @@ func (anthropicProvider) Stream(ctx context.Context, cfg aicoach.CallConfig, onC
 				Type string `json:"type"`
 				Text string `json:"text"`
 			} `json:"delta"`
+			// message_start carries the input side of usage, message_delta the
+			// final output count.
+			Message struct {
+				Usage anthropicUsage `json:"usage"`
+			} `json:"message"`
+			Usage anthropicUsage `json:"usage"`
 			Error *struct {
 				Message string `json:"message"`
 			} `json:"error"`
@@ -98,6 +106,14 @@ func (anthropicProvider) Stream(ctx context.Context, cfg aicoach.CallConfig, onC
 		}
 		if evt.Error != nil {
 			return fmt.Errorf("anthropic API error: %s", evt.Error.Message)
+		}
+		switch evt.Type {
+		case "message_start":
+			usage = evt.Message.Usage
+		case "message_delta":
+			usage.OutputTokens = evt.Usage.OutputTokens
+		case "message_stop":
+			usage.log(cfg.Model, "insights")
 		}
 		if evt.Type == "content_block_delta" && evt.Delta.Type == "text_delta" && evt.Delta.Text != "" {
 			return onChunk(evt.Delta.Text)
@@ -112,6 +128,22 @@ func (anthropicProvider) Stream(ctx context.Context, cfg aicoach.CallConfig, onC
 // sends it, and returns either the model's final text or the tool calls it
 // wants run.
 func (anthropicProvider) ChatTurn(ctx context.Context, in aicoach.ChatTurnInput) (*aicoach.ChatTurnOutput, error) {
+	reqBody := anthropicChatRequest(in)
+	headers := map[string]string{
+		"x-api-key":         in.APIKey,
+		"anthropic-version": "2023-06-01",
+	}
+	raw, err := aicoach.PostJSON(ctx, "https://api.anthropic.com/v1/messages", headers, reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("anthropic: %w", err)
+	}
+	return parseAnthropicChatResponse(raw, in.Model)
+}
+
+// anthropicChatRequest builds the Messages API body for one chat round. Kept
+// separate from the HTTP call so the prompt-caching layout can be tested: a
+// caching regression never errors, it only shows up on the bill.
+func anthropicChatRequest(in aicoach.ChatTurnInput) map[string]any {
 	messages := make([]map[string]any, 0, len(in.History)+2*len(in.Rounds))
 
 	for _, m := range in.History {
@@ -156,11 +188,33 @@ func (anthropicProvider) ChatTurn(ctx context.Context, in aicoach.ChatTurnInput)
 		messages = append(messages, map[string]any{"role": "user", "content": resultBlocks})
 	}
 
+	// Prompt caching. A chat turn is a loop of requests that each re-send the
+	// tool definitions, the system prompt, and every earlier tool result, so
+	// without caching a 4-round weekly plan pays for its ~10k-token prefix four
+	// times at full price. Two breakpoints (of the API's four):
+	//   - explicit, on the static system block: caches tools + prompt, which
+	//     are byte-identical across rounds, turns, riders, and days;
+	//   - automatic (top-level cache_control): the API places it on the last
+	//     block and moves it forward, so each round reads everything earlier
+	//     rounds wrote and pays full price only for what it appends.
+	// Default 5-minute TTL: rounds start seconds apart, and a follow-up
+	// question inside 5 minutes still reads the tools + prompt entry.
+	ephemeral := map[string]string{"type": "ephemeral"}
+	var system []map[string]any
+	if in.System != "" {
+		system = append(system, map[string]any{"type": "text", "text": in.System, "cache_control": ephemeral})
+	}
+	if in.SystemContext != "" {
+		system = append(system, map[string]any{"type": "text", "text": in.SystemContext})
+	}
 	reqBody := map[string]any{
-		"model":      in.Model,
-		"max_tokens": in.MaxTokens,
-		"system":     in.System,
-		"messages":   messages,
+		"model":         in.Model,
+		"max_tokens":    in.MaxTokens,
+		"messages":      messages,
+		"cache_control": ephemeral,
+	}
+	if len(system) > 0 {
+		reqBody["system"] = system
 	}
 	if len(in.Tools) > 0 {
 		tools := make([]map[string]any, len(in.Tools))
@@ -178,15 +232,12 @@ func (anthropicProvider) ChatTurn(ctx context.Context, in aicoach.ChatTurnInput)
 			reqBody["tool_choice"] = map[string]any{"type": "none"}
 		}
 	}
+	return reqBody
+}
 
-	headers := map[string]string{
-		"x-api-key":         in.APIKey,
-		"anthropic-version": "2023-06-01",
-	}
-	raw, err := aicoach.PostJSON(ctx, "https://api.anthropic.com/v1/messages", headers, reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("anthropic: %w", err)
-	}
+// parseAnthropicChatResponse maps a Messages API response to the model's text
+// and tool calls, logging the call's token usage.
+func parseAnthropicChatResponse(raw []byte, model string) (*aicoach.ChatTurnOutput, error) {
 
 	var resp struct {
 		Content []struct {
@@ -196,7 +247,8 @@ func (anthropicProvider) ChatTurn(ctx context.Context, in aicoach.ChatTurnInput)
 			Name  string          `json:"name"`
 			Input json.RawMessage `json:"input"`
 		} `json:"content"`
-		StopReason string `json:"stop_reason"`
+		StopReason string         `json:"stop_reason"`
+		Usage      anthropicUsage `json:"usage"`
 		Error      *struct {
 			Message string `json:"message"`
 		} `json:"error"`
@@ -207,6 +259,7 @@ func (anthropicProvider) ChatTurn(ctx context.Context, in aicoach.ChatTurnInput)
 	if resp.Error != nil {
 		return nil, fmt.Errorf("anthropic API error: %s", resp.Error.Message)
 	}
+	resp.Usage.log(model, "chat")
 
 	out := &aicoach.ChatTurnOutput{}
 	for _, blk := range resp.Content {
@@ -222,4 +275,24 @@ func (anthropicProvider) ChatTurn(ctx context.Context, in aicoach.ChatTurnInput)
 		}
 	}
 	return out, nil
+}
+
+// anthropicUsage is the Messages API usage block. Total prompt size is
+// InputTokens + CacheCreationInputTokens + CacheReadInputTokens — InputTokens
+// alone is only the uncached remainder.
+type anthropicUsage struct {
+	InputTokens              int `json:"input_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+}
+
+// log records one API call's token usage. One line per call is the only way
+// to see what the coach costs and whether prompt caching is actually hitting.
+func (u anthropicUsage) log(model, kind string) {
+	slog.Info("anthropic usage", "kind", kind, "model", model,
+		"input_tokens", u.InputTokens,
+		"cache_creation_input_tokens", u.CacheCreationInputTokens,
+		"cache_read_input_tokens", u.CacheReadInputTokens,
+		"output_tokens", u.OutputTokens)
 }

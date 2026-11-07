@@ -31,7 +31,9 @@ func (*capturingProvider) Stream(context.Context, aicoach.CallConfig, func(strin
 }
 func (p *capturingProvider) ChatTurn(_ context.Context, in aicoach.ChatTurnInput) (*aicoach.ChatTurnOutput, error) {
 	p.mu.Lock()
-	p.systems = append(p.systems, in.System)
+	// The weekly playbook is per-request context, so it rides in
+	// SystemContext — never in the cached static System prompt.
+	p.systems = append(p.systems, in.System+"\n\n"+in.SystemContext)
 	p.mu.Unlock()
 	return &aicoach.ChatTurnOutput{Text: "ok"}, nil
 }

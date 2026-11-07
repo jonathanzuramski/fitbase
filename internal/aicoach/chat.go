@@ -74,14 +74,21 @@ const ToolChoiceNone = "none"
 // tool round resolved so far in this Chat call. ToolChoice is "" (model
 // decides) or ToolChoiceNone.
 type ChatTurnInput struct {
-	Model      string
-	APIKey     string
-	System     string
-	History    []ChatMessage
-	Rounds     []ToolRound
-	Tools      []ToolSpec
-	ToolChoice string
-	MaxTokens  int
+	Model  string
+	APIKey string
+	// System is the static coach prompt: identical for every rider, day, and
+	// mode, so a provider can cache it — together with the tool definitions
+	// that render ahead of it — across tool rounds and turns.
+	System string
+	// SystemContext is the per-request part of the system prompt (today's
+	// date, the rider profile, a mode playbook). It follows System and must
+	// never be merged into it, or every new day or mode would miss the cache.
+	SystemContext string
+	History       []ChatMessage
+	Rounds        []ToolRound
+	Tools         []ToolSpec
+	ToolChoice    string
+	MaxTokens     int
 }
 
 // ChatTurnOutput is the assistant's response for one turn. When Calls is
@@ -170,17 +177,6 @@ Planning — when the rider asks for a plan, a week, a schedule, or "what should
 - Build against current form and ramp rate: recover when TSB is deeply negative, build when it's near neutral, sharpen when positive. Alternate hard and easy days. Give key sessions structured intervals — warmup, work set with recoveries (use a repeat group), cooldown — and give endurance rides a simple Z2 target.
 - Afterwards, summarize the plan in one short paragraph and point the rider to the preview card to accept or discard.`
 
-// GetSystemPrompt returns the chat system prompt with an optional rider-profile
-// suffix appended verbatim. Callers build profileBlock from current athlete
-// data (FTP, weight, LTHR, MaxHR) so the model has authoritative numbers in
-// context and never needs to fetch them via the athlete-profile tool.
-func GetSystemPrompt(profileBlock string) string {
-	if profileBlock == "" {
-		return ChatSystemPrompt
-	}
-	return ChatSystemPrompt + "\n\n" + profileBlock
-}
-
 // ToolExecutor runs one tool call and returns its result as a string the model
 // will read (JSON preferred). An error aborts the whole chat turn.
 type ToolExecutor func(ctx context.Context, name string, input json.RawMessage) (string, error)
@@ -207,16 +203,16 @@ func (c *Coach) SupportsChat() bool {
 // calls it requests against exec, feed the results back, and repeat until the
 // model returns a final text answer (or the round cap is hit). The final
 // answer is delivered through cb.OnText in chunks and also returned whole.
-// systemContext is appended to ChatSystemPrompt — used by callers to inject
-// the rider profile so the model has authoritative FTP/HR numbers in context.
+// systemContext follows ChatSystemPrompt — callers inject today's date, the
+// rider profile (authoritative FTP/HR numbers), and any mode playbook. It is
+// passed separately rather than concatenated so the static prompt stays
+// byte-identical and cacheable across riders, days, and modes.
 func (c *Coach) Chat(ctx context.Context, history []ChatMessage, systemContext string, tools []ToolSpec, exec ToolExecutor, cb ChatCallbacks) (string, error) {
 	// assert the provider supports ChatProvider interface.
 	cp, ok := c.provider.(ChatProvider)
 	if !ok {
 		return "", fmt.Errorf("provider %q does not support chat", c.provider.Name())
 	}
-	// get the system prompt with profile context appended.
-	system := GetSystemPrompt(systemContext)
 
 	// shown accumulates every piece of answer text the rider has been sent, so
 	// the returned answer matches what they saw.
@@ -246,14 +242,15 @@ func (c *Coach) Chat(ctx context.Context, history []ChatMessage, systemContext s
 		}
 
 		out, err := cp.ChatTurn(ctx, ChatTurnInput{
-			Model:      c.model,
-			APIKey:     c.apiKey,
-			System:     system,
-			History:    history,
-			Rounds:     rounds,
-			Tools:      tools,
-			ToolChoice: toolChoice,
-			MaxTokens:  MaxTokens,
+			Model:         c.model,
+			APIKey:        c.apiKey,
+			System:        ChatSystemPrompt,
+			SystemContext: systemContext,
+			History:       history,
+			Rounds:        rounds,
+			Tools:         tools,
+			ToolChoice:    toolChoice,
+			MaxTokens:     MaxTokens,
 		})
 		if err != nil {
 			return "", err
