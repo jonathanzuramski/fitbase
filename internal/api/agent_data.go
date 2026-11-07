@@ -369,9 +369,10 @@ func workoutShape(database *db.DB, id string) (*models.WorkoutShape, error) {
 	for _, set := range shape.Sets {
 		reps := shape.Efforts[set.First : set.First+set.Count]
 		ss := models.EffortSetSummary{
-			FirstEffort: set.First + 1,
-			Reps:        set.Count,
-			RepAvgWatts: make([]int, len(reps)),
+			FirstEffort:     set.First + 1,
+			Reps:            set.Count,
+			RepDurationSecs: make([]int, len(reps)),
+			RepAvgWatts:     make([]int, len(reps)),
 		}
 		var durSum, wattSum, recSecs, recWatts float64
 		var recN, recWN int
@@ -379,6 +380,7 @@ func workoutShape(database *db.DB, id string) (*models.WorkoutShape, error) {
 		for i, r := range reps {
 			durSum += float64(r.DurationSecs)
 			wattSum += r.AvgWatts
+			ss.RepDurationSecs[i] = r.DurationSecs
 			ss.RepAvgWatts[i] = int(math.Round(r.AvgWatts))
 			if r.MaxHR == 0 {
 				allHR = false
@@ -398,7 +400,7 @@ func workoutShape(database *db.DB, id string) (*models.WorkoutShape, error) {
 		ss.AvgPctFTP = pctOf(avg)
 		first, last := reps[0], reps[len(reps)-1]
 		if first.AvgWatts > 0 {
-			ss.FadePct = math.Round((last.AvgWatts-first.AvgWatts)/first.AvgWatts*1000) / 10
+			ss.LastVsFirstRepPct = math.Round((last.AvgWatts-first.AvgWatts)/first.AvgWatts*1000) / 10
 		}
 		if allHR {
 			ss.RepMaxHR = make([]int, len(reps))
@@ -509,7 +511,10 @@ const maxHeadlineEfforts = 4
 
 // shapeHeadline condenses a ride's shape into one line for the insights
 // payload, where every recent ride appears and the full per-effort detail
-// would swamp the prompt: "5×4:00 @ 117% FTP, last rep -6.3% vs first, HR +8".
+// would swamp the prompt: "5×4:00 @ 117% FTP, faded 6.3% last rep vs first,
+// max HR +8". Words, not a signed number: in eval a model read "+2.1% vs
+// first" as a fade. Reps of uneven length are listed ("2 reps 12:00/9:52"),
+// so a cut-short last rep isn't averaged away.
 // Returns "" when there is nothing to say (no power or no FTP).
 func shapeHeadline(s fitness.RideShape, ftp int) string {
 	if !s.HasPower || ftp <= 0 {
@@ -525,19 +530,35 @@ func shapeHeadline(s fitness.RideShape, ftp int) string {
 	for _, set := range s.Sets {
 		reps := s.Efforts[set.First : set.First+set.Count]
 		var dur, watts float64
+		minD, maxD := reps[0].DurationSecs, reps[0].DurationSecs
+		durs := make([]string, len(reps))
 		for i := range reps {
 			inSet[set.First+i] = true
 			dur += float64(reps[i].DurationSecs)
 			watts += reps[i].AvgWatts
+			minD, maxD = min(minD, reps[i].DurationSecs), max(maxD, reps[i].DurationSecs)
+			durs[i] = formatDur(reps[i].DurationSecs)
 		}
 		n := float64(len(reps))
-		part := fmt.Sprintf("%d×%s @ %d%% FTP", len(reps), formatDur(int(math.Round(dur/n))), pct(watts/n))
+		var part string
+		if maxD-minD <= max(10, maxD/10) {
+			part = fmt.Sprintf("%d×%s @ %d%% FTP", len(reps), formatDur(int(math.Round(dur/n))), pct(watts/n))
+		} else {
+			part = fmt.Sprintf("%d reps %s @ %d%% FTP", len(reps), strings.Join(durs, "/"), pct(watts/n))
+		}
 		first, last := reps[0], reps[len(reps)-1]
 		if first.AvgWatts > 0 {
-			part += fmt.Sprintf(", last rep %+.1f%% vs first", (last.AvgWatts-first.AvgWatts)/first.AvgWatts*100)
+			switch chg := (last.AvgWatts - first.AvgWatts) / first.AvgWatts * 100; {
+			case math.Abs(chg) < 1:
+				part += ", held power across reps"
+			case chg < 0:
+				part += fmt.Sprintf(", faded %.1f%% last rep vs first", -chg)
+			default:
+				part += fmt.Sprintf(", built %.1f%% last rep vs first", chg)
+			}
 		}
 		if first.MaxHR > 0 && last.MaxHR > 0 {
-			part += fmt.Sprintf(", HR %+d", last.MaxHR-first.MaxHR)
+			part += fmt.Sprintf(", max HR %+d", last.MaxHR-first.MaxHR)
 		}
 		parts = append(parts, part)
 	}

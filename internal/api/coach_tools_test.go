@@ -264,8 +264,8 @@ func TestToolWorkoutIntervals_ReportsSetFadeAndPlan(t *testing.T) {
 	if want := []int{240, 238, 236, 232, 226}; fmt.Sprint(set.RepAvgWatts) != fmt.Sprint(want) {
 		t.Errorf("rep_avg_watts = %v, want %v", set.RepAvgWatts, want)
 	}
-	if set.FadePct != -5.8 {
-		t.Errorf("fade_pct = %v, want -5.8 (226 vs 240)", set.FadePct)
+	if set.LastVsFirstRepPct != -5.8 {
+		t.Errorf("last_vs_first_rep_pct = %v, want -5.8 (226 vs 240)", set.LastVsFirstRepPct)
 	}
 	if set.HRCreepBPM == nil || *set.HRCreepBPM != 8 {
 		t.Errorf("hr_creep_bpm = %v, want 8", set.HRCreepBPM)
@@ -391,12 +391,12 @@ func TestShapeHeadline(t *testing.T) {
 		{
 			"set with fade and HR creep",
 			set([]float64{300, 298, 296, 290, 281}, []int{160, 162, 164, 166, 168}, 240), 250,
-			"5×4:00 @ 117% FTP, last rep -6.3% vs first, HR +8",
+			"5×4:00 @ 117% FTP, faded 6.3% last rep vs first, max HR +8",
 		},
 		{
 			"set without HR",
 			set([]float64{230, 232}, nil, 1200), 250,
-			"2×20:00 @ 92% FTP, last rep +0.9% vs first",
+			"2×20:00 @ 92% FTP, held power across reps",
 		},
 		{
 			"set plus a loose effort",
@@ -405,7 +405,7 @@ func TestShapeHeadline(t *testing.T) {
 				s.Efforts = append(s.Efforts, fitness.Effort{StartSecs: 5000, DurationSecs: 600, AvgWatts: 230})
 				return s
 			}(), 250,
-			"3×4:00 @ 120% FTP, last rep +0.0% vs first; 1 other effort: 10:00 @ 92%",
+			"3×4:00 @ 120% FTP, held power across reps; 1 other effort: 10:00 @ 92%",
 		},
 		{
 			"loose efforts only, capped",
@@ -415,6 +415,23 @@ func TestShapeHeadline(t *testing.T) {
 				{DurationSecs: 480, AvgWatts: 250}, {DurationSecs: 3900, AvgWatts: 215},
 			}}, 250,
 			"6 efforts: 5:00 @ 96%, 12:00 @ 94%, 8:00 @ 100%, 1:05:00 @ 86% +2 more",
+		},
+		{
+			// From the real-data eval: a 2×12 whose second rep stopped at 9:52.
+			// Averaging to "2×11" hid the cut-short rep from the insights model.
+			"uneven reps are listed, not averaged",
+			func() fitness.RideShape {
+				s := set([]float64{209, 209}, []int{165, 169}, 719)
+				s.Efforts[1].DurationSecs = 592
+				return s
+			}(), 245,
+			"2 reps 11:59/9:52 @ 85% FTP, held power across reps, max HR +4",
+		},
+		{
+			// Also from the eval: "+2.1% vs first" was read as a fade.
+			"a rider who built says so in words",
+			set([]float64{210, 210, 214.5}, []int{154, 159, 168}, 717), 245,
+			"3×11:57 @ 86% FTP, built 2.1% last rep vs first, max HR +14",
 		},
 	}
 	for _, c := range cases {
@@ -439,8 +456,58 @@ func TestBriefFromWorkout_CarriesStructure(t *testing.T) {
 		t.Fatalf("GetWorkout: %v", err)
 	}
 	brief := h.briefFromWorkout(*stored)
-	if want := "5×4:00 @ 120% FTP, last rep +0.0% vs first, HR +8"; brief.Structure != want {
+	if want := "5×4:00 @ 120% FTP, held power across reps, max HR +8"; brief.Structure != want {
 		t.Errorf("structure = %q, want %q", brief.Structure, want)
+	}
+}
+
+// In the real-data eval the coach picked which rides to drill into from this
+// list and, with only IF to go on, filed indoor 3×12 interval sessions as
+// "steady tempo". Each listed ride must carry its structure line.
+func TestToolListRecentWorkouts_CarriesStructure(t *testing.T) {
+	h := zoneDistFixture(t, &models.Athlete{FTPWatts: 250, WeightKG: 75})
+	rideAt := time.Now().UTC().Add(-36 * time.Hour).Truncate(time.Second)
+	avg := 180.0
+	w := &models.Workout{ID: "shapelist000001", Filename: "l.fit", RecordedAt: rideAt, Sport: "cycling",
+		DurationSecs: 3360, AvgPowerWatts: &avg, IsIndoor: true}
+	if err := h.db.InsertWorkout(w, intervalRide(rideAt, []int{300, 300, 300, 300, 300})); err != nil {
+		t.Fatalf("InsertWorkout: %v", err)
+	}
+
+	out, err := h.toolListRecentWorkouts([]byte(`{"days":7}`))
+	if err != nil {
+		t.Fatalf("toolListRecentWorkouts: %v", err)
+	}
+	var got struct {
+		Workouts []struct {
+			ID        string  `json:"id"`
+			TSS       float64 `json:"tss"`
+			Indoor    bool    `json:"indoor"`
+			Structure string  `json:"structure"`
+		} `json:"workouts"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("unmarshal: %v\n%s", err, out)
+	}
+	var found bool
+	for _, lw := range got.Workouts {
+		if lw.ID != w.ID {
+			continue
+		}
+		found = true
+		if !lw.Indoor {
+			t.Error("indoor flag missing")
+		}
+		if !strings.HasPrefix(lw.Structure, "5×4:00 @ 120% FTP") {
+			t.Errorf("structure = %q, want it to start with 5×4:00 @ 120%% FTP", lw.Structure)
+		}
+	}
+	if !found {
+		t.Fatalf("interval ride missing from list: %s", out)
+	}
+	// The embedded /summary fields must still be flattened at the top level.
+	if !strings.Contains(out, `"training_day"`) || strings.Contains(out, `"WorkoutSummary"`) {
+		t.Errorf("summary fields not flattened: %s", out)
 	}
 }
 

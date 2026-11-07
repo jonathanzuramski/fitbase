@@ -1093,7 +1093,8 @@ components:
         avg_pct_ftp:        { type: integer }
         rep_avg_watts:      { type: array, items: { type: integer } }
         rep_max_hr_bpm:     { type: array, items: { type: integer }, nullable: true, description: "Present only when every rep has HR" }
-        fade_pct:           { type: number, description: "Last rep's avg power vs the first rep's, in percent (negative = faded)" }
+        rep_duration_secs:  { type: array, items: { type: integer } }
+        last_vs_first_rep_pct: { type: number, description: "Last rep's avg power vs the first rep's, in percent (negative = faded, positive = built)" }
         hr_creep_bpm:       { type: integer, nullable: true, description: "Last rep's max HR minus the first rep's" }
         avg_recovery_secs:  { type: integer, nullable: true }
         avg_recovery_watts: { type: integer, nullable: true }

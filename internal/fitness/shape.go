@@ -25,10 +25,17 @@ import (
 // sweet-spot climb with noisy power is held together by the absolute floor.
 // Thresholds are FTP-relative, so efforts below ~85% FTP (tempo) are not
 // detected — they show up in the time-bucketed profile instead.
+//
+// Outdoor power is full of terrain surges that cross the start threshold for
+// half a minute. Those are not intervals, so a detected stretch is only kept
+// as an effort if it is either sustained (≥ EffortShortMaxSecs at an average
+// of at least EffortMinAvgPctFTP) or short and genuinely hard (an average of
+// at least EffortShortMinPctFTP — 30/30s, Tabatas, attacks).
+
 // ShapeVersion identifies the detector's behavior. Cached shapes
 // (db.workout_shape) computed with a different version are recomputed, so bump
 // it whenever a change here would alter any RideShape output.
-const ShapeVersion = 1
+const ShapeVersion = 2
 
 const (
 	EffortStartPctFTP   = 85
@@ -36,6 +43,21 @@ const (
 	EffortRelativeFloor = 0.80
 	EffortMaxDipSecs    = 10
 	EffortMinSecs       = 20
+
+	// EffortShortMaxSecs: efforts shorter than this must average at least
+	// EffortShortMinPctFTP; longer ones at least EffortMinAvgPctFTP.
+	EffortShortMaxSecs   = 60
+	EffortShortMinPctFTP = 105
+	EffortMinAvgPctFTP   = 80
+
+	// A set is either ≥ setMinReps reps, or two reps of at least
+	// setLongRepSecs (2×20). Rep powers must stay within setMaxPowerRatio of
+	// each other and recoveries within setMaxRecoveryRatio (+30s slack), the
+	// regularity that separates a planned set from a run of terrain surges.
+	setMinReps          = 3
+	setLongRepSecs      = 300
+	setMaxPowerRatio    = 1.4
+	setMaxRecoveryRatio = 2.5
 
 	effortSmoothHalf = 4 // 9s centered window
 	// gapFillMaxSecs is the largest recording gap forward-filled (smart
@@ -258,7 +280,7 @@ func detectEfforts(rs *rideSeries, ftp float64) []Effort {
 			start++
 		}
 
-		if end-start+1 >= EffortMinSecs {
+		if isEffort(end-start+1, meanValid(p, rs.valid, start, end), ftp) {
 			spans = append(spans, span{start, end})
 			prevEnd = end
 		}
@@ -279,6 +301,20 @@ func detectEfforts(rs *rideSeries, ftp float64) []Effort {
 		}
 	}
 	return efforts
+}
+
+// isEffort applies the duration/intensity rule that separates an interval from
+// a terrain surge: short stretches must be genuinely hard, longer ones need a
+// sustained average. See the package comment.
+func isEffort(durSecs int, avgWatts, ftp float64) bool {
+	if durSecs < EffortMinSecs {
+		return false
+	}
+	pct := avgWatts / ftp * 100
+	if durSecs < EffortShortMaxSecs {
+		return pct >= EffortShortMinPctFTP
+	}
+	return pct >= EffortMinAvgPctFTP
 }
 
 func summarizeEffort(rs *rideSeries, start, end int) Effort {
@@ -320,7 +356,9 @@ func summarizeEffort(rs *rideSeries, start, end int) Effort {
 // groupSets folds consecutive efforts into sets: each rep within
 // max(10s, 20%) of the first rep's duration, and each recovery no longer than
 // max(2× rep duration, 3 min). A longer gap or a different-length effort
-// starts a new set; singletons are not sets.
+// starts a new set. A run only counts as a set if it looks planned — see
+// isStructuredSet — so a string of similar-length outdoor surges doesn't
+// read as "3×0:45".
 func groupSets(efforts []Effort) []EffortSet {
 	var sets []EffortSet
 	for i := 0; i < len(efforts); {
@@ -335,12 +373,44 @@ func groupSets(efforts []Effort) []EffortSet {
 			}
 			j++
 		}
-		if j-i >= 2 {
+		if isStructuredSet(efforts[i:j]) {
 			sets = append(sets, EffortSet{First: i, Count: j - i})
 		}
 		i = j
 	}
 	return sets
+}
+
+// isStructuredSet reports whether a run of similar-length efforts has the
+// regularity of planned work: enough reps (or two long ones), rep powers that
+// stay close to each other, and recoveries of similar length.
+func isStructuredSet(reps []Effort) bool {
+	if len(reps) < 2 {
+		return false
+	}
+	if len(reps) < setMinReps && reps[0].DurationSecs < setLongRepSecs {
+		return false
+	}
+	minW, maxW := reps[0].AvgWatts, reps[0].AvgWatts
+	for _, r := range reps[1:] {
+		minW = math.Min(minW, r.AvgWatts)
+		maxW = math.Max(maxW, r.AvgWatts)
+	}
+	if minW <= 0 || maxW/minW > setMaxPowerRatio {
+		return false
+	}
+	// Recoveries inside the set (the last rep's recovery leads out of it).
+	if len(reps) >= 3 {
+		minR, maxR := reps[0].RecoverySecs, reps[0].RecoverySecs
+		for _, r := range reps[1 : len(reps)-1] {
+			minR = min(minR, r.RecoverySecs)
+			maxR = max(maxR, r.RecoverySecs)
+		}
+		if float64(maxR) > setMaxRecoveryRatio*float64(minR)+30 {
+			return false
+		}
+	}
+	return true
 }
 
 // profileBucketSizes are the candidate bucket lengths; the smallest that

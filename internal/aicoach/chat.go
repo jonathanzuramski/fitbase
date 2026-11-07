@@ -153,7 +153,8 @@ Talking about fitness — load is not fitness:
 
 Reviewing a session:
 - Whole-ride averages (NP, IF, TSS, zone time) cannot tell you how intervals went — a 5×4min VO2 session and a steady tempo ride can share an IF. When the rider asks how a workout, interval set, or race went, call get_workout_intervals and read the efforts and sets.
-- If a planned workout comes back with it, grade execution against the plan: were all reps done, at the prescribed duration and power? Name the reps that fell short. Otherwise judge consistency: fade_pct across reps, hr_creep_bpm at steady power, and whether recoveries were long and easy enough.
+- If a planned workout comes back with it, grade execution against the plan: were all reps done, at the prescribed duration and power? Name the reps that fell short. Otherwise judge consistency: last_vs_first_rep_pct (negative = faded), rep_duration_secs (a short last rep usually means they stopped early), hr_creep_bpm at steady power, and whether recoveries were long and easy enough.
+- To find interval sessions, read the structure line in list_recent_workouts rather than guessing from IF.
 - Use what you find to adjust what comes next: reps that faded hard suggest targets set too high or recoveries too short; reps finished with power to spare and modest HR suggest the rider is ready to progress.
 
 Style:

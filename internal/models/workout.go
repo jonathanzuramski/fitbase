@@ -306,10 +306,14 @@ type EffortSetSummary struct {
 	AvgDurationSecs  int     `json:"avg_duration_secs"`
 	AvgWatts         int     `json:"avg_watts"`
 	AvgPctFTP        int     `json:"avg_pct_ftp"`
+	RepDurationSecs  []int   `json:"rep_duration_secs"`
 	RepAvgWatts      []int   `json:"rep_avg_watts"`
 	RepMaxHR         []int   `json:"rep_max_hr_bpm,omitempty"`
-	FadePct          float64 `json:"fade_pct"`               // last rep vs first rep avg power
-	HRCreepBPM       *int    `json:"hr_creep_bpm,omitempty"` // last rep max HR minus first rep's
+	// LastVsFirstRepPct is the last rep's avg power relative to the first's:
+	// negative means the rider faded, positive that they built. Named for the
+	// comparison, not "fade", so a positive value can't be read as a fade.
+	LastVsFirstRepPct float64 `json:"last_vs_first_rep_pct"`
+	HRCreepBPM        *int    `json:"hr_creep_bpm,omitempty"` // last rep max HR minus first rep's
 	AvgRecoverySecs  *int    `json:"avg_recovery_secs,omitempty"`
 	AvgRecoveryWatts *int    `json:"avg_recovery_watts,omitempty"`
 }
