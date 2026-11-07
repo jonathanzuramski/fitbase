@@ -25,6 +25,10 @@ input[type="number"] {
   --bg: #0f1117;
   --bg-card: #171b24;
   --bg-hover: #1e2330;
+  /* Inset panels inside a card (coach insights, chat bubbles, previews).
+     Was referenced in four places but never defined, so those rendered with
+     no background at all. */
+  --surface: #12151d;
   --border: #252b38;
   --text: #e2e8f0;
   --text-muted: #64748b;

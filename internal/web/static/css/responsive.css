@@ -381,8 +381,11 @@
 
 /* ── Calendar (tablets) ──────────────────────────────── */
 @media (max-width: 900px) {
+  /* minmax(0, 1fr), not 1fr: a 1fr track can't shrink below its content, so
+     a day holding "1:33:39 · 24.2mi" widened its column and the grid's
+     overflow:hidden clipped Sunday off a phone screen. */
   .cal-grid {
-    grid-template-columns: repeat(7, 1fr);
+    grid-template-columns: repeat(7, minmax(0, 1fr));
   }
   .cal-header-week,
   .cal-week-summary {
@@ -665,4 +668,30 @@
   .weekly-plan-days .weekly-plan-label { flex-basis: 100%; }
   .wp-day span { min-width: 36px; }
   .weekly-plan-hours input { width: 100px; }
+}
+
+/* Touch screens can't hover, so the calendar's hover-revealed "+" (plan a
+   workout on this day) was unreachable on phones and tablets. */
+@media (hover: none) {
+  .cal-add-btn { opacity: 1; }
+}
+
+/* Calendar day cells on phones: ~50px wide, so keep each entry to one
+   truncated line — the duration for rides, the title for planned workouts.
+   Tapping a planned workout opens its detail dialog, which has "remove", so
+   the hover-only × is dropped to save the space. */
+@media (max-width: 560px) {
+  .cal-header { padding: 6px 0; font-size: 10px; letter-spacing: 0.02em; }
+  .cal-day { padding: 3px; gap: 2px; min-height: 64px; }
+  .cal-date { font-size: 11px; }
+  .cal-workout,
+  .cal-planned { padding: 2px; gap: 3px; font-size: 10px; min-width: 0; }
+  .cal-workout-dist,
+  .cal-planned-target,
+  .cal-planned-del { display: none; }
+  .cal-dot-planned { display: none; }
+  .cal-dur-full { display: none; }
+  .cal-dur-short { display: inline; }
+  /* Card + review padding stack up on a phone; give the text the width. */
+  .weekly-plan-review { padding: 12px 14px; }
 }

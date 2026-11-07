@@ -265,9 +265,14 @@
 .weekly-plan-ask .btn-primary,
 .weekly-plan-ask .btn-secondary { flex-shrink: 0; }
 #wp-status { margin-top: 12px; }
+/* Same inset treatment as the dashboard's insights: the review reads as its
+   own panel, separate from the controls above and the week below. */
 .weekly-plan-review {
   margin-top: 12px;
-  font-size: 14px;
+  padding: 16px 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
 }
 .weekly-plan-week { margin-top: 12px; }
 .weekly-plan-actions {
@@ -347,3 +352,6 @@
   cursor: pointer;
 }
 .weekly-plan-link:hover { text-decoration: underline; }
+
+/* Phones show the short duration ("1:33"); see responsive.css. */
+.cal-dur-short { display: none; }
