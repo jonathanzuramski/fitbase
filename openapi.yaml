@@ -579,6 +579,7 @@ paths:
                       plan:     { allOf: [ { $ref: "#/components/schemas/WeeklyPlan" } ], nullable: true }
                       workouts: { type: array, items: { $ref: "#/components/schemas/PlannedWorkout" } }
                       schedule: { $ref: "#/components/schemas/WeeklyPlanSchedule" }
+                      preferences: { $ref: "#/components/schemas/WeeklyPlanPreferences" }
     post:
       summary: Generate (or revise) a weekly plan (SSE)
       description: |
@@ -675,6 +676,30 @@ paths:
                   data: { $ref: "#/components/schemas/WeeklyPlanSchedule" }
         "400":
           description: Body is missing `enabled`
+
+  /api/coach/weekly-plan/preferences:
+    put:
+      summary: Set training days and weekly hours for weekly plans
+      description: |
+        The rider's standing availability, used by every plan run including the
+        Sunday auto-plan. Proposals are enforced against it: a workout on a day
+        not listed, or a week more than 10% over `weekly_hours`, is rejected
+        back to the coach, which re-plans.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WeeklyPlanPreferences" }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/WeeklyPlanPreferences" }
+        "400":
+          description: No days, an unknown or repeated day, or hours outside 1–40
 
   /api/coach/weekly-plan/{id}/accept:
     post:
@@ -1124,6 +1149,21 @@ components:
         request:      { type: string, description: "The rider's request, including every constraint and revision so far" }
         review_md:    { type: string, description: "The coach's review and plan summary (Markdown)" }
         error:        { type: string, nullable: true }
+
+    WeeklyPlanPreferences:
+      type: object
+      required: [days]
+      properties:
+        days:
+          type: array
+          items: { type: string, enum: [mon, tue, wed, thu, fri, sat, sun] }
+          description: Days the rider can train; returned Monday first. Every day when never set.
+        weekly_hours:
+          type: number
+          nullable: true
+          minimum: 1
+          maximum: 40
+          description: Weekly training-time budget; null lets the coach choose the volume
 
     WeeklyPlanSchedule:
       type: object

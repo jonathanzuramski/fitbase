@@ -655,14 +655,14 @@
   }
 }
 
-/* Weekly plan panel (calendar): the input takes its own row on phones. */
+/* Weekly plan panel (calendar) on phones: the input takes its own row, and the
+   "training days" label sits above the toggles so all seven fit in one row. */
 @media (max-width: 560px) {
   .weekly-plan-ask { flex-wrap: wrap; }
   .weekly-plan-notes { flex-basis: 100%; }
   .weekly-plan-ask .btn-primary,
   .weekly-plan-ask .btn-secondary { flex: 1; }
-}
-@media (max-width: 560px) {
+  .weekly-plan-days .weekly-plan-label { flex-basis: 100%; }
   .wp-day span { min-width: 36px; }
   .weekly-plan-hours input { width: 100px; }
 }
