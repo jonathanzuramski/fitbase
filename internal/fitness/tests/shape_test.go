@@ -295,3 +295,44 @@ func TestAnalyzeShape_ProfileBucketSize(t *testing.T) {
 		}
 	}
 }
+
+// Outdoor endurance riding is full of 30s terrain surges past 85% FTP. They
+// are not intervals, and runs of them must not be grouped into "sets" — the
+// coach would report "3×0:35" for a hilly Z2 ride. Real attacks (≥105%) still
+// count as efforts, but irregularly spaced ones are not a set.
+func TestAnalyzeShape_OutdoorSurgesAreNotIntervals(t *testing.T) {
+	b := newRide()
+	b.noise = 0.10
+	type block struct{ secs, pctFTP int }
+	plan := []block{
+		{600, 65}, {35, 92}, {265, 65}, {30, 135}, {170, 65}, {35, 93}, {165, 65},
+		{35, 91}, {160, 65}, {30, 136}, {650, 65}, {35, 92}, {565, 65}, {30, 134}, {600, 65},
+	}
+	for _, p := range plan {
+		b.add(seg{p.secs, pct(p.pctFTP), 140})
+	}
+
+	shape := fitness.AnalyzeShape(b.streams, shapeFTP)
+	if len(shape.Efforts) != 3 {
+		t.Fatalf("got %d efforts, want the 3 attacks only: %+v", len(shape.Efforts), shape.Efforts)
+	}
+	for i, e := range shape.Efforts {
+		if p := e.AvgWatts / shapeFTP * 100; p < 120 {
+			t.Errorf("effort %d at %.0f%% FTP — a terrain surge leaked through", i+1, p)
+		}
+	}
+	if len(shape.Sets) != 0 {
+		t.Errorf("irregular attacks grouped into sets: %+v", shape.Sets)
+	}
+}
+
+// Two short reps are not enough evidence of a planned set; two long ones are
+// (2×20 is a classic), as already covered by the sweet-spot test.
+func TestAnalyzeShape_TwoShortRepsAreNotASet(t *testing.T) {
+	b := newRide().add(seg{600, pct(60), 0}, seg{60, pct(120), 0}, seg{120, pct(50), 0},
+		seg{60, pct(120), 0}, seg{600, pct(60), 0})
+	shape := fitness.AnalyzeShape(b.streams, shapeFTP)
+	if len(shape.Efforts) != 2 || len(shape.Sets) != 0 {
+		t.Errorf("efforts=%d sets=%+v, want 2 efforts and no set", len(shape.Efforts), shape.Sets)
+	}
+}

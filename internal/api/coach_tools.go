@@ -218,8 +218,9 @@ func (h *CoachHandler) toolFitnessTrend(input json.RawMessage) (string, error) {
 }
 
 // toolListRecentWorkouts returns the README's curated /summary shape
-// (models.Workout.ToSummary) for each workout. Deliberately no per-ride stream
-// fetch — get_workout_detail is where the model drills in for decoupling.
+// (models.Workout.ToSummary) for each workout, plus an indoor flag and the
+// one-line interval structure (cached per ride). Decoupling and the full
+// interval detail stay in get_workout_detail / get_workout_intervals.
 func (h *CoachHandler) toolListRecentWorkouts(input json.RawMessage) (string, error) {
 	var args struct {
 		Days  int    `json:"days"`
@@ -238,9 +239,27 @@ func (h *CoachHandler) toolListRecentWorkouts(input json.RawMessage) (string, er
 	if err != nil {
 		return "", err
 	}
-	out := make([]models.WorkoutSummary, 0, len(rows))
+	// The /summary shape plus two coach-only fields. structure is what lets the
+	// model pick the right sessions to drill into: in eval, without it the
+	// coach chose by IF and filed indoor 3×12 @ 86% sessions (IF 0.78) as
+	// "steady tempo". It comes from the workout_shape cache, so only the first
+	// listing of a ride pays the stream read.
+	type listedWorkout struct {
+		models.WorkoutSummary
+		Indoor    bool   `json:"indoor,omitempty"`
+		Structure string `json:"structure,omitempty"`
+	}
+	out := make([]listedWorkout, 0, len(rows))
 	for i := range rows {
-		out = append(out, rows[i].ToSummary())
+		w := rows[i]
+		lw := listedWorkout{WorkoutSummary: w.ToSummary(), Indoor: w.IsIndoor}
+		if w.AvgPowerWatts != nil || w.NormalizedPower != nil {
+			ftp := h.db.GetFTPAtDate(w.RecordedAt)
+			if shape, err := rideShape(h.db, w.ID, ftp); err == nil {
+				lw.Structure = shapeHeadline(shape, ftp)
+			}
+		}
+		out = append(out, lw)
 	}
 	return jsonResult(map[string]any{
 		"window_days": days,

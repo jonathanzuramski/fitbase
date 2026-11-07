@@ -87,7 +87,7 @@ type WorkoutBrief struct {
 	DecouplingPct   *float64 `json:"aerobic_decoupling_pct,omitempty"` // Pw:HR drift 1st→2nd half; long rides only; <5% good
 	Indoor          bool     `json:"indoor,omitempty"`
 	// Structure is a one-line summary of the efforts detected in the ride's
-	// power stream, e.g. "5×4:00 @ 117% FTP, last rep -6.3% vs first, HR +8"
+	// power stream, e.g. "5×4:00 @ 117% FTP, faded 6.3% last rep vs first, max HR +8"
 	// or "steady — no efforts at or above 85% FTP". Empty without power/FTP.
 	Structure string `json:"structure,omitempty"`
 }
