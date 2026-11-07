@@ -52,6 +52,13 @@ func NewRouter(h *Handler, dropbox *DropboxHandler, intervalsH *IntervalsHandler
 		r.Get("/coach/chat/active", coach.ChatActive)
 		r.Get("/coach/chat/{id}/events", coach.ChatEvents)
 		r.Post("/coach/models", coach.ListModels)
+		r.Get("/coach/weekly-plan", coach.WeeklyPlanLatest)
+		r.Post("/coach/weekly-plan", coach.WeeklyPlanGenerate)
+		r.Get("/coach/weekly-plan/active", coach.WeeklyPlanActive)
+		r.Get("/coach/weekly-plan/runs/{id}/events", coach.WeeklyPlanEvents)
+		r.Put("/coach/weekly-plan/schedule", coach.WeeklyPlanSetSchedule)
+		r.Post("/coach/weekly-plan/{id}/accept", coach.WeeklyPlanAccept)
+		r.Post("/coach/weekly-plan/{id}/discard", coach.WeeklyPlanDiscard)
 
 		r.Route("/planned-workouts", func(r chi.Router) {
 			r.Get("/", planned.List)

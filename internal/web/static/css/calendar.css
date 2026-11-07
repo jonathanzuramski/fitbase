@@ -217,3 +217,61 @@
 .cal-planned:hover .cal-planned-del { opacity: 1; }
 .cal-planned-del:hover { color: var(--text); }
 
+
+/* ── Weekly plan panel ───────────────────────────────────────────────────── */
+.weekly-plan-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.weekly-plan-head .card-title { margin-bottom: 0; }
+.weekly-plan-auto {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.weekly-plan-auto input { accent-color: var(--accent); cursor: pointer; }
+.weekly-plan-intro,
+.weekly-plan-next,
+.weekly-plan-meta {
+  font-size: 13px;
+  margin: 10px 0 0;
+}
+.weekly-plan-ask {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.weekly-plan-notes {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 14px;
+  padding: 8px 12px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.weekly-plan-notes:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.weekly-plan-ask .btn-primary,
+.weekly-plan-ask .btn-secondary { flex-shrink: 0; }
+#wp-status { margin-top: 12px; }
+.weekly-plan-review {
+  margin-top: 12px;
+  font-size: 14px;
+}
+.weekly-plan-week { margin-top: 12px; }
+.weekly-plan-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}

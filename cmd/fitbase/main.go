@@ -82,6 +82,13 @@ func main() {
 	plannedHandler := api.NewPlannedHandler(database)
 	coachHandler := api.NewCoachHandler(database)
 
+	// Sunday-night weekly auto-plan. A no-op unless the rider turns it on from
+	// the calendar page; cancelled (deferred after the DB close, so it runs
+	// first) before the database closes on shutdown.
+	schedCtx, stopScheduler := context.WithCancel(context.Background())
+	defer stopScheduler()
+	go coachHandler.RunWeeklyScheduler(schedCtx, 10*time.Minute)
+
 	// Sync sources and manager — sources are created here, registered with the
 	// manager for mutual exclusivity, then passed to their HTTP handlers.
 	dropboxSource := syncer.NewDropboxSource(database, imp)

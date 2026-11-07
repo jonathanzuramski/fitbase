@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/fitbase/fitbase/internal/aicoach"
 	"github.com/fitbase/fitbase/internal/models"
 	"github.com/fitbase/fitbase/internal/timeutil"
 )
@@ -15,6 +17,12 @@ type calendarView struct {
 	Imperial bool
 	Calendar CalendarData
 	FTP      int // used by the plan modal's power-profile preview
+
+	// The weekly-plan panel needs a provider that can run tools; AIChatLabels
+	// names the ones that can, for the "switch provider" hint.
+	AIConfigured  bool
+	AIChatCapable bool
+	AIChatLabels  string
 }
 
 func (th *templateHandler) calendar(w http.ResponseWriter, r *http.Request) {
@@ -50,10 +58,17 @@ func (th *templateHandler) calendar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Non-fatal: without settings the panel just shows the setup hint.
+	aiSettings, _ := th.db.GetAISettings()
+	aiConfigured := aiSettings.Provider != "" && aiSettings.APIKey != ""
+
 	renderTemplate(w, th.templates().calendar, "base", calendarView{
-		Imperial: th.isImperial(),
-		Calendar: buildCalendarData(year, month, workouts, planned, tz),
-		FTP:      athlete.FTPWatts,
+		Imperial:      th.isImperial(),
+		Calendar:      buildCalendarData(year, month, workouts, planned, tz),
+		FTP:           athlete.FTPWatts,
+		AIConfigured:  aiConfigured,
+		AIChatCapable: aiConfigured && aicoach.SupportsChat(aiSettings.Provider),
+		AIChatLabels:  strings.Join(aicoach.ChatCapableLabels(), " or "),
 	})
 }
 

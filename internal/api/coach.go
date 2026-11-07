@@ -207,9 +207,22 @@ func (h *CoachHandler) InsightsEvents(w http.ResponseWriter, r *http.Request) {
 // conversation and posts the full history every turn — the server is stateless.
 type chatRequest struct {
 	Messages []aicoach.ChatMessage `json:"messages"`
-	// Mode applies to this turn only. "" is a normal question;
-	// aicoach.ChatModeWeeklyPlan appends the weekly review-and-plan playbook.
-	Mode string `json:"mode,omitempty"`
+}
+
+// chatSystemContext builds the per-request system context: today's date in
+// the rider's timezone (so propose_schedule dates and "this week" reasoning
+// line up with their calendar) plus the rider profile, so the model has
+// FTP/HR from turn 1. Failing to load the athlete is non-fatal — the model
+// falls back to calling get_athlete_profile. Shared by chat and the weekly
+// plan, which appends its playbook.
+func (h *CoachHandler) chatSystemContext(now time.Time) string {
+	ctx := "Today is " + now.Format("Monday, 2006-01-02") + "."
+	if athlete, err := h.db.GetAthlete(); err == nil && athlete != nil {
+		if block := buildRiderProfileBlock(athlete); block != "" {
+			ctx += "\n\n" + block
+		}
+	}
+	return ctx
 }
 
 const maxChatMessages = 40
@@ -261,10 +274,6 @@ func (h *CoachHandler) Chat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "messages is empty")
 		return
 	}
-	if req.Mode != "" && req.Mode != aicoach.ChatModeWeeklyPlan {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown chat mode %q", req.Mode))
-		return
-	}
 	if len(req.Messages) > maxChatMessages {
 		// Keep the most recent turns; old context rarely changes the answer and
 		// bounds token cost / latency.
@@ -303,25 +312,7 @@ func (h *CoachHandler) Chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build the dynamic system suffix: today's date (in the rider's timezone,
-	// so propose_schedule dates and "this week" reasoning line up with their
-	// calendar) plus the rider profile so the model has FTP/HR in context from
-	// turn 1. Failing to load the athlete is non-fatal — the chat still works,
-	// the model just has to fall back to calling get_athlete_profile.
-	loc := h.db.AthleteLocation()
-	var profileBlock string
-	if athlete, err := h.db.GetAthlete(); err == nil && athlete != nil {
-		profileBlock = buildRiderProfileBlock(athlete)
-	}
-	now := time.Now().In(loc)
-	systemContext := "Today is " + now.Format("Monday, 2006-01-02") + "."
-	if profileBlock != "" {
-		systemContext += "\n\n" + profileBlock
-	}
-	if req.Mode == aicoach.ChatModeWeeklyPlan {
-		start, end := aicoach.WeeklyPlanWindow(now)
-		systemContext += "\n\n" + aicoach.WeeklyPlanBrief(start, end)
-	}
+	systemContext := h.chatSystemContext(time.Now().In(h.db.AthleteLocation()))
 
 	// One chat turn at a time: the browser re-attaches to the running turn
 	// rather than racing a second one against it.
