@@ -17,14 +17,21 @@
 
 <section class="card weekly-plan" id="weekly-plan">
 	<div class="weekly-plan-head">
-		<h2 class="card-title">weekly plan</h2>
-		{{ if .AIChatCapable }}
-			<label class="weekly-plan-auto" title="Every Sunday at 8pm the coach reviews your week and drafts the next one for you to accept">
-				<input type="checkbox" id="wp-auto">
-				<span>auto-plan every Sunday night</span>
-			</label>
-		{{ end }}
+		<h2 class="card-title">weekly plan
+			<span class="weekly-plan-chip" id="wp-chip" hidden></span>
+		</h2>
+		<div class="weekly-plan-head-actions">
+			{{ if .AIChatCapable }}
+				<label class="weekly-plan-auto" title="Every Sunday at 8pm the coach reviews your week and drafts the next one for you to accept">
+					<input type="checkbox" id="wp-auto">
+					<span>auto-plan every Sunday night</span>
+				</label>
+			{{ end }}
+			<button type="button" class="ai-collapse-btn weekly-plan-collapse" id="wp-collapse"
+				aria-controls="wp-content" aria-expanded="true" aria-label="Hide weekly plan" title="Hide weekly plan">▾</button>
+		</div>
 	</div>
+	<div class="weekly-plan-content" id="wp-content">
 	{{ if .AIChatCapable }}
 		<p class="muted weekly-plan-intro" id="wp-intro">
 			The coach reviews how your training has gone — grading your key sessions rep by rep — and drafts the next
@@ -77,7 +84,36 @@
 			Configure an AI provider in <a href="/settings">settings</a> to have the coach review your week and plan the next one.
 		</p>
 	{{ end }}
+	</div>
 </section>
+<script>
+	// Weekly plan collapse, remembered per browser (the dashboard's AI coach
+	// card works the same way). Inline right after the panel so a collapsed
+	// panel never flashes open while the rest of the page loads.
+	(function () {
+		const panel = document.getElementById('weekly-plan');
+		const btn = document.getElementById('wp-collapse');
+		const chip = document.getElementById('wp-chip');
+		if (!panel || !btn) return;
+		const KEY = 'weekly-plan-collapsed';
+		function apply(collapsed) {
+			panel.classList.toggle('wp-collapsed', collapsed);
+			btn.setAttribute('aria-expanded', String(!collapsed));
+			btn.title = collapsed ? 'Show weekly plan' : 'Hide weekly plan';
+			btn.setAttribute('aria-label', btn.title);
+		}
+		function set(collapsed) {
+			apply(collapsed);
+			try { localStorage.setItem(KEY, collapsed ? '1' : '0'); } catch (_) { }
+		}
+		let saved = false;
+		try { saved = localStorage.getItem(KEY) === '1'; } catch (_) { }
+		apply(saved);
+		btn.addEventListener('click', () => set(!panel.classList.contains('wp-collapsed')));
+		// The "plan ready" chip on a collapsed panel opens it.
+		if (chip) chip.addEventListener('click', () => set(false));
+	})();
+</script>
 
 <div class="cal-grid">
 	{{- /* Header row */ -}}
@@ -95,7 +131,8 @@
 			<div class="cal-day{{ if not $day.InMonth }} outside{{ end }}{{ if $day.IsToday }} today{{ end }}"
 				data-date="{{ $day.DateISO }}">
 				<div class="cal-date">
-					<span>{{ $day.Date.Day }}</span>
+					<span class="cal-dow">{{ $day.Date.Format "Mon" }}</span>
+					<span class="cal-daynum">{{ $day.Date.Day }}</span>
 					{{ if $day.InMonth }}
 						<button type="button" class="cal-add-btn" data-date="{{ $day.DateISO }}" title="Plan a workout">+</button>
 					{{ end }}
@@ -103,7 +140,7 @@
 				{{ range $w := $day.Workouts }}
 					<a href="/workouts/{{ $w.ID }}" class="cal-workout" title="{{ $w.Sport }}">
 						<span class="cal-dot cal-dot-{{ $w.Sport | lower }}"></span>
-						<span class="cal-workout-info"><span class="cal-dur-full">{{ formatDuration $w.DurationSecs }}</span><span class="cal-dur-short">{{ formatDurShort $w.DurationSecs }}</span>{{ if gt $w.DistanceM 0.0 }}<span class="cal-workout-dist"> · {{ formatDistance $w.DistanceM $imperial }}</span>{{ end }}</span>
+						<span class="cal-workout-info">{{ formatDuration $w.DurationSecs }}{{ if gt $w.DistanceM 0.0 }}<span class="cal-workout-dist"> · {{ formatDistance $w.DistanceM $imperial }}</span>{{ end }}{{ if $w.TSS }}<span class="cal-workout-tss"> · {{ formatOptFloat $w.TSS "TSS" }}</span>{{ end }}</span>
 					</a>
 				{{ end }}
 				{{ range $p := $day.Planned }}
@@ -125,7 +162,7 @@
 				{{ end }}
 			</div>
 		{{ end }}
-		<div class="cal-week-summary">
+		<div class="cal-week-summary{{ if not (gt $week.TotalDurSecs 0) }} empty{{ end }}">
 			{{ if gt $week.TotalDurSecs 0 }}
 				<div class="cal-week-stat">{{ formatDuration $week.TotalDurSecs }}</div>
 				{{ if gt $week.TotalDistM 0.0 }}<div class="cal-week-stat">{{ formatDistance $week.TotalDistM $imperial }}</div>

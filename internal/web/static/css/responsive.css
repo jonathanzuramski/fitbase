@@ -676,22 +676,107 @@
   .cal-add-btn { opacity: 1; }
 }
 
-/* Calendar day cells on phones: ~50px wide, so keep each entry to one
-   truncated line — the duration for rides, the title for planned workouts.
+/* Calendar on phones: the month becomes a list of days instead of a 7-column
+   grid. At ~50px a column, the grid could only show truncated fragments and
+   tiny tap targets. Each in-month day is a full-width row — weekday and date
+   on the left, that day's rides and planned workouts in full, "+" on the
+   right — and each week ends with its totals (hidden on phones before).
    Tapping a planned workout opens its detail dialog, which has "remove", so
-   the hover-only × is dropped to save the space. */
+   the hover-only x is dropped. */
 @media (max-width: 560px) {
-  .cal-header { padding: 6px 0; font-size: 10px; letter-spacing: 0.02em; }
-  .cal-day { padding: 3px; gap: 2px; min-height: 64px; }
-  .cal-date { font-size: 11px; }
+  .cal-grid {
+    display: block;
+    margin-top: 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .cal-header,
+  .cal-day.outside { display: none; }
+  .cal-day {
+    position: relative;
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr);
+    column-gap: 10px;
+    row-gap: 6px;
+    align-items: start;
+    min-height: 0;
+    padding: 7px 48px 7px 12px;
+    background: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .cal-day.today {
+    border-left: 3px solid var(--accent);
+    padding-left: 9px;
+    background: rgba(59, 130, 246, 0.07);
+  }
+  .cal-date {
+    grid-column: 1;
+    grid-row: 1;
+    justify-content: flex-start;
+    align-items: baseline;
+    gap: 6px;
+    margin: 0;
+    padding-top: 4px;
+  }
+  .cal-dow {
+    display: inline-block;
+    width: 32px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .cal-daynum { font-size: 15px; font-weight: 600; color: var(--text); }
+  .cal-day.today .cal-dow,
+  .cal-day.today .cal-daynum { color: var(--accent); }
+  .cal-add-btn {
+    position: absolute;
+    top: 6px;
+    right: 10px;
+    width: 28px;
+    height: 28px;
+    font-size: 17px;
+    opacity: 1;
+  }
   .cal-workout,
-  .cal-planned { padding: 2px; gap: 3px; font-size: 10px; min-width: 0; }
-  .cal-workout-dist,
-  .cal-planned-target,
+  .cal-planned {
+    grid-column: 2;
+    gap: 7px;
+    padding: 6px 8px;
+    font-size: 13px;
+    border-radius: 6px;
+  }
+  .cal-workout { background: var(--bg); }
+  .cal-workout-tss { display: inline; }
+  .cal-planned-info {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: 8px;
+  }
+  .cal-planned-title { font-size: 13px; }
+  .cal-planned-target { font-size: 12px; color: var(--text-muted); }
   .cal-planned-del { display: none; }
-  .cal-dot-planned { display: none; }
-  .cal-dur-full { display: none; }
-  .cal-dur-short { display: inline; }
+  .cal-week-summary {
+    display: flex;
+    flex-direction: row;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 6px 12px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+  }
+  .cal-week-summary::before {
+    content: "week";
+    margin-right: auto;
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .cal-week-summary.empty { display: none; }
   /* Card + review padding stack up on a phone; give the text the width. */
   .weekly-plan-review { padding: 12px 14px; }
 }
