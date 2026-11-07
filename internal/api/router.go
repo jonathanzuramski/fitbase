@@ -57,6 +57,7 @@ func NewRouter(h *Handler, dropbox *DropboxHandler, intervalsH *IntervalsHandler
 		r.Get("/coach/weekly-plan/active", coach.WeeklyPlanActive)
 		r.Get("/coach/weekly-plan/runs/{id}/events", coach.WeeklyPlanEvents)
 		r.Put("/coach/weekly-plan/schedule", coach.WeeklyPlanSetSchedule)
+		r.Put("/coach/weekly-plan/preferences", coach.WeeklyPlanSetPreferences)
 		r.Post("/coach/weekly-plan/{id}/accept", coach.WeeklyPlanAccept)
 		r.Post("/coach/weekly-plan/{id}/discard", coach.WeeklyPlanDiscard)
 

@@ -31,13 +31,33 @@
 			7 days for you to accept onto the calendar.
 		</p>
 		<p class="muted weekly-plan-next" id="wp-next" hidden></p>
+		<div class="weekly-plan-prefs" id="wp-prefs" title="Used for every plan, including the Sunday auto-plan">
+			<div class="weekly-plan-days" role="group" aria-label="Training days">
+				<span class="weekly-plan-label">training days</span>
+				<label class="wp-day"><input type="checkbox" value="mon"><span>Mon</span></label>
+				<label class="wp-day"><input type="checkbox" value="tue"><span>Tue</span></label>
+				<label class="wp-day"><input type="checkbox" value="wed"><span>Wed</span></label>
+				<label class="wp-day"><input type="checkbox" value="thu"><span>Thu</span></label>
+				<label class="wp-day"><input type="checkbox" value="fri"><span>Fri</span></label>
+				<label class="wp-day"><input type="checkbox" value="sat"><span>Sat</span></label>
+				<label class="wp-day"><input type="checkbox" value="sun"><span>Sun</span></label>
+			</div>
+			<label class="weekly-plan-hours">
+				<span class="weekly-plan-label">hours / week</span>
+				<input type="number" id="wp-hours" min="1" max="40" step="0.5" inputmode="decimal" placeholder="coach decides">
+			</label>
+			<span class="muted weekly-plan-saved" id="wp-prefs-saved" hidden>saved</span>
+		</div>
 		<div class="weekly-plan-ask">
 			<input type="text" id="wp-notes" class="weekly-plan-notes" maxlength="500" autocomplete="off"
 				placeholder="anything to plan around? e.g. no riding Wednesday, long ride Saturday">
 			<button type="button" class="btn-secondary" id="wp-revise" hidden>revise plan</button>
 			<button type="button" class="btn-primary" id="wp-run">plan my week</button>
 		</div>
-		<p class="weekly-plan-meta muted" id="wp-meta" hidden></p>
+		<p class="weekly-plan-meta muted" id="wp-meta-row" hidden>
+			<span id="wp-meta"></span>
+			<button type="button" class="weekly-plan-link" id="wp-toggle" hidden>show review</button>
+		</p>
 		<div class="chat-status" id="wp-status" hidden></div>
 		<div class="markdown-body weekly-plan-review" id="wp-review" hidden></div>
 		<div class="coach-preview-list weekly-plan-week" id="wp-week" hidden></div>

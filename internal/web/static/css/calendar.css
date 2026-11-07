@@ -275,3 +275,75 @@
   gap: 8px;
   margin-top: 12px;
 }
+.weekly-plan-prefs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 20px;
+  margin-top: 14px;
+}
+.weekly-plan-days {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.weekly-plan-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-right: 4px;
+}
+.wp-day { position: relative; cursor: pointer; }
+.wp-day input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.wp-day span {
+  display: inline-block;
+  min-width: 42px;
+  padding: 4px 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  user-select: none;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.wp-day:hover span { border-color: var(--accent); }
+.wp-day input:checked + span {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--text);
+}
+.wp-day input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.wp-day input:disabled + span { opacity: 0.5; cursor: default; }
+.weekly-plan-hours {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.weekly-plan-hours input {
+  width: 120px;
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 8px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.weekly-plan-hours input:focus { outline: none; border-color: var(--accent); }
+.weekly-plan-saved { font-size: 12px; }
+.weekly-plan-link {
+  background: none;
+  border: none;
+  padding: 0 0 0 8px;
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.weekly-plan-link:hover { text-decoration: underline; }

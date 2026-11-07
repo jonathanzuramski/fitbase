@@ -1,14 +1,18 @@
-// Weekly plan panel on the calendar page: run "plan my week", stream the
-// coach's review live, show the proposed week, accept / discard / revise it,
-// and toggle the Sunday-night auto-plan. Needs coach-render.js
-// (renderSafeMarkdown, parseSSE, markdownStreamer, escapeHTML).
+// Weekly plan panel on the calendar page: training-day / weekly-hours
+// preferences, run "plan my week", stream the coach's review live, show the
+// proposed week, accept / discard / revise it, and toggle the Sunday-night
+// auto-plan. Needs coach-render.js (renderSafeMarkdown, parseSSE,
+// markdownStreamer, escapeHTML).
 (function () {
 	const $ = (id) => document.getElementById(id);
 	const auto = $('wp-auto'), next = $('wp-next'), intro = $('wp-intro');
 	const notes = $('wp-notes'), runBtn = $('wp-run'), reviseBtn = $('wp-revise');
-	const meta = $('wp-meta'), status = $('wp-status'), review = $('wp-review');
-	const week = $('wp-week'), actions = $('wp-actions');
-	const acceptBtn = $('wp-accept'), discardBtn = $('wp-discard'), errEl = $('wp-error');
+	const metaRow = $('wp-meta-row'), meta = $('wp-meta'), toggleBtn = $('wp-toggle');
+	const status = $('wp-status'), review = $('wp-review'), week = $('wp-week');
+	const actions = $('wp-actions'), acceptBtn = $('wp-accept'), discardBtn = $('wp-discard');
+	const errEl = $('wp-error');
+	const dayBoxes = Array.from(document.querySelectorAll('#wp-prefs .wp-day input'));
+	const hoursInput = $('wp-hours'), savedEl = $('wp-prefs-saved');
 	if (!runBtn) return;
 
 	let current = null; // the plan on screen (null when none)
@@ -26,6 +30,8 @@
 		busy = b;
 		runBtn.disabled = reviseBtn.disabled = notes.disabled = b;
 		acceptBtn.disabled = discardBtn.disabled = b;
+		hoursInput.disabled = b;
+		dayBoxes.forEach((box) => { box.disabled = b; });
 	}
 
 	// Plan dates are rider-local calendar days ("2026-11-09"); parse them as
@@ -44,6 +50,54 @@
 		return body ? (body.data !== undefined ? body.data : body) : null;
 	}
 
+	// ── Preferences (training days, hours per week) ──────────────────────────
+
+	function renderPrefs(p) {
+		const days = (p && p.days) || [];
+		dayBoxes.forEach((box) => { box.checked = days.includes(box.value); });
+		hoursInput.value = p && p.weekly_hours != null ? p.weekly_hours : '';
+	}
+
+	let savedTimer = null;
+	async function savePrefs() {
+		const days = dayBoxes.filter((b) => b.checked).map((b) => b.value);
+		if (days.length === 0) {
+			showError('Pick at least one training day.');
+			return false;
+		}
+		const raw = hoursInput.value.trim();
+		let hours = null;
+		if (raw !== '') {
+			hours = Number(raw);
+			if (!(hours >= 1 && hours <= 40)) {
+				showError('Hours per week must be between 1 and 40 — or leave it blank and the coach decides.');
+				return false;
+			}
+		}
+		showError('');
+		try {
+			renderPrefs(await api('/api/coach/weekly-plan/preferences', {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ days: days, weekly_hours: hours }),
+			}));
+			savedEl.hidden = false;
+			clearTimeout(savedTimer);
+			savedTimer = setTimeout(() => { savedEl.hidden = true; }, 1500);
+			return true;
+		} catch (e) {
+			showError('Could not save your training days — ' + e.message);
+			return false;
+		}
+	}
+
+	dayBoxes.forEach((box) => box.addEventListener('change', async () => {
+		if (!(await savePrefs())) box.checked = !box.checked; // undo an invalid toggle
+	}));
+	hoursInput.addEventListener('change', savePrefs);
+
+	// ── Schedule ──────────────────────────────────────────────────────────────
+
 	function renderSchedule(s) {
 		auto.checked = !!(s && s.enabled);
 		if (s && s.enabled && s.next_run) {
@@ -54,6 +108,8 @@
 			next.hidden = true;
 		}
 	}
+
+	// ── Plan ──────────────────────────────────────────────────────────────────
 
 	function renderWeek(ws) {
 		week.innerHTML = '';
@@ -74,33 +130,60 @@
 		week.hidden = ws.length === 0;
 	}
 
+	function weekTotal(ws) {
+		const mins = ws.reduce((s, p) => s + Math.round((p.duration_secs || 0) / 60), 0);
+		return Math.floor(mins / 60) + 'h ' + String(mins % 60).padStart(2, '0') + 'm';
+	}
+
 	function renderPlan(plan, workouts) {
 		current = plan;
+		workouts = workouts || [];
 		status.hidden = true;
+		toggleBtn.hidden = true;
 		if (!plan) {
 			intro.hidden = false;
-			meta.hidden = review.hidden = week.hidden = actions.hidden = reviseBtn.hidden = true;
+			metaRow.hidden = review.hidden = week.hidden = actions.hidden = reviseBtn.hidden = true;
+			review.innerHTML = '';
+			week.innerHTML = '';
 			notes.placeholder = freshPlaceholder;
 			return;
 		}
 		intro.hidden = true;
 		const created = new Date(plan.created_at).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 		const how = plan.trigger === 'scheduled' ? 'auto-planned ' : 'planned ';
-		const state = plan.status === 'accepted' ? ' · added to your calendar' : '';
-		meta.textContent = fmtDay(plan.window_start) + ' – ' + fmtDay(plan.window_end) + ' · ' + how + created + state;
-		meta.hidden = false;
+		const span = fmtDay(plan.window_start) + ' – ' + fmtDay(plan.window_end);
 		review.innerHTML = renderSafeMarkdown(plan.review_md || '');
+		metaRow.hidden = false;
+
+		if (plan.status === 'accepted') {
+			// The week is on the calendar now; keep the review one click away
+			// instead of leaving a full panel on screen.
+			meta.textContent = span + ' · added to your calendar · ' + how + created;
+			review.hidden = week.hidden = actions.hidden = reviseBtn.hidden = true;
+			week.innerHTML = '';
+			toggleBtn.hidden = !plan.review_md;
+			toggleBtn.textContent = 'show review';
+			notes.placeholder = freshPlaceholder;
+			return;
+		}
+
+		meta.textContent = span + ' · ' + how + created + (workouts.length ? ' · ' + workouts.length + ' workouts, ' + weekTotal(workouts) : '');
 		review.hidden = !plan.review_md;
-		renderWeek(workouts || []);
-		const ready = plan.status === 'ready';
-		actions.hidden = !(ready && workouts && workouts.length);
-		reviseBtn.hidden = !ready;
-		notes.placeholder = ready ? readyPlaceholder : freshPlaceholder;
+		renderWeek(workouts);
+		actions.hidden = workouts.length === 0;
+		reviseBtn.hidden = false;
+		notes.placeholder = readyPlaceholder;
 	}
+
+	toggleBtn.addEventListener('click', () => {
+		review.hidden = !review.hidden;
+		toggleBtn.textContent = review.hidden ? 'show review' : 'hide review';
+	});
 
 	async function load() {
 		const d = await api('/api/coach/weekly-plan');
 		renderSchedule(d.schedule);
+		renderPrefs(d.preferences);
 		// A discarded plan is dismissed: show the empty state, not the old week.
 		const plan = d.plan && d.plan.status !== 'discarded' ? d.plan : null;
 		renderPlan(plan, d.workouts);
@@ -117,7 +200,7 @@
 	async function stream(fetcher) {
 		setBusy(true);
 		showError('');
-		intro.hidden = meta.hidden = week.hidden = actions.hidden = true;
+		intro.hidden = metaRow.hidden = week.hidden = actions.hidden = toggleBtn.hidden = true;
 		review.innerHTML = '';
 		review.hidden = false;
 		status.hidden = false;
@@ -154,9 +237,9 @@
 			}
 			if (streamErr) throw new Error(streamErr);
 		} catch (e) {
-			streamer.stop();
 			showError('Could not plan your week — ' + e.message);
 		} finally {
+			streamer.stop(); // load() below renders the stored review
 			setBusy(false);
 			status.hidden = true;
 			// The stored plan is the source of truth (review + proposed week).

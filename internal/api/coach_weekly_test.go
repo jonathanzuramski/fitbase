@@ -376,3 +376,115 @@ func withChiParam(r *http.Request, key, val string) *http.Request {
 	rctx.URLParams.Add(key, val)
 	return r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
 }
+
+// ── Availability (training days, weekly hours) ───────────────────────────────
+
+func TestPlanAvailabilityCheck(t *testing.T) {
+	eight := 8.0
+	a := &planAvailability{prefs: models.WeeklyPlanPrefs{Days: []string{"mon", "tue", "thu", "sat", "sun"}, WeeklyHours: &eight}}
+	wed := time.Date(2026, 11, 11, 0, 0, 0, 0, time.UTC)
+	thu := wed.AddDate(0, 0, 1)
+
+	err := a.check([]models.PlannedWorkout{{Title: "VO2", PlannedDate: wed, DurationSecs: 3600}})
+	if err == nil || !strings.Contains(err.Error(), "Wednesday") || !strings.Contains(err.Error(), "unavailable") {
+		t.Errorf("Wednesday workout: err = %v, want an unavailable-day rejection naming the day", err)
+	}
+	if err := a.check([]models.PlannedWorkout{{Title: "Z2", PlannedDate: thu, DurationSecs: 8 * 3600}}); err != nil {
+		t.Errorf("exactly on budget rejected: %v", err)
+	}
+	// Within the 10% slack passes; past it fails.
+	if err := a.check([]models.PlannedWorkout{{Title: "Z2", PlannedDate: thu, DurationSecs: int(8.5 * 3600)}}); err != nil {
+		t.Errorf("8.5h on an 8h budget (inside slack) rejected: %v", err)
+	}
+	if err := a.check([]models.PlannedWorkout{{Title: "Z2", PlannedDate: thu, DurationSecs: 9 * 3600}}); err == nil || !strings.Contains(err.Error(), "budget") {
+		t.Errorf("9h on an 8h budget: err = %v, want a budget rejection", err)
+	}
+}
+
+// End to end: the model books a day the rider unchecked, propose_schedule
+// rejects it with a reason, and the model re-plans onto an open day. The
+// stored plan never contains the forbidden day.
+func TestGenerateWeeklyPlan_EnforcesTrainingDays(t *testing.T) {
+	h := coachFixture(t)
+	now := time.Now().In(h.db.AthleteLocation())
+	blocked := now.AddDate(0, 0, 1) // tomorrow: the first day of the window
+	var days []string
+	for _, k := range models.WeekdayKeys {
+		if k != models.WeekdayKey(blocked.Weekday()) {
+			days = append(days, k)
+		}
+	}
+	if err := h.db.SaveWeeklyPlanPrefs(models.WeeklyPlanPrefs{Days: days}); err != nil {
+		t.Fatal(err)
+	}
+
+	propose := func(day time.Time) *aicoach.ChatTurnOutput {
+		args := `{"workouts":[{"date":"` + day.Format("2006-01-02") + `","title":"Endurance Z2","duration_secs":3600}]}`
+		return &aicoach.ChatTurnOutput{Calls: []aicoach.ToolExchange{{ID: "p", Name: aicoach.ToolProposeSchedule, Input: json.RawMessage(args)}}}
+	}
+	var firstResult string
+	fakeCoach.turn = func(in aicoach.ChatTurnInput) (*aicoach.ChatTurnOutput, error) {
+		switch len(in.Rounds) {
+		case 0:
+			return propose(blocked), nil
+		case 1:
+			firstResult = in.Rounds[0].Exchanges[0].Result
+			return propose(blocked.AddDate(0, 0, 1)), nil
+		default:
+			return &aicoach.ChatTurnOutput{Text: "Moved it."}, nil
+		}
+	}
+
+	plan, err := h.generateWeeklyPlan(context.Background(), weeklyPlanRun{trigger: models.WeeklyPlanManual}, discardEvents)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if !strings.Contains(firstResult, "unavailable") {
+		t.Errorf("first proposal's tool result = %s, want an unavailable-day error for the model", firstResult)
+	}
+	ws, _ := planWorkouts(&plan)
+	if len(ws) != 1 || ws[0].PlannedDate.Format("2006-01-02") == blocked.Format("2006-01-02") {
+		t.Errorf("stored week = %+v, want one workout off the blocked day", ws)
+	}
+	ctx := fakeCoach.requests()[0].System
+	if !strings.Contains(ctx, "Schedule nothing on "+blocked.Format("Mon 2006-01-02")) {
+		t.Errorf("prompt doesn't name the blocked date:\n%s", ctx)
+	}
+}
+
+func TestWeeklyPlanSetPreferences(t *testing.T) {
+	h := coachFixture(t)
+	put := func(body string) (int, models.WeeklyPlanPrefs) {
+		rr := httptest.NewRecorder()
+		h.WeeklyPlanSetPreferences(rr, httptest.NewRequest(http.MethodPut, "/api/coach/weekly-plan/preferences", strings.NewReader(body)))
+		var env struct {
+			Data models.WeeklyPlanPrefs `json:"data"`
+		}
+		_ = json.Unmarshal(rr.Body.Bytes(), &env)
+		return rr.Code, env.Data
+	}
+	code, p := put(`{"days":["sat","mon","wed"],"weekly_hours":7.5}`)
+	if code != http.StatusOK || strings.Join(p.Days, ",") != "mon,wed,sat" || p.WeeklyHours == nil || *p.WeeklyHours != 7.5 {
+		t.Fatalf("save: %d %+v, want mon,wed,sat at 7.5h (calendar order)", code, p)
+	}
+	stored, err := h.db.GetWeeklyPlanPrefs()
+	if err != nil || strings.Join(stored.Days, ",") != "mon,wed,sat" || stored.WeeklyHours == nil {
+		t.Errorf("stored = %+v (err %v)", stored, err)
+	}
+	if code, p := put(`{"days":["mon"],"weekly_hours":null}`); code != http.StatusOK || p.WeeklyHours != nil {
+		t.Errorf("clearing hours: %d %+v", code, p)
+	}
+	for _, bad := range []string{`{"days":[]}`, `{"days":["funday"]}`, `{"days":["mon"],"weekly_hours":0.5}`, `{"days":["mon","mon"]}`} {
+		if code, _ := put(bad); code != http.StatusBadRequest {
+			t.Errorf("%s: %d, want 400", bad, code)
+		}
+	}
+}
+
+func TestWeeklyPlanPrefsDefaultToEveryDay(t *testing.T) {
+	h := coachFixture(t)
+	p, err := h.db.GetWeeklyPlanPrefs()
+	if err != nil || len(p.Days) != 7 || p.WeeklyHours != nil {
+		t.Errorf("defaults = %+v (err %v), want all 7 days and no budget", p, err)
+	}
+}

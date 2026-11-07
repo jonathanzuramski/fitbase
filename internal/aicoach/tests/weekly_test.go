@@ -56,3 +56,21 @@ func TestWeeklyPlanBrief_PinsWindowAndIntervalGrading(t *testing.T) {
 		t.Errorf("brief has a formatting error:\n%s", brief)
 	}
 }
+
+func TestWeeklyPlanAvailability(t *testing.T) {
+	start := time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC) // Monday
+	end := start.AddDate(0, 0, 6)
+	noWedFri := func(wd time.Weekday) bool { return wd != time.Wednesday && wd != time.Friday }
+
+	got := aicoach.WeeklyPlanAvailability(start, end, noWedFri, 8)
+	for _, want := range []string{"Schedule nothing on Wed 2026-11-11, Fri 2026-11-13", "Mon 2026-11-09", "about 8 hours"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("availability text missing %q:\n%s", want, got)
+		}
+	}
+
+	open := aicoach.WeeklyPlanAvailability(start, end, func(time.Weekday) bool { return true }, 0)
+	if !strings.Contains(open, "any day") || !strings.Contains(open, "not set") {
+		t.Errorf("open availability text:\n%s", open)
+	}
+}
