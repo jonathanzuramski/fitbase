@@ -654,3 +654,11 @@
     flex: 1;
   }
 }
+
+/* Weekly plan panel (calendar): the input takes its own row on phones. */
+@media (max-width: 560px) {
+  .weekly-plan-ask { flex-wrap: wrap; }
+  .weekly-plan-notes { flex-basis: 100%; }
+  .weekly-plan-ask .btn-primary,
+  .weekly-plan-ask .btn-secondary { flex: 1; }
+}

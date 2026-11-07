@@ -5,13 +5,6 @@ import (
 	"time"
 )
 
-// ChatModeWeeklyPlan marks a chat turn started from the "plan my week"
-// button. The turn runs through the normal tool-using chat — so the rider can
-// push back afterwards ("I can't ride Wednesday") and get a re-proposal — but
-// the server appends WeeklyPlanBrief to the system context for that turn so
-// the review and the plan follow a consistent playbook.
-const ChatModeWeeklyPlan = "weekly_plan"
-
 // WeeklyPlanDays is the length of the window a weekly plan covers.
 const WeeklyPlanDays = 7
 
@@ -26,13 +19,15 @@ func WeeklyPlanWindow(now time.Time) (start, end time.Time) {
 	return start, end
 }
 
-// WeeklyPlanBrief is the playbook for one weekly review-and-plan turn. It
-// names the exact window so the model never has to infer "next week" from a
-// weekday, and spells out the data to gather — in particular grading last
-// week's key sessions with get_workout_intervals, because progressing a plan
-// from whole-ride averages alone is exactly the guesswork it replaces.
+// WeeklyPlanBrief is the playbook for one weekly review-and-plan run (the
+// calendar's "plan my week" button, its revisions, and the Sunday-night
+// auto-plan). It is appended to the per-request system context. It names the
+// exact window so the model never has to infer "next week" from a weekday, and
+// spells out the data to gather — in particular grading last week's key
+// sessions with get_workout_intervals, because progressing a plan from
+// whole-ride averages alone is exactly the guesswork it replaces.
 func WeeklyPlanBrief(start, end time.Time) string {
-	return fmt.Sprintf(`Weekly plan request — the rider pressed "plan my week". Review how their training has been going, then plan %s through %s (%d days, starting tomorrow).
+	return fmt.Sprintf(`Weekly plan request — review how the rider's training has been going, then plan %s through %s (%d days, starting tomorrow). The rider may not be watching (this can run automatically on Sunday night); their message holds any constraints they gave.
 
 Gather first — request independent tools together in one round:
 - get_readiness, get_weekly_breakdown (weeks: 6), get_fitness_trend (days: 42), get_performance_trend (days: 90), get_power_curve (days: 42), get_goal_progress.
@@ -55,7 +50,7 @@ Then call propose_schedule for the window — one entry per training day, rest d
 Name sessions and step kinds by their targets: tempo 76–87%% FTP, sweet spot 88–94%%, threshold 95–105%%, VO2 106–120%%. Don't call an 85%% session sweet spot.
 Respect the rider's mileage goals when set, and any constraints they mention in their message or earlier in the conversation.
 
-Finish with a short paragraph summarizing the week and one thing to watch, and point the rider to the preview card. Keep the prose to roughly 250–400 words — the schedule itself goes in the tool call, not in prose.`,
+Finish with a short paragraph summarizing the week and one thing to watch. The rider sees the proposed week directly under your review, with buttons to add it to their calendar or ask for changes — refer to it as "the proposed week below", not a preview card. Keep the prose to roughly 250–400 words — the schedule itself goes in the tool call, not in prose.`,
 		start.Format("Monday, 2006-01-02"), end.Format("Monday, 2006-01-02"), WeeklyPlanDays,
 		start.Format("2006-01-02"), end.Format("2006-01-02"))
 }

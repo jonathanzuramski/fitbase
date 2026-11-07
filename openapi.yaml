@@ -548,14 +548,6 @@ paths:
                     properties:
                       role:    { type: string, enum: [user, assistant] }
                       content: { type: string }
-                mode:
-                  type: string
-                  enum: [weekly_plan]
-                  description: |
-                    Applies to this turn only. `weekly_plan` has the coach review
-                    the last weeks (grading key sessions interval by interval) and
-                    propose a schedule for the 7 days starting tomorrow, in the
-                    athlete's timezone. Omit for a normal question.
       responses:
         "200":
           description: SSE stream of tool progress and the answer
@@ -563,9 +555,165 @@ paths:
             text/event-stream:
               schema: { type: string }
         "400":
-          description: Invalid history or mode, or the configured provider does not support tool use
+          description: Invalid history, or the configured provider does not support tool use
         "503":
           description: AI coach not configured (no provider or API key saved)
+
+  /api/coach/weekly-plan:
+    get:
+      summary: Get the latest weekly plan
+      description: |
+        The most recent coach weekly review and proposed week (failed runs are
+        hidden), its proposed workouts in PlannedWorkout shape, and the
+        Sunday-night auto-plan setting. `plan` is null when none exists.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      plan:     { allOf: [ { $ref: "#/components/schemas/WeeklyPlan" } ], nullable: true }
+                      workouts: { type: array, items: { $ref: "#/components/schemas/PlannedWorkout" } }
+                      schedule: { $ref: "#/components/schemas/WeeklyPlanSchedule" }
+    post:
+      summary: Generate (or revise) a weekly plan (SSE)
+      description: |
+        The coach reviews recent training — grading key sessions rep by rep —
+        and proposes the 7 days starting tomorrow (athlete timezone). With
+        `revise_id`, it revises that plan per `notes`, replaying the earlier
+        constraints. The run is detached: closing the stream doesn't cancel it;
+        re-attach via `/api/coach/weekly-plan/runs/{id}/events`. The result is
+        stored as a plan the rider accepts onto the calendar; nothing is added
+        automatically.
+        SSE events: `job` (`{"id"}`), `tool`, `chunk` (review text),
+        `done` (`{"plan_id"}`), `error`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                notes:     { type: string, maxLength: 500, description: "Constraints, or what to change when revising" }
+                revise_id: { type: string, description: "Plan to revise; notes are then required" }
+      responses:
+        "200":
+          description: SSE stream of tool progress and the review
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "400":
+          description: Notes too long, revision without notes, or the provider does not support tool use
+        "404":
+          description: No plan to revise with that id
+        "409":
+          description: A weekly plan is already being generated
+        "503":
+          description: AI coach not configured
+
+  /api/coach/weekly-plan/active:
+    get:
+      summary: Current weekly-plan run
+      description: "`{id, done}` for the current (or last) run — manual or the scheduled Sunday-night run — or 204 when none since startup."
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id:   { type: string }
+                      done: { type: boolean }
+        "204":
+          description: No run since startup
+
+  /api/coach/weekly-plan/runs/{id}/events:
+    get:
+      summary: Re-attach to a weekly-plan run (SSE)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Replays the run's events, then tails until it finishes
+        "404":
+          description: Superseded by a newer run, or the server restarted
+
+  /api/coach/weekly-plan/schedule:
+    put:
+      summary: Turn the Sunday-night auto-plan on or off
+      description: |
+        When on, the server generates a plan every Sunday at 20:00 (athlete
+        timezone) for the coming Monday–Sunday, unless the rider already
+        planned that week. A missed run (server off) is caught up when the
+        server is next running; failures retry at most 3 times a week, an hour
+        apart. Generated plans wait for the rider to accept them.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled: { type: boolean }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/WeeklyPlanSchedule" }
+        "400":
+          description: Body is missing `enabled`
+
+  /api/coach/weekly-plan/{id}/accept:
+    post:
+      summary: Add a weekly plan's workouts to the calendar
+      description: |
+        Adds the proposed week as coach-sourced planned workouts, replacing
+        coach entries already on those dates (manual entries are kept), and
+        marks the plan accepted. A plan can be accepted once.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/PlannedWorkout" } }
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Already accepted or discarded, or the plan proposed no workouts
+
+  /api/coach/weekly-plan/{id}/discard:
+    post:
+      summary: Dismiss a weekly plan
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "204":
+          description: Discarded
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /api/coach/models:
     post:
@@ -963,6 +1111,25 @@ components:
           items: { $ref: "#/components/schemas/PlannedInterval" }
         source:           { type: string, enum: [manual, coach] }
         created_at:       { type: string, format: date-time }
+
+    WeeklyPlan:
+      type: object
+      properties:
+        id:           { type: string }
+        created_at:   { type: string, format: date-time }
+        trigger:      { type: string, enum: [manual, scheduled] }
+        window_start: { type: string, format: date, description: "First planned day, athlete-local" }
+        window_end:   { type: string, format: date }
+        status:       { type: string, enum: [ready, accepted, discarded, failed] }
+        request:      { type: string, description: "The rider's request, including every constraint and revision so far" }
+        review_md:    { type: string, description: "The coach's review and plan summary (Markdown)" }
+        error:        { type: string, nullable: true }
+
+    WeeklyPlanSchedule:
+      type: object
+      properties:
+        enabled:  { type: boolean }
+        next_run: { type: string, format: date-time, nullable: true, description: "Next Sunday 20:00 (athlete timezone); only when enabled" }
 
     FitnessPoint:
       type: object

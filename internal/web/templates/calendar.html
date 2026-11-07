@@ -15,6 +15,48 @@
 	</div>
 </div>
 
+<section class="card weekly-plan" id="weekly-plan">
+	<div class="weekly-plan-head">
+		<h2 class="card-title">weekly plan</h2>
+		{{ if .AIChatCapable }}
+			<label class="weekly-plan-auto" title="Every Sunday at 8pm the coach reviews your week and drafts the next one for you to accept">
+				<input type="checkbox" id="wp-auto">
+				<span>auto-plan every Sunday night</span>
+			</label>
+		{{ end }}
+	</div>
+	{{ if .AIChatCapable }}
+		<p class="muted weekly-plan-intro" id="wp-intro">
+			The coach reviews how your training has gone — grading your key sessions rep by rep — and drafts the next
+			7 days for you to accept onto the calendar.
+		</p>
+		<p class="muted weekly-plan-next" id="wp-next" hidden></p>
+		<div class="weekly-plan-ask">
+			<input type="text" id="wp-notes" class="weekly-plan-notes" maxlength="500" autocomplete="off"
+				placeholder="anything to plan around? e.g. no riding Wednesday, long ride Saturday">
+			<button type="button" class="btn-secondary" id="wp-revise" hidden>revise plan</button>
+			<button type="button" class="btn-primary" id="wp-run">plan my week</button>
+		</div>
+		<p class="weekly-plan-meta muted" id="wp-meta" hidden></p>
+		<div class="chat-status" id="wp-status" hidden></div>
+		<div class="markdown-body weekly-plan-review" id="wp-review" hidden></div>
+		<div class="coach-preview-list weekly-plan-week" id="wp-week" hidden></div>
+		<div class="weekly-plan-actions" id="wp-actions" hidden>
+			<button type="button" class="btn-primary" id="wp-accept">add week to calendar</button>
+			<button type="button" class="btn-secondary" id="wp-discard">discard</button>
+		</div>
+		<p class="modal-error" id="wp-error" hidden></p>
+	{{ else if .AIConfigured }}
+		<p class="muted weekly-plan-intro">
+			Weekly plans need {{ .AIChatLabels }} — switch the provider in <a href="/settings">settings</a>.
+		</p>
+	{{ else }}
+		<p class="muted weekly-plan-intro">
+			Configure an AI provider in <a href="/settings">settings</a> to have the coach review your week and plan the next one.
+		</p>
+	{{ end }}
+</section>
+
 <div class="cal-grid">
 	{{- /* Header row */ -}}
 	<div class="cal-header">Mon</div>
@@ -169,4 +211,10 @@
 {{ define "scripts" }}
 <script src="/static/js/plan-profile.js"></script>
 <script src="/static/js/plan-modal.js"></script>
+{{ if .AIChatCapable }}
+	<script src="/static/js/marked.min.js"></script>
+	<script src="/static/js/purify.min.js"></script>
+	<script src="/static/js/coach-render.js"></script>
+	<script src="/static/js/weekly-plan.js"></script>
+{{ end }}
 {{ end }}

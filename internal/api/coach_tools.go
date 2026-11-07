@@ -95,6 +95,12 @@ type toolEvents struct {
 	// OnPreview fires when propose_schedule stores a draft the rider should
 	// see as a preview card.
 	OnPreview func(id string, count int)
+	// Capture, when set, receives propose_schedule's validated workouts in
+	// place of the shared single-slot draft table and returns the id to report.
+	// The weekly-plan runner uses it so a plan generated in the background
+	// neither depends on that slot surviving nor clobbers a preview card the
+	// rider has open in chat.
+	Capture func(workouts []plannedRequest) string
 }
 
 // execTool runs one tool call from the conversational coach and returns its
@@ -432,13 +438,17 @@ func (h *CoachHandler) toolProposeSchedule(input json.RawMessage, ev toolEvents)
 			return "", fmt.Errorf("workouts[%d]: title is required — a short session label the rider sees on the card, e.g. '2x20 threshold'", i)
 		}
 	}
-	payload, err := json.Marshal(draftPayload{Workouts: args.Workouts})
-	if err != nil {
-		return "", err
-	}
-	id, err := h.db.SavePlannedDraft(string(payload))
-	if err != nil {
-		return "", err
+	var id string
+	if ev.Capture != nil {
+		id = ev.Capture(args.Workouts)
+	} else {
+		payload, err := json.Marshal(draftPayload{Workouts: args.Workouts})
+		if err != nil {
+			return "", err
+		}
+		if id, err = h.db.SavePlannedDraft(string(payload)); err != nil {
+			return "", err
+		}
 	}
 	if ev.OnPreview != nil {
 		ev.OnPreview(id, len(args.Workouts))

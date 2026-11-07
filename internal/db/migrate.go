@@ -82,6 +82,7 @@ var migrations = []func(*sql.Tx) error{
 	migrateLedgerTombstones,    // v6 — imported_files.deleted flag so deletes survive auto-sync
 	migrateAchievements,        // v7 — per-workout PR trophies + chronological backfill
 	migrateWorkoutShapeCache,   // v8 — lazily filled per-workout interval-shape cache
+	migrateWeeklyPlans,         // v9 — coach weekly reviews + proposed schedules
 }
 
 // migrate replays every migration the database hasn't run yet.
@@ -586,6 +587,31 @@ func migrateWorkoutShapeCache(tx *sql.Tx) error {
 			shape_json TEXT NOT NULL
 		)`); err != nil {
 		return fmt.Errorf("create workout_shape: %w", err)
+	}
+	return nil
+}
+
+// migrateWeeklyPlans (v9) stores the coach's weekly review-and-plan runs, from
+// the calendar's "plan my week" button and the Sunday-night auto-plan. Each row
+// owns its proposed workouts (workouts_json) instead of referencing a
+// planned_workout_drafts row, because drafts are single-slot and swept by the
+// next proposal anywhere in the app. New table, nothing to backfill.
+func migrateWeeklyPlans(tx *sql.Tx) error {
+	if _, err := tx.Exec(`
+		CREATE TABLE IF NOT EXISTS weekly_plans (
+			id            TEXT PRIMARY KEY,
+			created_at    DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+			trigger       TEXT NOT NULL,
+			window_start  TEXT NOT NULL,
+			window_end    TEXT NOT NULL,
+			status        TEXT NOT NULL,
+			request       TEXT NOT NULL DEFAULT '',
+			review_md     TEXT NOT NULL DEFAULT '',
+			workouts_json TEXT NOT NULL DEFAULT '',
+			error         TEXT NOT NULL DEFAULT ''
+		);
+		CREATE INDEX IF NOT EXISTS idx_weekly_plans_created_at ON weekly_plans(created_at DESC)`); err != nil {
+		return fmt.Errorf("create weekly_plans: %w", err)
 	}
 	return nil
 }
