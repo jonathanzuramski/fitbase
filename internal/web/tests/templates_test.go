@@ -71,6 +71,27 @@ func TestTemplatesNoPaddedURLKeys(t *testing.T) {
 	})
 }
 
+// eqAction finds template actions that compare with eq/ne, for
+// TestTemplatesNoPaddedEqLiterals.
+var eqAction = regexp.MustCompile(`\{\{[^{}]*\b(?:eq|ne)\b[^{}]*\}\}`)
+
+// TestTemplatesNoPaddedEqLiterals is the same formatter damage in a
+// comparison: `eq $p.Source " coach"` can never be true, so the branch
+// silently never renders. It shipped that way — coach-planned workouts lost
+// their "proposed by coach" styling on the calendar.
+func TestTemplatesNoPaddedEqLiterals(t *testing.T) {
+	forEachTemplateLine(t, func(name string, n int, line string) {
+		for _, call := range eqAction.FindAllString(line, -1) {
+			for _, lit := range stringLit.FindAllStringSubmatch(call, -1) {
+				if lit[1] != strings.TrimSpace(lit[1]) {
+					t.Errorf("%s:%d: padded literal %q in %s (formatter damage?)",
+						name, n, lit[1], call)
+				}
+			}
+		}
+	})
+}
+
 // forEachTemplateLine runs fn for every line of every embedded template.
 func forEachTemplateLine(t *testing.T, fn func(name string, lineNo int, line string)) {
 	t.Helper()
