@@ -3,6 +3,8 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -152,4 +154,49 @@ func (db *DB) ScheduledFailuresSince(since time.Time) (int, time.Time, error) {
 	}
 	t, err := time.Parse(time.RFC3339, last.String)
 	return n, t, err
+}
+
+// Weekly-plan preferences live in meta: the rider's training days and
+// optional weekly time budget.
+const (
+	metaWeeklyPlanDays  = "weekly_plan_days"  // comma-separated mon..sun
+	metaWeeklyPlanHours = "weekly_plan_hours" // decimal hours
+)
+
+// GetWeeklyPlanPrefs returns the rider's weekly-plan availability, defaulting
+// to every day and no time budget.
+func (db *DB) GetWeeklyPlanPrefs() (models.WeeklyPlanPrefs, error) {
+	p := models.DefaultWeeklyPlanPrefs()
+	days, err := db.GetMeta(metaWeeklyPlanDays)
+	if err != nil {
+		return p, err
+	}
+	if days != "" {
+		p.Days = strings.Split(days, ",")
+	}
+	hours, err := db.GetMeta(metaWeeklyPlanHours)
+	if err != nil {
+		return p, err
+	}
+	if hours != "" {
+		if h, err := strconv.ParseFloat(hours, 64); err == nil {
+			p.WeeklyHours = &h
+		}
+	}
+	return p, nil
+}
+
+// SaveWeeklyPlanPrefs validates and stores the rider's availability.
+func (db *DB) SaveWeeklyPlanPrefs(p models.WeeklyPlanPrefs) error {
+	if err := p.Validate(); err != nil {
+		return err
+	}
+	p = p.Normalized()
+	if err := db.SetMeta(metaWeeklyPlanDays, strings.Join(p.Days, ",")); err != nil {
+		return err
+	}
+	if p.WeeklyHours == nil {
+		return db.DeleteMeta(metaWeeklyPlanHours)
+	}
+	return db.SetMeta(metaWeeklyPlanHours, strconv.FormatFloat(*p.WeeklyHours, 'f', -1, 64))
 }

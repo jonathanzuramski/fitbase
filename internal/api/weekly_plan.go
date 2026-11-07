@@ -110,15 +110,29 @@ func (h *CoachHandler) generateWeeklyPlan(ctx context.Context, run weeklyPlanRun
 		return fail(err)
 	}
 
-	systemContext := h.chatSystemContext(now) + "\n\n" + aicoach.WeeklyPlanBrief(start, end)
+	// The rider's standing availability (calendar page): stated in the prompt
+	// as dates, and enforced on propose_schedule.
+	prefs, err := h.db.GetWeeklyPlanPrefs()
+	if err != nil {
+		return fail(fmt.Errorf("load weekly plan preferences: %w", err))
+	}
+	var budget float64
+	if prefs.WeeklyHours != nil {
+		budget = *prefs.WeeklyHours
+	}
+	systemContext := h.chatSystemContext(now) + "\n\n" + aicoach.WeeklyPlanBrief(start, end) +
+		"\n\n" + aicoach.WeeklyPlanAvailability(start, end, prefs.Allows, budget)
 
 	// propose_schedule is captured into the plan rather than written to the
 	// single-slot draft table (see toolEvents.Capture).
 	var proposed []plannedRequest
-	ev := toolEvents{Capture: func(ws []plannedRequest) string {
-		proposed = ws
-		return "weekly-plan"
-	}}
+	ev := toolEvents{
+		Capture: func(ws []plannedRequest) string {
+			proposed = ws
+			return "weekly-plan"
+		},
+		Availability: &planAvailability{prefs: prefs},
+	}
 	exec := func(ctx context.Context, name string, input json.RawMessage) (string, error) {
 		return h.execTool(ctx, name, input, ev)
 	}
@@ -298,7 +312,17 @@ func (h *CoachHandler) WeeklyPlanLatest(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "database error")
 		return
 	}
-	resp := map[string]any{"plan": p, "workouts": []models.PlannedWorkout{}, "schedule": h.weeklySchedule()}
+	prefs, err := h.db.GetWeeklyPlanPrefs()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "database error")
+		return
+	}
+	resp := map[string]any{
+		"plan":        p,
+		"workouts":    []models.PlannedWorkout{},
+		"schedule":    h.weeklySchedule(),
+		"preferences": prefs.Normalized(),
+	}
 	if p != nil {
 		ws, err := planWorkouts(p)
 		if err != nil {
@@ -452,6 +476,27 @@ func (h *CoachHandler) WeeklyPlanDiscard(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// WeeklyPlanSetPreferences saves the rider's training days and optional
+// weekly time budget, used by every plan run including the auto-plan.
+//
+// PUT /api/coach/weekly-plan/preferences   body: {"days": ["mon","wed"], "weekly_hours": 8}
+func (h *CoachHandler) WeeklyPlanSetPreferences(w http.ResponseWriter, r *http.Request) {
+	var prefs models.WeeklyPlanPrefs
+	if err := decodeJSON(r, &prefs); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if err := prefs.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := h.db.SaveWeeklyPlanPrefs(prefs); err != nil {
+		writeError(w, http.StatusInternalServerError, "database error")
+		return
+	}
+	writeJSON(w, http.StatusOK, prefs.Normalized())
 }
 
 // WeeklyPlanSetSchedule turns the Sunday-night auto-plan on or off.

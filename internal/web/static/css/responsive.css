@@ -662,3 +662,7 @@
   .weekly-plan-ask .btn-primary,
   .weekly-plan-ask .btn-secondary { flex: 1; }
 }
+@media (max-width: 560px) {
+  .wp-day span { min-width: 36px; }
+  .weekly-plan-hours input { width: 100px; }
+}

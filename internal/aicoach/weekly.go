@@ -2,6 +2,8 @@ package aicoach
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -53,4 +55,36 @@ Respect the rider's mileage goals when set, and any constraints they mention in 
 Finish with a short paragraph summarizing the week and one thing to watch. The rider sees the proposed week directly under your review, with buttons to add it to their calendar or ask for changes — refer to it as "the proposed week below", not a preview card. Keep the prose to roughly 250–400 words — the schedule itself goes in the tool call, not in prose.`,
 		start.Format("Monday, 2006-01-02"), end.Format("Monday, 2006-01-02"), WeeklyPlanDays,
 		start.Format("2006-01-02"), end.Format("2006-01-02"))
+}
+
+// WeeklyPlanAvailability renders the rider's standing availability for the
+// plan window, appended after WeeklyPlanBrief. Days are listed as dates, not
+// weekday names, so the model never has to map "Wednesday" onto the window.
+// weeklyHours <= 0 means no budget: the coach chooses the volume.
+// propose_schedule enforces both, so this text is guidance, not the guard.
+func WeeklyPlanAvailability(start, end time.Time, allowed func(time.Weekday) bool, weeklyHours float64) string {
+	var open, closed []string
+	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
+		label := d.Format("Mon 2006-01-02")
+		if allowed(d.Weekday()) {
+			open = append(open, label)
+		} else {
+			closed = append(closed, label)
+		}
+	}
+	var b strings.Builder
+	b.WriteString("Rider availability — set by the rider on the calendar page. propose_schedule rejects a plan that breaks it.\n")
+	if len(closed) == 0 {
+		b.WriteString("- Training days: any day in the window.\n")
+	} else {
+		fmt.Fprintf(&b, "- Training days: %s. Schedule nothing on %s — those are rest days.\n",
+			strings.Join(open, ", "), strings.Join(closed, ", "))
+	}
+	if weeklyHours > 0 {
+		fmt.Fprintf(&b, "- Weekly time: about %s hours of training in total. Plan up to that, not over it — a lighter week is right when form or a comeback calls for it. Mention the total you planned.",
+			strconv.FormatFloat(weeklyHours, 'f', -1, 64))
+	} else {
+		b.WriteString("- Weekly time: not set — choose the volume from their recent weeks and current form, and state the total hours you planned.")
+	}
+	return b.String()
 }
