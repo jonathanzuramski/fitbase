@@ -355,3 +355,27 @@
 
 /* Phones show the short duration ("1:33"); see responsive.css. */
 .cal-dur-short { display: none; }
+
+/* Long coach prose is hard to read at full desktop width. */
+.weekly-plan-review > * { max-width: 80ch; }
+.weekly-plan-review > h1,
+.weekly-plan-review > h2 { max-width: none; } /* dividers span the panel */
+
+/* Wide screens: the review beside the proposed week, so the panel is half as
+   tall and the review's lines stay readable. Only when there is both a review
+   and a week to show (weekly-plan.js sets .wp-split). */
+@media (min-width: 1100px) {
+  .weekly-plan-body.wp-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr);
+    grid-template-areas:
+      "review week"
+      "review actions";
+    grid-template-rows: auto 1fr;
+    column-gap: 16px;
+    align-items: start;
+  }
+  .wp-split .weekly-plan-review { grid-area: review; }
+  .wp-split .weekly-plan-week { grid-area: week; }
+  .wp-split .weekly-plan-actions { grid-area: actions; }
+}
