@@ -247,3 +247,70 @@ func TestCoachToolsCatalogWellFormed(t *testing.T) {
 		}
 	}
 }
+
+// A weekly plan writes its review and calls propose_schedule in the same turn.
+// That prose must reach the rider, in order, before the closing paragraph —
+// in eval it was dropped and the rider got "as I wrote above" with nothing
+// above it.
+func TestChatStreamsProseWrittenAlongsideToolCalls(t *testing.T) {
+	const review = "## How the last week went\nTwo clean reps at 209 W."
+	const closing = "The plan is on the preview card."
+	fake.fn = func(in aicoach.ChatTurnInput) (*aicoach.ChatTurnOutput, error) {
+		if len(in.Rounds) == 0 {
+			return &aicoach.ChatTurnOutput{
+				Text:  review,
+				Calls: []aicoach.ToolExchange{{ID: "c1", Name: aicoach.ToolProposeSchedule, Input: json.RawMessage(`{}`)}},
+			}, nil
+		}
+		if in.Rounds[0].AssistantText != review {
+			t.Errorf("prose not replayed to the model: %q", in.Rounds[0].AssistantText)
+		}
+		return &aicoach.ChatTurnOutput{Text: closing}, nil
+	}
+
+	var streamed strings.Builder
+	c := newCoach(t)
+	out, err := c.Chat(context.Background(),
+		[]aicoach.ChatMessage{{Role: aicoach.ChatRoleUser, Content: "Plan my week."}},
+		"", aicoach.CoachTools(),
+		func(context.Context, string, json.RawMessage) (string, error) { return `{"preview_id":"x"}`, nil },
+		aicoach.ChatCallbacks{OnText: func(chunk string) error { streamed.WriteString(chunk); return nil }},
+	)
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	want := review + "\n\n" + closing
+	if streamed.String() != want {
+		t.Errorf("streamed = %q, want %q", streamed.String(), want)
+	}
+	if out != want {
+		t.Errorf("returned = %q, want what the rider saw: %q", out, want)
+	}
+}
+
+// If everything was said before the last tool call, an empty final turn must
+// not append the "couldn't find enough data" fallback to a real answer.
+func TestChatNoFallbackAfterStreamedProse(t *testing.T) {
+	fake.fn = func(in aicoach.ChatTurnInput) (*aicoach.ChatTurnOutput, error) {
+		if len(in.Rounds) == 0 {
+			return &aicoach.ChatTurnOutput{
+				Text:  "Here's your week.",
+				Calls: []aicoach.ToolExchange{{ID: "c1", Name: aicoach.ToolProposeSchedule, Input: json.RawMessage(`{}`)}},
+			}, nil
+		}
+		return &aicoach.ChatTurnOutput{Text: ""}, nil
+	}
+	c := newCoach(t)
+	out, err := c.Chat(context.Background(),
+		[]aicoach.ChatMessage{{Role: aicoach.ChatRoleUser, Content: "Plan my week."}},
+		"", aicoach.CoachTools(),
+		func(context.Context, string, json.RawMessage) (string, error) { return `{}`, nil },
+		aicoach.ChatCallbacks{},
+	)
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if out != "Here's your week." {
+		t.Errorf("returned = %q, want just the streamed prose", out)
+	}
+}

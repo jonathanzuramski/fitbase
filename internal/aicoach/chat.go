@@ -191,7 +191,8 @@ type ChatCallbacks struct {
 	OnToolStart func(name string)
 	// OnToolEnd fires after a tool executes, ok=false if it errored.
 	OnToolEnd func(name string, ok bool)
-	// OnText receives the final answer in chunks for incremental rendering.
+	// OnText receives the answer in chunks for incremental rendering: any
+	// prose the model writes alongside tool calls, then the final text.
 	OnText func(chunk string) error
 }
 
@@ -216,6 +217,22 @@ func (c *Coach) Chat(ctx context.Context, history []ChatMessage, systemContext s
 	}
 	// get the system prompt with profile context appended.
 	system := GetSystemPrompt(systemContext)
+
+	// shown accumulates every piece of answer text the rider has been sent, so
+	// the returned answer matches what they saw.
+	var shown strings.Builder
+	stream := func(text string) error {
+		shown.WriteString(text)
+		if cb.OnText == nil {
+			return nil
+		}
+		for _, chunk := range chunkText(text) {
+			if err := cb.OnText(chunk); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 
 	var rounds []ToolRound
 	for attempt := 0; attempt <= maxToolRounds; attempt++ {
@@ -244,17 +261,24 @@ func (c *Coach) Chat(ctx context.Context, history []ChatMessage, systemContext s
 
 		if len(out.Calls) == 0 {
 			text := strings.TrimSpace(out.Text)
-			if text == "" {
+			if text == "" && shown.Len() == 0 {
 				text = "I couldn't find enough data to answer that."
 			}
-			if cb.OnText != nil {
-				for _, chunk := range chunkText(text) {
-					if err := cb.OnText(chunk); err != nil {
-						return "", err
-					}
-				}
+			if err := stream(text); err != nil {
+				return "", err
 			}
-			return text, nil
+			return strings.TrimSpace(shown.String()), nil
+		}
+
+		// Prose written alongside tool calls is part of the answer, not
+		// scratch work: a weekly plan writes its review and then calls
+		// propose_schedule in the same turn. Before this was streamed, the
+		// rider only saw the closing paragraph — which referred to "what I
+		// wrote above" that never reached them.
+		if text := strings.TrimSpace(out.Text); text != "" {
+			if err := stream(text + "\n\n"); err != nil {
+				return "", err
+			}
 		}
 
 		exchanges := out.Calls

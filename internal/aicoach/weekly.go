@@ -37,20 +37,22 @@ func WeeklyPlanBrief(start, end time.Time) string {
 Gather first — request independent tools together in one round:
 - get_readiness, get_weekly_breakdown (weeks: 6), get_fitness_trend (days: 42), get_performance_trend (days: 90), get_power_curve (days: 42), get_goal_progress.
 - list_planned_workouts — it includes the past 7 days, so you can compare what was planned with what was done, and it shows manual entries in the new window that the plan must work around.
-- list_recent_workouts (days: 14), then get_workout_intervals on every key session from the last 7–10 days (IF ≥ 0.80, or a day that had a structured plan). This is how you know whether the rider hit last week's targets — never grade intervals from IF or average power.
+- list_recent_workouts (days: 42). Its structure line shows which rides were interval sessions — use that, not IF, to pick the key sessions. Then call get_workout_intervals on every key session from the last 7–10 days. If that window has fewer than two (a break, illness, travel), also take the two or three most recent structured sessions before it, so the plan progresses from what the rider last proved they can do. This is how you know whether they hit their targets — never grade intervals from IF or average power.
 
 Then write, in Markdown:
 ## How the last week went
-Volume (TSS, hours, rides) against the previous weeks and against what was planned. Grade each key session on execution — reps completed, power vs target, fade_pct, HR creep — and name specific sessions and numbers.
+Volume (TSS, hours, rides) against the previous weeks and against what was planned. Grade each key session on execution — reps completed (a short last rep usually means they stopped early), power vs target, last_vs_first_rep_pct, HR creep — and name specific sessions and numbers. If the last week was thin, say so and grade the most recent structured sessions you pulled instead, with their dates.
 ## Progress
 What is improving and what is stalling, from performance signals (FTP history, recent-vs-all-time power, EF at matched IF, decoupling) — not from CTL alone. Be honest about plateaus.
 ## Focus for the week
 One or two priorities and why, tied to form (TSB), ramp rate, and what is underdeveloped.
 
 Then call propose_schedule for the window — one entry per training day, rest days skipped, dates %s to %s only. Build the key sessions from what the rider actually executed:
-- Reps completed with fade under ~3%% and HR settling between reps → progress one step: one more rep, +2–3%% target, or longer reps — not all three.
-- Fade over ~5%%, missed reps, or a session abandoned → repeat the same session, or cut a rep.
+- Reps completed fading less than ~3%% (last_vs_first_rep_pct above -3) and HR settling between reps → progress one step: one more rep, +2–3%% target, or longer reps — not all three.
+- Fading more than ~5%%, missed reps, or a session cut short → repeat the same session, or cut a rep.
 - Deeply negative TSB (below about -25) or a ramp rate above ~8 CTL/week → make it a recovery or consolidation week regardless.
+- After a break of a week or more, restart a step below the last proven session (fewer reps or a few %% lower), not at it.
+Name sessions and step kinds by their targets: tempo 76–87%% FTP, sweet spot 88–94%%, threshold 95–105%%, VO2 106–120%%. Don't call an 85%% session sweet spot.
 Respect the rider's mileage goals when set, and any constraints they mention in their message or earlier in the conversation.
 
 Finish with a short paragraph summarizing the week and one thing to watch, and point the rider to the preview card. Keep the prose to roughly 250–400 words — the schedule itself goes in the tool call, not in prose.`,
