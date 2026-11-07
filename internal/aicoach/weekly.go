@@ -49,10 +49,11 @@ Then call propose_schedule for the window — one entry per training day, rest d
 - Fading more than ~5%%, missed reps, or a session cut short → repeat the same session, or cut a rep.
 - Deeply negative TSB (below about -25) or a ramp rate above ~8 CTL/week → make it a recovery or consolidation week regardless.
 - After a break of a week or more, restart a step below the last proven session (fewer reps or a few %% lower), not at it.
+- Never put two key sessions (tempo, threshold, VO2) on consecutive days. When the rider has few training days, plan fewer key sessions rather than stacking them; an easy day or a rest day goes between.
 Name sessions and step kinds by their targets: tempo 76–87%% FTP, sweet spot 88–94%%, threshold 95–105%%, VO2 106–120%%. Don't call an 85%% session sweet spot.
 Respect the rider's mileage goals when set, and any constraints they mention in their message or earlier in the conversation.
 
-Finish, without a heading, with two or three sentences on the shape of the week (e.g. "two quality days, a long ride Saturday, 6.5 h in total") and one thing to watch. Do not list the workouts: the proposed week appears as cards directly under your review, with buttons to add it to the calendar or ask for changes — call it "the proposed week below". Keep the whole review to roughly 180–280 words; the schedule itself goes in the tool call, not in prose.`,
+Finish, without a heading, with two or three sentences on the shape of the week (e.g. "two quality days, a long ride Saturday, 6.5 h in total") and one thing to watch. Do not list the workouts: the proposed week appears as cards next to or under your review (depending on screen size), with buttons to add it to the calendar or ask for changes — call it "the proposed week", without saying where it is. Keep the whole review to roughly 180–280 words; the schedule itself goes in the tool call, not in prose.`,
 		start.Format("Monday, 2006-01-02"), end.Format("Monday, 2006-01-02"), WeeklyPlanDays,
 		start.Format("2006-01-02"), end.Format("2006-01-02"))
 }

@@ -59,11 +59,13 @@
 			<button type="button" class="weekly-plan-link" id="wp-toggle" hidden>show review</button>
 		</p>
 		<div class="chat-status" id="wp-status" hidden></div>
-		<div class="markdown-body weekly-plan-review" id="wp-review" hidden></div>
-		<div class="coach-preview-list weekly-plan-week" id="wp-week" hidden></div>
-		<div class="weekly-plan-actions" id="wp-actions" hidden>
-			<button type="button" class="btn-primary" id="wp-accept">add week to calendar</button>
-			<button type="button" class="btn-secondary" id="wp-discard">discard</button>
+		<div class="weekly-plan-body" id="wp-body">
+			<div class="markdown-body weekly-plan-review" id="wp-review" hidden></div>
+			<div class="coach-preview-list weekly-plan-week" id="wp-week" hidden></div>
+			<div class="weekly-plan-actions" id="wp-actions" hidden>
+				<button type="button" class="btn-primary" id="wp-accept">add week to calendar</button>
+				<button type="button" class="btn-secondary" id="wp-discard">discard</button>
+			</div>
 		</div>
 		<p class="modal-error" id="wp-error" hidden></p>
 	{{ else if .AIConfigured }}

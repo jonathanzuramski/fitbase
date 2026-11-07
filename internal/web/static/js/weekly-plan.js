@@ -10,7 +10,7 @@
 	const metaRow = $('wp-meta-row'), meta = $('wp-meta'), toggleBtn = $('wp-toggle');
 	const status = $('wp-status'), review = $('wp-review'), week = $('wp-week');
 	const actions = $('wp-actions'), acceptBtn = $('wp-accept'), discardBtn = $('wp-discard');
-	const errEl = $('wp-error');
+	const errEl = $('wp-error'), body = $('wp-body');
 	const dayBoxes = Array.from(document.querySelectorAll('#wp-prefs .wp-day input'));
 	const hoursInput = $('wp-hours'), savedEl = $('wp-prefs-saved');
 	if (!runBtn) return;
@@ -140,6 +140,7 @@
 		workouts = workouts || [];
 		status.hidden = true;
 		toggleBtn.hidden = true;
+		body.classList.remove('wp-split');
 		if (!plan) {
 			intro.hidden = false;
 			metaRow.hidden = review.hidden = week.hidden = actions.hidden = reviseBtn.hidden = true;
@@ -172,6 +173,8 @@
 		renderWeek(workouts);
 		actions.hidden = workouts.length === 0;
 		reviseBtn.hidden = false;
+		// Wide screens: review and proposed week side by side (calendar.css).
+		body.classList.toggle('wp-split', !!plan.review_md && workouts.length > 0);
 		notes.placeholder = readyPlaceholder;
 	}
 
@@ -201,6 +204,7 @@
 		setBusy(true);
 		showError('');
 		intro.hidden = metaRow.hidden = week.hidden = actions.hidden = toggleBtn.hidden = true;
+		body.classList.remove('wp-split');
 		review.innerHTML = '';
 		review.hidden = false;
 		status.hidden = false;

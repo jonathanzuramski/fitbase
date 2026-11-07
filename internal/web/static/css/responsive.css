@@ -695,3 +695,42 @@
   /* Card + review padding stack up on a phone; give the text the width. */
   .weekly-plan-review { padding: 12px 14px; }
 }
+
+/* AI coach card header on phones. The activities-card rule above gives
+   .card-title order 1, which pushed this card's title after its controls
+   into a squeezed right-hand column. Here: title + collapse arrow on the
+   first row, "generated … / regenerate" on a full-width row beneath. */
+@media (max-width: 560px) {
+  #ai-coach-card .ai-coach-header-actions { display: contents; }
+  #ai-coach-card .card-header-row .card-title { order: 0; flex: 1 1 0; min-width: 0; }
+  #ai-coach-card .ai-collapse-btn { order: 1; }
+  #ai-coach-card .ai-coach-actions {
+    order: 2;
+    flex-basis: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  /* Coach replies often carry a 4-5 column table; let it scroll sideways
+     inside the bubble rather than overflow a phone-width layout. */
+  .markdown-body table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+}
+
+/* iOS Safari zooms the whole page when an input under 16px gets focus, and
+   doesn't zoom back. Settings already handles its fields (.form-input); this
+   covers the coach chat, the weekly-plan panel, and the calendar dialogs. */
+@media (max-width: 640px) {
+  .coach-chat-input,
+  .weekly-plan-notes,
+  .weekly-plan-hours input,
+  .modal-row input,
+  .modal-row select,
+  .modal-row textarea {
+    font-size: 16px;
+  }
+}
