@@ -15,6 +15,7 @@ import (
 // FuncMap returns the custom template functions for all pages.
 var FuncMap = template.FuncMap{
 	"formatDuration":  formatDuration,
+	"formatDurShort":  formatDurationShort,
 	"formatDistance":  formatDistance,
 	"formatElevation": formatElevation,
 	"formatSpeed":     formatSpeed,
@@ -157,6 +158,15 @@ func formatDuration(secs int) string {
 		return fmt.Sprintf("%d:%02d:%02d", h, m, s)
 	}
 	return fmt.Sprintf("%d:%02d", m, s)
+}
+
+// formatDurationShort is a compact duration for tight spaces (calendar cells
+// on phones): "1:33" (h:mm) from an hour up, "32m" below.
+func formatDurationShort(secs int) string {
+	if secs >= 3600 {
+		return fmt.Sprintf("%d:%02d", secs/3600, secs/60%60)
+	}
+	return fmt.Sprintf("%dm", (secs+30)/60)
 }
 
 func formatDistance(meters float64, imperial bool) string {

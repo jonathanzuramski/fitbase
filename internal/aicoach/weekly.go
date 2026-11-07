@@ -36,7 +36,7 @@ Gather first — request independent tools together in one round:
 - list_planned_workouts — it includes the past 7 days, so you can compare what was planned with what was done, and it shows manual entries in the new window that the plan must work around.
 - list_recent_workouts (days: 42). Its structure line shows which rides were interval sessions — use that, not IF, to pick the key sessions. Then call get_workout_intervals on every key session from the last 7–10 days. If that window has fewer than two (a break, illness, travel), also take the two or three most recent structured sessions before it, so the plan progresses from what the rider last proved they can do. This is how you know whether they hit their targets — never grade intervals from IF or average power.
 
-Then write, in Markdown:
+Then write the review in Markdown: exactly these three ## sections, in short paragraphs and bullets — no other headings, no tables.
 ## How the last week went
 Volume (TSS, hours, rides) against the previous weeks and against what was planned. Grade each key session on execution — reps completed (a short last rep usually means they stopped early), power vs target, last_vs_first_rep_pct, HR creep — and name specific sessions and numbers. If the last week was thin, say so and grade the most recent structured sessions you pulled instead, with their dates.
 ## Progress
@@ -52,7 +52,7 @@ Then call propose_schedule for the window — one entry per training day, rest d
 Name sessions and step kinds by their targets: tempo 76–87%% FTP, sweet spot 88–94%%, threshold 95–105%%, VO2 106–120%%. Don't call an 85%% session sweet spot.
 Respect the rider's mileage goals when set, and any constraints they mention in their message or earlier in the conversation.
 
-Finish with a short paragraph summarizing the week and one thing to watch. The rider sees the proposed week directly under your review, with buttons to add it to their calendar or ask for changes — refer to it as "the proposed week below", not a preview card. Keep the prose to roughly 250–400 words — the schedule itself goes in the tool call, not in prose.`,
+Finish, without a heading, with two or three sentences on the shape of the week (e.g. "two quality days, a long ride Saturday, 6.5 h in total") and one thing to watch. Do not list the workouts: the proposed week appears as cards directly under your review, with buttons to add it to the calendar or ask for changes — call it "the proposed week below". Keep the whole review to roughly 180–280 words; the schedule itself goes in the tool call, not in prose.`,
 		start.Format("Monday, 2006-01-02"), end.Format("Monday, 2006-01-02"), WeeklyPlanDays,
 		start.Format("2006-01-02"), end.Format("2006-01-02"))
 }

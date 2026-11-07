@@ -101,12 +101,7 @@
 				{{ range $w := $day.Workouts }}
 					<a href="/workouts/{{ $w.ID }}" class="cal-workout" title="{{ $w.Sport }}">
 						<span class="cal-dot cal-dot-{{ $w.Sport | lower }}"></span>
-						<span class="cal-workout-info">{{ formatDuration $w.DurationSecs }}
-							{{ if gt $w.DistanceM 0.0 }} ·
-								{{ formatDistance
-									$w.DistanceM $imperial
-								}}
-							{{ end }}</span>
+						<span class="cal-workout-info"><span class="cal-dur-full">{{ formatDuration $w.DurationSecs }}</span><span class="cal-dur-short">{{ formatDurShort $w.DurationSecs }}</span>{{ if gt $w.DistanceM 0.0 }}<span class="cal-workout-dist"> · {{ formatDistance $w.DistanceM $imperial }}</span>{{ end }}</span>
 					</a>
 				{{ end }}
 				{{ range $p := $day.Planned }}
