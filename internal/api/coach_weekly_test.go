@@ -66,8 +66,6 @@ func coachFixture(t *testing.T) *CoachHandler {
 	return h
 }
 
-// proposingWeek scripts the weekly playbook's shape: the model writes its
-// review and calls propose_schedule in one turn, then closes in the next.
 // firstPlanDay is the first day of a weekly plan generated now, the way the
 // handler computes it: tomorrow in the athlete's timezone, which is UTC for
 // the fixture (no timezone set). Using the machine's local "tomorrow" instead
@@ -77,6 +75,8 @@ func firstPlanDay() time.Time {
 	return start
 }
 
+// proposingWeek scripts the weekly playbook's shape: the model writes its
+// review and calls propose_schedule in one turn, then closes in the next.
 func proposingWeek(review, closing string) func(in aicoach.ChatTurnInput) (*aicoach.ChatTurnOutput, error) {
 	return func(in aicoach.ChatTurnInput) (*aicoach.ChatTurnOutput, error) {
 		if len(in.Rounds) > 0 {
