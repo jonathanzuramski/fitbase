@@ -15,6 +15,106 @@
 	</div>
 </div>
 
+<section class="card weekly-plan" id="weekly-plan">
+	<div class="weekly-plan-head">
+		<h2 class="card-title">weekly plan
+			<span class="weekly-plan-chip" id="wp-chip" hidden></span>
+		</h2>
+		<div class="weekly-plan-head-actions">
+			{{ if .AIChatCapable }}
+				<label class="weekly-plan-auto" title="Every Sunday at 8pm the coach reviews your week and drafts the next one for you to accept">
+					<input type="checkbox" id="wp-auto">
+					<span>auto-plan every Sunday night</span>
+				</label>
+			{{ end }}
+			<button type="button" class="ai-collapse-btn weekly-plan-collapse" id="wp-collapse"
+				aria-controls="wp-content" aria-expanded="true" aria-label="Hide weekly plan" title="Hide weekly plan">▾</button>
+		</div>
+	</div>
+	<div class="weekly-plan-content" id="wp-content">
+	{{ if .AIChatCapable }}
+		<p class="muted weekly-plan-intro" id="wp-intro">
+			The coach reviews how your training has gone — grading your key sessions rep by rep — and drafts the next
+			7 days for you to accept onto the calendar.
+		</p>
+		<p class="muted weekly-plan-next" id="wp-next" hidden></p>
+		<div class="weekly-plan-prefs" id="wp-prefs" title="Used for every plan, including the Sunday auto-plan">
+			<div class="weekly-plan-days" role="group" aria-label="Training days">
+				<span class="weekly-plan-label">training days</span>
+				<label class="wp-day"><input type="checkbox" value="mon"><span>Mon</span></label>
+				<label class="wp-day"><input type="checkbox" value="tue"><span>Tue</span></label>
+				<label class="wp-day"><input type="checkbox" value="wed"><span>Wed</span></label>
+				<label class="wp-day"><input type="checkbox" value="thu"><span>Thu</span></label>
+				<label class="wp-day"><input type="checkbox" value="fri"><span>Fri</span></label>
+				<label class="wp-day"><input type="checkbox" value="sat"><span>Sat</span></label>
+				<label class="wp-day"><input type="checkbox" value="sun"><span>Sun</span></label>
+			</div>
+			<label class="weekly-plan-hours">
+				<span class="weekly-plan-label">hours / week</span>
+				<input type="number" id="wp-hours" min="1" max="40" step="0.5" inputmode="decimal" placeholder="coach decides">
+			</label>
+			<span class="muted weekly-plan-saved" id="wp-prefs-saved" hidden>saved</span>
+		</div>
+		<div class="weekly-plan-ask">
+			<input type="text" id="wp-notes" class="weekly-plan-notes" maxlength="500" autocomplete="off"
+				placeholder="anything to plan around? e.g. no riding Wednesday, long ride Saturday">
+			<button type="button" class="btn-secondary" id="wp-revise" hidden>revise plan</button>
+			<button type="button" class="btn-primary" id="wp-run">plan my week</button>
+		</div>
+		<p class="weekly-plan-meta muted" id="wp-meta-row" hidden>
+			<span id="wp-meta"></span>
+			<button type="button" class="weekly-plan-link" id="wp-toggle" hidden>show review</button>
+		</p>
+		<div class="chat-status" id="wp-status" hidden></div>
+		<div class="weekly-plan-body" id="wp-body">
+			<div class="markdown-body weekly-plan-review" id="wp-review" hidden></div>
+			<div class="coach-preview-list weekly-plan-week" id="wp-week" hidden></div>
+			<div class="weekly-plan-actions" id="wp-actions" hidden>
+				<button type="button" class="btn-primary" id="wp-accept">add week to calendar</button>
+				<button type="button" class="btn-secondary" id="wp-discard">discard</button>
+			</div>
+		</div>
+		<p class="modal-error" id="wp-error" hidden></p>
+	{{ else if .AIConfigured }}
+		<p class="muted weekly-plan-intro">
+			Weekly plans need {{ .AIChatLabels }} — switch the provider in <a href="/settings">settings</a>.
+		</p>
+	{{ else }}
+		<p class="muted weekly-plan-intro">
+			Configure an AI provider in <a href="/settings">settings</a> to have the coach review your week and plan the next one.
+		</p>
+	{{ end }}
+	</div>
+</section>
+<script>
+	// Weekly plan collapse, remembered per browser (the dashboard's AI coach
+	// card works the same way). Inline right after the panel so a collapsed
+	// panel never flashes open while the rest of the page loads.
+	(function () {
+		const panel = document.getElementById('weekly-plan');
+		const btn = document.getElementById('wp-collapse');
+		const chip = document.getElementById('wp-chip');
+		if (!panel || !btn) return;
+		const KEY = 'weekly-plan-collapsed';
+		function apply(collapsed) {
+			panel.classList.toggle('wp-collapsed', collapsed);
+			btn.setAttribute('aria-expanded', String(!collapsed));
+			btn.title = collapsed ? 'Show weekly plan' : 'Hide weekly plan';
+			btn.setAttribute('aria-label', btn.title);
+		}
+		function set(collapsed) {
+			apply(collapsed);
+			try { localStorage.setItem(KEY, collapsed ? '1' : '0'); } catch (_) { }
+		}
+		let saved = false;
+		try { saved = localStorage.getItem(KEY) === '1'; } catch (_) { }
+		apply(saved);
+		btn.addEventListener('click', () => set(!panel.classList.contains('wp-collapsed')));
+		// The "plan ready" chip on a collapsed panel opens it.
+		if (chip) chip.addEventListener('click', () => set(false));
+	})();
+</script>
+
 <div class="cal-grid">
 	{{- /* Header row */ -}}
 	<div class="cal-header">Mon</div>
@@ -27,11 +127,25 @@
 	<div class="cal-header cal-header-week">Week</div>
 
 	{{ range $week := $cal.Weeks }}
+		{{- /* The summary leads each week so the phone day list reads it as the
+		     week's heading; the desktop grid pins it to the last column. */ -}}
+		<div class="cal-week-summary{{ if $week.IsCurrent }} current{{ end }}">
+			<span class="cal-week-label">Week {{ $week.WeekNum }} · {{ $week.RangeLabel }}</span>
+			{{ if gt $week.TotalDurSecs 0 }}
+				<div class="cal-week-stat">{{ formatDuration $week.TotalDurSecs }}</div>
+				{{ if gt $week.TotalDistM 0.0 }}<div class="cal-week-stat">{{ formatDistance $week.TotalDistM $imperial }}</div>{{ end }}
+				{{ if gt $week.TotalTSS 0.0 }}<div class="cal-week-stat">{{ printf "%.0f" $week.TotalTSS }} TSS</div>{{ end }}
+			{{ else if gt $week.PlannedDurSecs 0 }}
+				<div class="cal-week-stat cal-week-planned">planned {{ formatDuration $week.PlannedDurSecs }}</div>
+				{{ if gt $week.PlannedTSS 0.0 }}<div class="cal-week-stat cal-week-planned">{{ printf "%.0f" $week.PlannedTSS }} TSS</div>{{ end }}
+			{{ end }}
+		</div>
 		{{ range $day := $week.Days }}
 			<div class="cal-day{{ if not $day.InMonth }} outside{{ end }}{{ if $day.IsToday }} today{{ end }}"
 				data-date="{{ $day.DateISO }}">
 				<div class="cal-date">
-					<span>{{ $day.Date.Day }}</span>
+					<span class="cal-dow">{{ $day.Date.Format "Mon" }}</span>
+					<span class="cal-daynum">{{ $day.Date.Day }}</span>
 					{{ if $day.InMonth }}
 						<button type="button" class="cal-add-btn" data-date="{{ $day.DateISO }}" title="Plan a workout">+</button>
 					{{ end }}
@@ -39,17 +153,12 @@
 				{{ range $w := $day.Workouts }}
 					<a href="/workouts/{{ $w.ID }}" class="cal-workout" title="{{ $w.Sport }}">
 						<span class="cal-dot cal-dot-{{ $w.Sport | lower }}"></span>
-						<span class="cal-workout-info">{{ formatDuration $w.DurationSecs }}
-							{{ if gt $w.DistanceM 0.0 }} ·
-								{{ formatDistance
-									$w.DistanceM $imperial
-								}}
-							{{ end }}</span>
+						<span class="cal-workout-info">{{ formatDuration $w.DurationSecs }}{{ if gt $w.DistanceM 0.0 }}<span class="cal-workout-dist"> · {{ formatDistance $w.DistanceM $imperial }}</span>{{ end }}{{ if $w.TSS }}<span class="cal-workout-tss"> · {{ formatOptFloat $w.TSS "TSS" }}</span>{{ end }}</span>
 					</a>
 				{{ end }}
 				{{ range $p := $day.Planned }}
-					<div class="cal-planned{{ if eq $p.Source " coach" }} cal-planned-coach{{ end }}" data-id="{{ $p.ID }}" role="button"
-						tabindex="0" title="{{ if $p.Title }}{{ $p.Title }}{{ else }}planned{{ end }}{{ if eq $p.Source " coach" }} · proposed
+					<div class="cal-planned{{ if eq $p.Source "coach" }} cal-planned-coach{{ end }}" data-id="{{ $p.ID }}" role="button"
+						tabindex="0" title="{{ if $p.Title }}{{ $p.Title }}{{ else }}planned{{ end }}{{ if eq $p.Source "coach" }} · proposed
 						by coach{{ end }}">
 						<span class="cal-dot cal-dot-{{ $p.Sport | lower }} cal-dot-planned"></span>
 						<span class="cal-planned-info">
@@ -66,14 +175,6 @@
 				{{ end }}
 			</div>
 		{{ end }}
-		<div class="cal-week-summary">
-			{{ if gt $week.TotalDurSecs 0 }}
-				<div class="cal-week-stat">{{ formatDuration $week.TotalDurSecs }}</div>
-				{{ if gt $week.TotalDistM 0.0 }}<div class="cal-week-stat">{{ formatDistance $week.TotalDistM $imperial }}</div>
-				{{ end }}
-				{{ if gt $week.TotalTSS 0.0 }}<div class="cal-week-stat">{{ printf "%.0f" $week.TotalTSS }} TSS</div>{{ end }}
-			{{ end }}
-		</div>
 	{{ end }}
 </div>
 
@@ -169,4 +270,10 @@
 {{ define "scripts" }}
 <script src="/static/js/plan-profile.js"></script>
 <script src="/static/js/plan-modal.js"></script>
+{{ if .AIChatCapable }}
+	<script src="/static/js/marked.min.js"></script>
+	<script src="/static/js/purify.min.js"></script>
+	<script src="/static/js/coach-render.js"></script>
+	<script src="/static/js/weekly-plan.js"></script>
+{{ end }}
 {{ end }}

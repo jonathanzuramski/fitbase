@@ -1,6 +1,14 @@
 /* base.css — design tokens, reset, typography, scrollbar, nav, layout. */
 /* fitbase — dark theme, intervals.icu-inspired */
 
+/* Make the hidden attribute always win. Without this, any class that sets
+   display (flex/grid/block) overrides the browser's [hidden] rule, so JS that
+   toggles el.hidden silently does nothing — the weekly plan's discard left its
+   week and buttons on screen this way. */
+[hidden] {
+  display: none !important;
+}
+
 /* Remove number input spinners globally */
 input[type="number"]::-webkit-inner-spin-button,
 input[type="number"]::-webkit-outer-spin-button {
@@ -17,6 +25,10 @@ input[type="number"] {
   --bg: #0f1117;
   --bg-card: #171b24;
   --bg-hover: #1e2330;
+  /* Inset panels inside a card (coach insights, chat bubbles, previews).
+     Was referenced in four places but never defined, so those rendered with
+     no background at all. */
+  --surface: #12151d;
   --border: #252b38;
   --text: #e2e8f0;
   --text-muted: #64748b;

@@ -381,8 +381,11 @@
 
 /* ── Calendar (tablets) ──────────────────────────────── */
 @media (max-width: 900px) {
+  /* minmax(0, 1fr), not 1fr: a 1fr track can't shrink below its content, so
+     a day holding "1:33:39 · 24.2mi" widened its column and the grid's
+     overflow:hidden clipped Sunday off a phone screen. */
   .cal-grid {
-    grid-template-columns: repeat(7, 1fr);
+    grid-template-columns: repeat(7, minmax(0, 1fr));
   }
   .cal-header-week,
   .cal-week-summary {
@@ -652,5 +655,174 @@
   }
   .settings-modal-actions > * {
     flex: 1;
+  }
+}
+
+/* Weekly plan panel (calendar) on phones: the input takes its own row, and the
+   "training days" label sits above the toggles so all seven fit in one row. */
+@media (max-width: 560px) {
+  .weekly-plan-ask { flex-wrap: wrap; }
+  .weekly-plan-notes { flex-basis: 100%; }
+  .weekly-plan-ask .btn-primary,
+  .weekly-plan-ask .btn-secondary { flex: 1; }
+  .weekly-plan-days .weekly-plan-label { flex-basis: 100%; }
+  .wp-day span { min-width: 36px; }
+  .weekly-plan-hours input { width: 100px; }
+}
+
+/* Touch screens can't hover, so the calendar's hover-revealed "+" (plan a
+   workout on this day) was unreachable on phones and tablets. */
+@media (hover: none) {
+  .cal-add-btn { opacity: 1; }
+}
+
+/* Calendar on phones: the month becomes a list of days instead of a 7-column
+   grid. At ~50px a column, the grid could only show truncated fragments and
+   tiny tap targets. Each in-month day is a full-width row — weekday and date
+   on the left, that day's rides and planned workouts in full, "+" on the
+   right — and each week ends with its totals (hidden on phones before).
+   Tapping a planned workout opens its detail dialog, which has "remove", so
+   the hover-only x is dropped. */
+@media (max-width: 560px) {
+  .cal-grid {
+    display: block;
+    margin-top: 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .cal-header,
+  .cal-day.outside { display: none; }
+  .cal-day {
+    position: relative;
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr);
+    column-gap: 10px;
+    row-gap: 6px;
+    align-items: start;
+    min-height: 0;
+    padding: 7px 48px 7px 12px;
+    background: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .cal-day.today {
+    border-left: 3px solid var(--accent);
+    padding-left: 9px;
+    background: rgba(59, 130, 246, 0.07);
+  }
+  .cal-date {
+    grid-column: 1;
+    grid-row: 1;
+    justify-content: flex-start;
+    align-items: baseline;
+    gap: 6px;
+    margin: 0;
+    padding-top: 4px;
+  }
+  .cal-dow {
+    display: inline-block;
+    width: 32px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .cal-daynum { font-size: 15px; font-weight: 600; color: var(--text); }
+  .cal-day.today .cal-dow,
+  .cal-day.today .cal-daynum { color: var(--accent); }
+  .cal-add-btn {
+    position: absolute;
+    top: 6px;
+    right: 10px;
+    width: 28px;
+    height: 28px;
+    font-size: 17px;
+    opacity: 1;
+  }
+  .cal-workout,
+  .cal-planned {
+    grid-column: 2;
+    gap: 7px;
+    padding: 6px 8px;
+    font-size: 13px;
+    border-radius: 6px;
+  }
+  .cal-workout { background: var(--bg); }
+  .cal-workout-tss { display: inline; }
+  .cal-planned-info {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: 8px;
+  }
+  .cal-planned-title { font-size: 13px; }
+  .cal-planned-target { font-size: 12px; color: var(--text-muted); }
+  .cal-planned-del { display: none; }
+  /* Each week opens with its summary row: the week number and dates
+     ("Week 46 · Nov 9 – 15"), then its ride totals, or its planned volume
+     when nothing is ridden yet. The current week's label is highlighted. */
+  .cal-week-summary {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: flex-end;
+    gap: 2px 10px;
+    padding: 7px 12px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+  }
+  .cal-week-label {
+    display: inline;
+    margin-right: auto;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .cal-week-summary.current .cal-week-label { color: var(--accent); }
+  .cal-week-planned { display: block; }
+  /* Card + review padding stack up on a phone; give the text the width. */
+  .weekly-plan-review { padding: 12px 14px; }
+}
+
+/* AI coach card header on phones. The activities-card rule above gives
+   .card-title order 1, which pushed this card's title after its controls
+   into a squeezed right-hand column. Here: title + collapse arrow on the
+   first row, "generated … / regenerate" on a full-width row beneath. */
+@media (max-width: 560px) {
+  #ai-coach-card .ai-coach-header-actions { display: contents; }
+  #ai-coach-card .card-header-row .card-title { order: 0; flex: 1 1 0; min-width: 0; }
+  #ai-coach-card .ai-collapse-btn { order: 1; }
+  #ai-coach-card .ai-coach-actions {
+    order: 2;
+    flex-basis: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  /* Coach replies often carry a 4-5 column table; let it scroll sideways
+     inside the bubble rather than overflow a phone-width layout. */
+  .markdown-body table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+}
+
+/* iOS Safari zooms the whole page when an input under 16px gets focus, and
+   doesn't zoom back. Settings already handles its fields (.form-input); this
+   covers the coach chat, the weekly-plan panel, and the calendar dialogs. */
+@media (max-width: 640px) {
+  .coach-chat-input,
+  .weekly-plan-notes,
+  .weekly-plan-hours input,
+  .modal-row input,
+  .modal-row select,
+  .modal-row textarea {
+    font-size: 16px;
   }
 }

@@ -4,11 +4,24 @@
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
+}
+
+/* ── Coach markdown ──────────────────────────────────────────────────────
+   Typography for every block of coach output: dashboard insights, chat
+   replies, and the calendar's weekly-plan review all carry .markdown-body.
+   These rules used to be scoped to .ai-insights alone, which left the
+   weekly-plan review on bare reset defaults — no paragraph spacing,
+   oversized headings, bullets hanging outside the text. */
+.markdown-body {
   font-size: 14px;
   line-height: 1.65;
   color: var(--text);
+  overflow-wrap: break-word;
 }
-.ai-insights h2 {
+.markdown-body > :first-child { margin-top: 0; }
+.markdown-body > :last-child  { margin-bottom: 0; }
+.markdown-body h1,
+.markdown-body h2 {
   font-size: 13px;
   font-weight: 600;
   text-transform: uppercase;
@@ -18,47 +31,59 @@
   padding-bottom: 6px;
   border-bottom: 1px solid var(--border);
 }
-.ai-insights h2:first-child { margin-top: 0; }
-.ai-insights h3 {
+.markdown-body h3,
+.markdown-body h4 {
   font-size: 13px;
   font-weight: 600;
   margin: 14px 0 6px;
   color: var(--text);
 }
-.ai-insights p       { margin: 0 0 10px; }
-.ai-insights p:last-child { margin-bottom: 0; }
-.ai-insights strong  { color: var(--text); font-weight: 600; }
-.ai-insights em      { color: var(--text-muted); font-style: italic; }
-.ai-insights ul,
-.ai-insights ol      { margin: 6px 0 12px; padding-left: 22px; }
-.ai-insights li      { margin-bottom: 4px; }
-.ai-insights code    {
+.markdown-body p       { margin: 0 0 10px; }
+.markdown-body strong  { color: var(--text); font-weight: 600; }
+.markdown-body em      { color: var(--text-muted); font-style: italic; }
+.markdown-body ul,
+.markdown-body ol      { margin: 6px 0 12px; padding-left: 22px; }
+.markdown-body li      { margin-bottom: 4px; }
+.markdown-body li > ul,
+.markdown-body li > ol { margin: 4px 0 0; }
+.markdown-body hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 14px 0;
+}
+.markdown-body blockquote {
+  margin: 8px 0 12px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
+  color: var(--text-muted);
+}
+.markdown-body code    {
   background: var(--bg);
   padding: 1px 5px;
   border-radius: 4px;
   font-family: var(--mono);
   font-size: 12.5px;
 }
-.ai-insights table {
+.markdown-body table {
   width: 100%;
   border-collapse: collapse;
   margin: 10px 0 14px;
   font-size: 13px;
 }
-.ai-insights th,
-.ai-insights td {
+.markdown-body th,
+.markdown-body td {
   padding: 6px 10px;
   text-align: left;
   border-bottom: 1px solid var(--border);
 }
-.ai-insights th {
+.markdown-body th {
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
   font-size: 11px;
   letter-spacing: 0.04em;
 }
-.ai-insights tr:last-child td { border-bottom: none; }
+.markdown-body tr:last-child td { border-bottom: none; }
 .ai-error {
   font-size: 13px;
   color: #ef4444;

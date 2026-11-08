@@ -84,10 +84,26 @@ func (db *DB) CommitPlannedDraft(draftID string, ps []models.PlannedWorkout) ([]
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	// A new coach plan supersedes the old one: coach-sourced workouts already on
-	// the dates this draft covers are replaced, so accepting a re-proposed week
-	// (fixed titles, rescheduled sessions, …) can never duplicate entries.
-	// Manual entries are the rider's own and are left untouched.
+	saved, err := replaceCoachWorkoutsTx(tx, ps)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(`DELETE FROM planned_workout_drafts WHERE id = ?`, draftID); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return saved, nil
+}
+
+// replaceCoachWorkoutsTx inserts a coach proposal inside tx. A new coach plan
+// supersedes the old one: coach-sourced workouts already on the dates it
+// covers are replaced, so accepting a re-proposed week (fixed titles,
+// rescheduled sessions, …) can never duplicate entries. Manual entries are the
+// rider's own and are left untouched. Shared by draft commits and weekly-plan
+// accepts so both follow the same no-double-booking rule.
+func replaceCoachWorkoutsTx(tx *sql.Tx, ps []models.PlannedWorkout) ([]models.PlannedWorkout, error) {
 	seen := map[string]bool{}
 	for _, p := range ps {
 		date := p.PlannedDate.UTC().Format("2006-01-02")
@@ -109,12 +125,6 @@ func (db *DB) CommitPlannedDraft(draftID string, ps []models.PlannedWorkout) ([]
 			return nil, err
 		}
 		saved = append(saved, s)
-	}
-	if _, err := tx.Exec(`DELETE FROM planned_workout_drafts WHERE id = ?`, draftID); err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, err
 	}
 	return saved, nil
 }

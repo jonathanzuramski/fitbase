@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -95,6 +96,43 @@ type toolEvents struct {
 	// OnPreview fires when propose_schedule stores a draft the rider should
 	// see as a preview card.
 	OnPreview func(id string, count int)
+	// Capture, when set, receives propose_schedule's validated workouts in
+	// place of the shared single-slot draft table and returns the id to report.
+	// The weekly-plan runner uses it so a plan generated in the background
+	// neither depends on that slot surviving nor clobbers a preview card the
+	// rider has open in chat.
+	Capture func(workouts []plannedRequest) string
+	// Availability, when set, makes propose_schedule reject a plan that uses a
+	// day the rider marked unavailable or overruns their weekly time budget.
+	// The error goes back to the model, which re-plans — constraints stated
+	// only in prose are the kind models occasionally ignore.
+	Availability *planAvailability
+}
+
+// planAvailability is the rider's weekly-plan availability as enforced on a
+// proposal.
+type planAvailability struct {
+	prefs models.WeeklyPlanPrefs
+}
+
+// budgetSlack is how far over the weekly hours budget a proposal may run
+// before it is rejected: a 10-minute-longer warmup shouldn't bounce a plan.
+const budgetSlack = 1.10
+
+func (a *planAvailability) check(ws []models.PlannedWorkout) error {
+	var total int
+	for i, w := range ws {
+		if !a.prefs.Allows(w.PlannedDate.Weekday()) {
+			return fmt.Errorf("workouts[%d] (%q) is on %s, a day the rider marked unavailable — schedule only on %s",
+				i, w.Title, w.PlannedDate.Format("Monday 2006-01-02"), strings.Join(a.prefs.Normalized().Days, ", "))
+		}
+		total += w.DurationSecs
+	}
+	if h := a.prefs.WeeklyHours; h != nil && float64(total) > *h*3600*budgetSlack {
+		return fmt.Errorf("the plan totals %.1f h but the rider's weekly budget is %s h — trim it to fit (a lighter week is fine)",
+			float64(total)/3600, strconv.FormatFloat(*h, 'f', -1, 64))
+	}
+	return nil
 }
 
 // execTool runs one tool call from the conversational coach and returns its
@@ -422,8 +460,10 @@ func (h *CoachHandler) toolProposeSchedule(input json.RawMessage, ev toolEvents)
 	}
 	// Validate every item before persisting so a malformed entry doesn't leave
 	// the model with a draft id pointing at unreviewable content.
+	proposed := make([]models.PlannedWorkout, 0, len(args.Workouts))
 	for i, req := range args.Workouts {
-		if _, err := req.toModel("coach"); err != nil {
+		p, err := req.toModel("coach")
+		if err != nil {
 			return "", fmt.Errorf("workouts[%d]: %s", i, err.Error())
 		}
 		// Titles are only schema-required (provider-enforced), so an empty
@@ -431,14 +471,24 @@ func (h *CoachHandler) toolProposeSchedule(input json.RawMessage, ev toolEvents)
 		if strings.TrimSpace(req.Title) == "" {
 			return "", fmt.Errorf("workouts[%d]: title is required — a short session label the rider sees on the card, e.g. '2x20 threshold'", i)
 		}
+		proposed = append(proposed, p)
 	}
-	payload, err := json.Marshal(draftPayload{Workouts: args.Workouts})
-	if err != nil {
-		return "", err
+	if ev.Availability != nil {
+		if err := ev.Availability.check(proposed); err != nil {
+			return "", err
+		}
 	}
-	id, err := h.db.SavePlannedDraft(string(payload))
-	if err != nil {
-		return "", err
+	var id string
+	if ev.Capture != nil {
+		id = ev.Capture(args.Workouts)
+	} else {
+		payload, err := json.Marshal(draftPayload{Workouts: args.Workouts})
+		if err != nil {
+			return "", err
+		}
+		if id, err = h.db.SavePlannedDraft(string(payload)); err != nil {
+			return "", err
+		}
 	}
 	if ev.OnPreview != nil {
 		ev.OnPreview(id, len(args.Workouts))

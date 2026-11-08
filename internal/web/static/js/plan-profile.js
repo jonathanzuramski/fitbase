@@ -250,8 +250,12 @@ function planDrawProfile(canvas, segments, total) {
     ctx.moveTo(tx + 0.5, baseY);
     ctx.lineTo(tx + 0.5, baseY + 3);
     ctx.stroke();
+    // End labels align inward: centered on the edge tick, the last one was
+    // half clipped ("75" instead of "75m").
+    ctx.textAlign = i === 0 ? "left" : i === nTicks ? "right" : "center";
     ctx.fillText(Math.round(t / 60) + "m", Math.min(cssW - padR, Math.max(padL, tx)), baseY + 5);
   }
+  ctx.textAlign = "center";
 
   // Stash hit-test geometry and wire the hover tooltip, so any block — even one
   // squeezed below label width — reveals its exact target and duration.

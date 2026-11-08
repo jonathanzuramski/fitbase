@@ -39,6 +39,10 @@
 .cal-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr) 120px;
+  /* Each week's summary precedes its days in the markup (it heads the week
+     in the phone list) but sits in column 8 here; dense packing lets the
+     days that follow it fill columns 1–7 of the same row. */
+  grid-auto-flow: row dense;
   gap: 1px;
   background: var(--border);
   border-radius: 6px;
@@ -126,6 +130,7 @@
 }
 
 .cal-week-summary {
+  grid-column: 8;
   background: var(--bg-card);
   padding: 6px 8px;
   display: flex;
@@ -217,3 +222,194 @@
 .cal-planned:hover .cal-planned-del { opacity: 1; }
 .cal-planned-del:hover { color: var(--text); }
 
+
+/* ── Weekly plan panel ───────────────────────────────────────────────────── */
+.weekly-plan-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.weekly-plan-head .card-title { margin-bottom: 0; }
+.weekly-plan-auto {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.weekly-plan-auto input { accent-color: var(--accent); cursor: pointer; }
+.weekly-plan-intro,
+.weekly-plan-next,
+.weekly-plan-meta {
+  font-size: 13px;
+  margin: 10px 0 0;
+}
+.weekly-plan-ask {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.weekly-plan-notes {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 14px;
+  padding: 8px 12px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.weekly-plan-notes:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.weekly-plan-ask .btn-primary,
+.weekly-plan-ask .btn-secondary { flex-shrink: 0; }
+#wp-status { margin-top: 12px; }
+/* Same inset treatment as the dashboard's insights: the review reads as its
+   own panel, separate from the controls above and the week below. */
+.weekly-plan-review {
+  margin-top: 12px;
+  padding: 16px 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.weekly-plan-week { margin-top: 12px; }
+.weekly-plan-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.weekly-plan-prefs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 20px;
+  margin-top: 14px;
+}
+.weekly-plan-days {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.weekly-plan-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-right: 4px;
+}
+.wp-day { position: relative; cursor: pointer; }
+.wp-day input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.wp-day span {
+  display: inline-block;
+  min-width: 42px;
+  padding: 4px 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  user-select: none;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.wp-day:hover span { border-color: var(--accent); }
+.wp-day input:checked + span {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--text);
+}
+.wp-day input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.wp-day input:disabled + span { opacity: 0.5; cursor: default; }
+.weekly-plan-hours {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.weekly-plan-hours input {
+  width: 120px;
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 8px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.weekly-plan-hours input:focus { outline: none; border-color: var(--accent); }
+.weekly-plan-saved { font-size: 12px; }
+.weekly-plan-link {
+  background: none;
+  border: none;
+  padding: 0 0 0 8px;
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.weekly-plan-link:hover { text-decoration: underline; }
+
+/* Shown only in the phone day list (responsive.css). */
+.cal-dow,
+.cal-workout-tss,
+.cal-week-label,
+.cal-week-planned { display: none; }
+
+/* Long coach prose is hard to read at full desktop width. */
+.weekly-plan-review > * { max-width: 80ch; }
+.weekly-plan-review > h1,
+.weekly-plan-review > h2 { max-width: none; } /* dividers span the panel */
+
+/* Wide screens: the review beside the proposed week, so the panel is half as
+   tall and the review's lines stay readable. Only when there is both a review
+   and a week to show (weekly-plan.js sets .wp-split). */
+@media (min-width: 1100px) {
+  .weekly-plan-body.wp-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr);
+    grid-template-areas:
+      "review week"
+      "review actions";
+    grid-template-rows: auto 1fr;
+    column-gap: 16px;
+    align-items: start;
+  }
+  .wp-split .weekly-plan-review { grid-area: review; }
+  .wp-split .weekly-plan-week { grid-area: week; }
+  .wp-split .weekly-plan-actions { grid-area: actions; }
+}
+
+/* Weekly plan collapse (state remembered per browser; see calendar.html). */
+.weekly-plan-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.weekly-plan.wp-collapsed .weekly-plan-content,
+.weekly-plan.wp-collapsed .weekly-plan-auto { display: none; }
+.weekly-plan.wp-collapsed .weekly-plan-collapse { transform: rotate(-90deg); }
+/* A plan waiting for review (or being generated) stays visible as a chip on
+   the collapsed header; clicking it opens the panel. */
+.weekly-plan-chip {
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: var(--accent);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  vertical-align: middle;
+  cursor: pointer;
+}
+.weekly-plan:not(.wp-collapsed) .weekly-plan-chip { display: none; }

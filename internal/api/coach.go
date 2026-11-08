@@ -209,6 +209,22 @@ type chatRequest struct {
 	Messages []aicoach.ChatMessage `json:"messages"`
 }
 
+// chatSystemContext builds the per-request system context: today's date in
+// the rider's timezone (so propose_schedule dates and "this week" reasoning
+// line up with their calendar) plus the rider profile, so the model has
+// FTP/HR from turn 1. Failing to load the athlete is non-fatal — the model
+// falls back to calling get_athlete_profile. Shared by chat and the weekly
+// plan, which appends its playbook.
+func (h *CoachHandler) chatSystemContext(now time.Time) string {
+	ctx := "Today is " + now.Format("Monday, 2006-01-02") + "."
+	if athlete, err := h.db.GetAthlete(); err == nil && athlete != nil {
+		if block := buildRiderProfileBlock(athlete); block != "" {
+			ctx += "\n\n" + block
+		}
+	}
+	return ctx
+}
+
 const maxChatMessages = 40
 
 // Chat runs a tool-augmented conversation with the coach. The model pulls the
@@ -296,20 +312,7 @@ func (h *CoachHandler) Chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build the dynamic system suffix: today's date (in the rider's timezone,
-	// so propose_schedule dates and "this week" reasoning line up with their
-	// calendar) plus the rider profile so the model has FTP/HR in context from
-	// turn 1. Failing to load the athlete is non-fatal — the chat still works,
-	// the model just has to fall back to calling get_athlete_profile.
-	loc := h.db.AthleteLocation()
-	var profileBlock string
-	if athlete, err := h.db.GetAthlete(); err == nil && athlete != nil {
-		profileBlock = buildRiderProfileBlock(athlete)
-	}
-	systemContext := "Today is " + time.Now().In(loc).Format("Monday, 2006-01-02") + "."
-	if profileBlock != "" {
-		systemContext += "\n\n" + profileBlock
-	}
+	systemContext := h.chatSystemContext(time.Now().In(h.db.AthleteLocation()))
 
 	// One chat turn at a time: the browser re-attaches to the running turn
 	// rather than racing a second one against it.
