@@ -137,7 +137,7 @@ func TestWorkoutPage_EFTP(t *testing.T) {
 	for _, c := range cases {
 		steadyRide(t, d, c.id, 1, c.watts)
 		body := get(t, h, "/workouts/"+c.id)
-		if got := strings.Contains(body, `<div class="metric-label">eFTP</div>`); got != c.showEFTP {
+		if got := strings.Contains(body, `<dt>eFTP</dt>`); got != c.showEFTP {
 			t.Errorf("%s: eFTP shown = %v, want %v", c.id, got, c.showEFTP)
 		}
 		offer := strings.Contains(body, "New FTP detected")

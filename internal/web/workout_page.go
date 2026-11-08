@@ -27,6 +27,7 @@ type workoutView struct {
 	EF          float64
 	Fitness     models.FitnessPoint
 	FTP         int
+	FTPIndoor   bool // FTP came from the indoor line (it differs from the general one)
 	ThresholdHR int
 
 	AllTimeCurve map[int]models.AllTimeBest
@@ -39,6 +40,9 @@ type workoutView struct {
 	RouteBestTimeID  string
 	RouteBestPowerID string
 	Achievements     []models.Achievement
+
+	// Ride is what the ride was: kind, headline, intervals, planned workout.
+	Ride rideSummary
 
 	PowerZoneSecs   *[7]int
 	HRZoneSecs      *[5]int
@@ -151,6 +155,11 @@ func (th *templateHandler) workout(w http.ResponseWriter, r *http.Request) {
 
 	achievements, _ := th.db.GetWorkoutAchievements(workout.ID)
 
+	// Non-fatal: without them the page just has no header line or table.
+	shape, _ := th.db.RideShape(workout.ID, ftpAtTime)
+	day := trainingDate(workout)
+	planned, _ := th.db.ListPlannedWorkoutsBetween(day, day)
+
 	renderTemplate(w, th.templates().workout, "base", workoutView{
 		Workout:     workout,
 		Streams:     streams,
@@ -166,6 +175,7 @@ func (th *templateHandler) workout(w http.ResponseWriter, r *http.Request) {
 		EF:          efF,
 		Fitness:     fitnessOnDay,
 		FTP:         ftpAtTime,
+		FTPIndoor:   workout.IsIndoor && ftpAtTime != th.db.GetFTPAtDate(workout.RecordedAt),
 		ThresholdHR: athlete.ThresholdHR,
 
 		AllTimeCurve: allTimeCurve,
@@ -178,6 +188,8 @@ func (th *templateHandler) workout(w http.ResponseWriter, r *http.Request) {
 		RouteBestTimeID:  routeBestTimeID,
 		RouteBestPowerID: routeBestPowerID,
 		Achievements:     achievements,
+
+		Ride: summarizeRide(shape, ftpAtTime, workout.IntensityFactor, planned),
 
 		PowerZoneSecs:   powerZoneSecs,
 		HRZoneSecs:      hrZoneSecs,
