@@ -42,6 +42,17 @@
 	padding: 4px 0 8px;
 }
 
+/* OpenStreetMap attribution for the route thumbnails' basemap. */
+.ac-map-credit {
+	margin: 2px 0 0;
+	font-size: 11px;
+	color: var(--text-muted);
+}
+.ac-map-credit a {
+	color: inherit;
+	text-decoration: underline;
+}
+
 @media (max-width: 900px) {
 	.activity-cards-grid {
 		grid-template-columns: repeat(2, 1fr);
