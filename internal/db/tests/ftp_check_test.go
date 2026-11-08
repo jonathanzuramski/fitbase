@@ -205,3 +205,25 @@ func TestUpdateAthlete_LogsFTPOnlyOnChange(t *testing.T) {
 		t.Errorf("history after three identical saves and one change = %d entries, want 2", len(h))
 	}
 }
+
+// GetPowerCurveBetween takes the best efforts in [from, to) only: the
+// Progress page walks it back through time for the FTP estimate line.
+func TestGetPowerCurveBetween(t *testing.T) {
+	d := newTestDB(t)
+	now := time.Now().UTC()
+	insertEffort(t, d, "old", now, 200, 260, 0)
+	insertEffort(t, d, "mid", now, 100, 240, 0)
+	insertEffort(t, d, "new", now, 5, 230, 0)
+
+	curve, err := d.GetPowerCurveBetween(now.AddDate(0, 0, -150), now.AddDate(0, 0, -50))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := curve[1200]; b.Watts != 240 || b.WorkoutID != "mid" {
+		t.Errorf("best 20 min in the window = %+v, want 240 W from \"mid\"", b)
+	}
+	since, _ := d.GetPowerCurveSince(now.AddDate(0, 0, -10))
+	if b := since[1200]; b.Watts != 230 {
+		t.Errorf("GetPowerCurveSince still bounds only below: got %+v", b)
+	}
+}

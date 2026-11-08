@@ -200,7 +200,8 @@
   }
   /* Header extras follow the title (which takes order 1 above). */
   .card-header-row .week-totals,
-  .card-header-row .ride-readout {
+  .card-header-row .ride-readout,
+  .card-header-row .pc-view-toggle {
     order: 2;
   }
   .filter-tab {
@@ -884,5 +885,19 @@
   }
   .today-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+/* ── Progress on phones ──────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .progress-legend {
+    display: flex;
+  }
+  /* Sixteen weeks of bars: every other label. */
+  .vol-week:nth-child(even) .vol-label {
+    visibility: hidden;
+  }
+  .vol-tss {
+    font-size: 9px;
   }
 }

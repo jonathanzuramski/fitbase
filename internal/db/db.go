@@ -598,6 +598,14 @@ func (db *DB) GetAllTimePowerCurve() (map[int]models.AllTimeBest, error) {
 // GetAllTimePowerCurve, used by the coach to compare current ability against
 // all-time bests.
 func (db *DB) GetPowerCurveSince(since time.Time) (map[int]models.AllTimeBest, error) {
+	return db.GetPowerCurveBetween(since, time.Now().AddDate(1, 0, 0))
+}
+
+// GetPowerCurveBetween returns the best watts per standard duration across
+// workouts recorded in [from, to). The Progress page walks it back through
+// time to chart what the rides said FTP was.
+func (db *DB) GetPowerCurveBetween(from, to time.Time) (map[int]models.AllTimeBest, error) {
+	f, t := from.UTC().Format(time.RFC3339), to.UTC().Format(time.RFC3339)
 	rows, err := db.Query(`
 		SELECT wpc.duration_secs, wpc.watts, wpc.workout_id
 		FROM workout_power_curve wpc
@@ -605,12 +613,12 @@ func (db *DB) GetPowerCurveSince(since time.Time) (map[int]models.AllTimeBest, e
 			SELECT wpc2.duration_secs, MAX(wpc2.watts) AS max_watts
 			FROM workout_power_curve wpc2
 			INNER JOIN workouts w2 ON w2.id = wpc2.workout_id
-			WHERE w2.recorded_at >= ?
+			WHERE w2.recorded_at >= ? AND w2.recorded_at < ?
 			GROUP BY wpc2.duration_secs
 		) best ON wpc.duration_secs = best.duration_secs AND wpc.watts = best.max_watts
-		INNER JOIN workouts w ON w.id = wpc.workout_id AND w.recorded_at >= ?
+		INNER JOIN workouts w ON w.id = wpc.workout_id AND w.recorded_at >= ? AND w.recorded_at < ?
 		GROUP BY wpc.duration_secs`,
-		since.UTC().Format(time.RFC3339), since.UTC().Format(time.RFC3339))
+		f, t, f, t)
 	if err != nil {
 		return nil, err
 	}

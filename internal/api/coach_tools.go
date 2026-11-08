@@ -59,7 +59,7 @@ func (h *CoachHandler) briefFromWorkout(w models.Workout) aicoach.WorkoutBrief {
 		brief.VI = &r
 	}
 	if w.DurationSecs >= 3600 && w.AvgPowerWatts != nil && w.AvgHeartRate != nil {
-		if dec, ok := h.decouplingForWorkout(w.ID); ok {
+		if dec, ok := h.db.AerobicDecoupling(w.ID); ok {
 			r := round2(dec)
 			brief.DecouplingPct = &r
 		}
@@ -336,7 +336,7 @@ func (h *CoachHandler) toolWorkoutDetail(input json.RawMessage) (string, error) 
 		"analysis": analysis,
 	}
 	if w.DurationSecs >= 3600 && w.AvgPowerWatts != nil && w.AvgHeartRate != nil {
-		if dec, ok := h.decouplingForWorkout(w.ID); ok {
+		if dec, ok := h.db.AerobicDecoupling(w.ID); ok {
 			res["aerobic_decoupling_pct"] = round2(dec)
 		}
 	}
@@ -624,7 +624,7 @@ func (h *CoachHandler) toolPerformanceTrend(input json.RawMessage) (string, erro
 			agg.ifN++
 		}
 		if w.DurationSecs >= 3600 && w.AvgPowerWatts != nil && w.AvgHeartRate != nil {
-			if dec, ok := h.decouplingForWorkout(w.ID); ok {
+			if dec, ok := h.db.AerobicDecoupling(w.ID); ok {
 				agg.decSum += dec
 				agg.decN++
 			}
