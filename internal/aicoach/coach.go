@@ -86,6 +86,10 @@ type WorkoutBrief struct {
 	VI              *float64 `json:"variability_index,omitempty"`      // NP ÷ avgPower — 1.00 steady, >1.05 surgey
 	DecouplingPct   *float64 `json:"aerobic_decoupling_pct,omitempty"` // Pw:HR drift 1st→2nd half; long rides only; <5% good
 	Indoor          bool     `json:"indoor,omitempty"`
+	// Structure is a one-line summary of the efforts detected in the ride's
+	// power stream, e.g. "5×4:00 @ 117% FTP, faded 6.3% last rep vs first, max HR +8"
+	// or "steady — no efforts at or above 85% FTP". Empty without power/FTP.
+	Structure string `json:"structure,omitempty"`
 }
 
 type WeeklyLoad struct {
@@ -129,7 +133,7 @@ const SystemPrompt = `You are an experienced cycling coach reviewing a rider's t
 Respond in Markdown with exactly these three sections, in this order:
 
 ## Recent training review
-Read the last 4–8 weeks. Comment on volume and intensity (weekly TSS, hours, ramp rate), CTL/ATL/TSB trajectory, and how the work was distributed across zones. Call out specific workouts when they tell a story — a hard threshold day, a long endurance ride, a missed week. If load_type labels suggest a productive build, a taper, or overreaching, name it.
+Read the last 4–8 weeks. Comment on volume and intensity (weekly TSS, hours, ramp rate), CTL/ATL/TSB trajectory, and how the work was distributed across zones. Call out specific workouts when they tell a story — a hard threshold day, a long endurance ride, a missed week. Each workout's structure field summarizes the efforts detected in its power stream (sets as reps×duration @ %FTP, how the last rep compared with the first, and max-HR creep across reps): use it to say how key sessions were actually executed — held, faded, or built — rather than inferring that from IF or average power, which can't tell intervals from steady riding. If load_type labels suggest a productive build, a taper, or overreaching, name it.
 
 ## Performance gains and concerns
 Flag concrete signals of adaptation or stagnation — and keep load separate from fitness: rising CTL only proves the rider trained more, so never present it alone as "getting fitter". Real gains show up in the performance data: EF (efficiency factor) trend at matched intensity is your primary aerobic indicator — rising EF on similar-IF rides means real adaptation. An FTP increase in ftp_history is the most direct evidence of progression. Power curve PRs and W/kg at key durations (5s, 1min, 5min, 20min, 60min) show where the rider is sharpest and where they're soft. Aerobic decoupling >5% on long rides points to durability gaps; falling decoupling is progress even when peak power is flat. High variability index (>1.10) on what should be steady work suggests pacing or terrain issues. If CTL rose but EF is flat and there are no power PRs, say the load hasn't converted into fitness yet. Be honest about plateaus — don't manufacture progress that isn't in the numbers.
