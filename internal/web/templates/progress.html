@@ -1,0 +1,111 @@
+{{ define "title" }}progress — fitbase{{ end }}
+
+{{ define "content" }}
+<div class="page-header">
+	<div>
+		<h1>progress</h1>
+		<div class="page-subtitle">Are you getting fitter, or just training more?</div>
+	</div>
+	<a href="/heatmap" class="btn-secondary">heatmap →</a>
+</div>
+
+{{/* ── FTP: what's set against what the rides show ───────────────────── */}}
+<section class="card">
+	<h2 class="card-title">FTP <span class="muted">set, and what your rides show</span></h2>
+	{{ template "ftp-check-note" .FTPCheck }}
+	<div id="ftp-chart" class="progress-chart"></div>
+	<div class="progress-legend">
+		<span><i class="lg-line lg-ftp"></i>FTP</span>
+		{{ if .FTPChart.Indoor }}<span><i class="lg-line lg-indoor"></i>indoor FTP</span>{{ end }}
+		<span><i class="lg-dot lg-estimate"></i>estimate from the previous 90 days</span>
+	</div>
+	<p class="progress-note muted">The estimate is the higher of 95% of the best 20 minutes and the best hour in the 90 days before each point. When it runs below the FTP line for months, the FTP is probably set high.</p>
+</section>
+
+{{/* ── Power curve: now against all-time ───────────────────────────────── */}}
+<section class="card">
+	<div class="card-header-row">
+		<h2 class="card-title">power curve <span class="muted">best power for each duration</span></h2>
+		<div class="pc-view-toggle">
+			<button type="button" class="pc-view-btn active" data-curve-unit="w">W</button>
+			{{ if gt .Curve.WeightKG 0.0 }}<button type="button" class="pc-view-btn" data-curve-unit="wkg">W/kg</button>{{ end }}
+		</div>
+	</div>
+	<div id="curve-chart" class="progress-chart"></div>
+	<div class="progress-legend">
+		<span><i class="lg-line lg-alltime"></i>all-time</span>
+		<span><i class="lg-line lg-d90"></i>last 90 days</span>
+		<span><i class="lg-line lg-d28"></i>last 28 days</span>
+	</div>
+	<p class="progress-note muted">Recent curves close to the all-time one mean you're near your best; where they fall away shows which end of your fitness has slipped (short and punchy, or long and steady).</p>
+</section>
+
+{{/* ── Weekly load: ridden against planned ─────────────────────────────── */}}
+<section class="card">
+	<h2 class="card-title">weekly load <span class="muted">TSS, last 16 weeks</span></h2>
+	<div class="vol-strip">
+		{{ $max := .WeekMaxTSS }}
+		{{ range .Weeks }}
+			<div class="vol-week{{ if .IsCurrent }} current{{ end }}"
+				title="week of {{ .Monday.Format "Jan 2" }} · {{ printf "%.0f" .TSS }} TSS · {{ formatDuration .Secs }} · {{ .Rides }} ride{{ if ne .Rides 1 }}s{{ end }}{{ if gt .PlannedTSS 0.0 }} · planned {{ printf "%.0f" .PlannedTSS }} TSS{{ end }}">
+				<div class="vol-bars">
+					{{ if gt .PlannedTSS 0.0 }}<div class="week-bar week-bar-planned" style="height: {{ .PlannedHeightPct $max }}%"></div>{{ end }}
+					{{ if gt .TSS 0.0 }}<div class="week-bar week-bar-done" style="height: {{ .DoneHeightPct $max }}%"></div>{{ end }}
+				</div>
+				<div class="vol-tss">{{ if gt .TSS 0.0 }}{{ printf "%.0f" .TSS }}{{ else }}<span class="muted">–</span>{{ end }}</div>
+				<div class="vol-label">{{ .Monday.Format "Jan 2" }}</div>
+			</div>
+		{{ end }}
+	</div>
+	<div class="week-foot muted">
+		<span><span class="week-key week-key-done"></span>ridden</span>
+		<span><span class="week-key week-key-planned"></span>planned</span>
+	</div>
+</section>
+
+{{/* ── Aerobic durability ──────────────────────────────────────────────── */}}
+<section class="card">
+	<h2 class="card-title">aerobic durability <span class="muted">weekly</span></h2>
+	<div id="durability-chart" class="progress-chart"></div>
+	<div class="progress-legend">
+		<span><i class="lg-dot lg-ef"></i>efficiency factor</span>
+		<span><i class="lg-dot lg-dec"></i>decoupling %</span>
+	</div>
+	<p class="progress-note muted">Efficiency factor is normalized power ÷ average HR on endurance rides (IF 0.55–0.80, 45 minutes or more): rising EF at the same intensity is aerobic fitness. Decoupling is how far HR drifts against power over steady rides of 90 minutes or more: under 5% is durable.</p>
+</section>
+
+{{/* ── Intensity split ─────────────────────────────────────────────────── */}}
+<section class="card">
+	<h2 class="card-title">intensity split <span class="muted">time in power zones</span></h2>
+	{{ range .Zones }}
+		<div class="zsplit">
+			<div class="zsplit-head"><span>{{ .Label }}</span><span class="muted">{{ .Workouts }} ride{{ if ne .Workouts 1 }}s{{ end }}</span></div>
+			{{ if .Zones }}
+				<div class="zsplit-bar">
+					{{ range .Zones }}{{ if gt .Pct 0.0 }}<span class="zseg zseg-{{ .N }}" style="width: {{ .Pct }}%" title="Z{{ .N }} {{ .Name }} · {{ .Pct }}%"></span>{{ end }}{{ end }}
+				</div>
+				<div class="zsplit-summary">
+					<span>easy <span class="muted">Z1–Z2</span> <strong>{{ printf "%.0f" .Easy }}%</strong></span>
+					<span>middle <span class="muted">Z3–Z4</span> <strong>{{ printf "%.0f" .Middle }}%</strong></span>
+					<span>hard <span class="muted">Z5+</span> <strong>{{ printf "%.0f" .Hard }}%</strong></span>
+				</div>
+			{{ else }}
+				<p class="muted">No power data in this window.</p>
+			{{ end }}
+		</div>
+	{{ end }}
+	<div class="zsplit-legend">
+		{{ range .ZoneLegend }}<span><i class="zseg zseg-{{ .N }}"></i>Z{{ .N }} {{ .Name }}</span>{{ end }}
+	</div>
+	<p class="progress-note muted">A polarized plan keeps roughly 80% of the time easy and most of the rest hard; a large middle share means a lot of tempo and threshold riding.</p>
+</section>
+{{ end }}
+
+{{ define "scripts" }}
+<script src="/static/js/progress.js"></script>
+<script>
+	renderFTPChart('ftp-chart', {{ .FTPChart | toJSON }});
+	renderCurveChart('curve-chart', {{ .Curve | toJSON }});
+	renderDurabilityChart('durability-chart', {{ .Durability | toJSON }});
+</script>
+{{ end }}

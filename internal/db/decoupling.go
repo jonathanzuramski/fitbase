@@ -1,6 +1,10 @@
 package db
 
-import "database/sql"
+import (
+	"database/sql"
+
+	"github.com/fitbase/fitbase/internal/fitness"
+)
 
 // Per-workout aerobic-decoupling cache (workout_decoupling, created by
 // migration v4). A finished workout's streams never change, so the value is
@@ -32,4 +36,25 @@ func (db *DB) SaveWorkoutDecoupling(workoutID string, val *float64) error {
 		ON CONFLICT(workout_id) DO UPDATE SET decoupling_pct = excluded.decoupling_pct`,
 		workoutID, val)
 	return err
+}
+
+// AerobicDecoupling returns a workout's Pw:HR decoupling, from the cache or
+// computed from its streams and cached. ok=false means the ride doesn't
+// support it (no power and HR, too short). A stream-read failure isn't
+// cached, so the next call retries.
+func (db *DB) AerobicDecoupling(workoutID string) (float64, bool) {
+	if val, ok, found, err := db.GetWorkoutDecoupling(workoutID); err == nil && found {
+		return val, ok
+	}
+	streams, err := db.GetStreams(workoutID)
+	if err != nil {
+		return 0, false
+	}
+	dec, ok := fitness.AerobicDecoupling(streams)
+	var cached *float64
+	if ok {
+		cached = &dec
+	}
+	_ = db.SaveWorkoutDecoupling(workoutID, cached) // best-effort
+	return dec, ok
 }

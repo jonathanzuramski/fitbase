@@ -1140,3 +1140,129 @@
   font-size: 12px;
   color: var(--text-muted);
 }
+
+/* ── Progress ────────────────────────────────────────────────────────── */
+.progress-chart {
+  margin-top: 8px;
+  min-height: 60px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.progress-note {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+/* uPlot's legend carries these on desktop (with values on hover); phones
+   hide it, so they get this one. */
+.progress-legend {
+  display: none;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.progress-legend i {
+  display: inline-block;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+.lg-line {
+  width: 14px;
+  height: 0;
+  border-top: 2px solid;
+}
+.lg-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.lg-ftp { border-color: #e2e8f0; }
+.lg-indoor { border-color: #94a3b8; border-top-style: dashed; }
+.lg-estimate { background: #facc15; }
+.lg-alltime { border-color: #64748b; }
+.lg-d90 { border-color: #60a5fa; }
+.lg-d28 { border-color: #f97316; }
+.lg-ef { background: #34d399; }
+.lg-dec { background: #f87171; }
+
+.vol-strip {
+  display: grid;
+  grid-template-columns: repeat(16, minmax(0, 1fr));
+  gap: 4px;
+}
+.vol-week {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 0;
+  border-radius: 4px;
+}
+.vol-week.current {
+  background: rgba(59, 130, 246, 0.08);
+}
+.vol-bars {
+  position: relative;
+  width: 70%;
+  max-width: 30px;
+  height: 90px;
+}
+.vol-tss {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.vol-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.zsplit + .zsplit {
+  margin-top: 16px;
+}
+.zsplit-head {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+.zsplit-bar {
+  display: flex;
+  height: 14px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--surface);
+}
+.zsplit-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin-top: 6px;
+  font-size: 13px;
+}
+.zsplit-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 14px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.zsplit-legend i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 5px;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+/* POWER_ZONE_COLORS in charts.js */
+.zseg-1 { background: #94a3b8; }
+.zseg-2 { background: #60a5fa; }
+.zseg-3 { background: #34d399; }
+.zseg-4 { background: #facc15; }
+.zseg-5 { background: #f97316; }
+.zseg-6 { background: #ef4444; }
+.zseg-7 { background: #a855f7; }

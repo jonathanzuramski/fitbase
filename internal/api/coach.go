@@ -629,24 +629,3 @@ func hrCoverageNote(t db.ZoneTotals) string {
 		"Only %d of %d rides in this window recorded heart rate, so hr_zones covers less time than power_zones. Compute HR-zone percentages against the hr_zones total, never against total ride time.",
 		t.WorkoutsWithHR, t.Workouts)
 }
-
-// decouplingForWorkout returns a workout's aerobic decoupling, computing it
-// from the streams on first use and caching it (workout_decoupling) — a
-// finished ride's streams never change, so every later insights/chat call is
-// an indexed read instead of a full stream fetch + resample.
-func (h *CoachHandler) decouplingForWorkout(workoutID string) (float64, bool) {
-	if val, ok, found, err := h.db.GetWorkoutDecoupling(workoutID); err == nil && found {
-		return val, ok
-	}
-	streams, err := h.db.GetStreams(workoutID)
-	if err != nil {
-		return 0, false // transient failure: don't cache, retry next call
-	}
-	dec, ok := fitness.AerobicDecoupling(streams)
-	var cached *float64
-	if ok {
-		cached = &dec
-	}
-	_ = h.db.SaveWorkoutDecoupling(workoutID, cached) // best-effort
-	return dec, ok
-}
