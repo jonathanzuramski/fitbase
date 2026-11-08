@@ -415,6 +415,9 @@
   top: 2px;
   left: 60px;
   z-index: 2;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: rgba(23, 27, 36, 0.85); /* --bg-card: legible over the line */
   font-size: 10px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -497,9 +500,11 @@
 }
 
 /* ── Time in zone: power and HR side by side ─────────────────────── */
-.zones-split {
+/* (Not .zones-split: settings.css owns that name for the zones card there.) */
+.ride-zones {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  /* Two columns from ~1000px; one on tablets, where two squeeze the bars. */
+  grid-template-columns: repeat(auto-fit, minmax(min(400px, 100%), 1fr));
   gap: 16px 32px;
 }
 .zones-sub {
@@ -551,6 +556,7 @@
 }
 .ride-feel-note {
   width: 100%;
+  min-height: 4.6em; /* the placeholder's two lines, at phone font size too */
   resize: vertical;
   font-family: var(--font); /* prose, not the inputs' monospace */
   font-size: 14px;

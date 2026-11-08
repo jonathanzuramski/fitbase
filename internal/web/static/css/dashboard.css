@@ -997,7 +997,19 @@
   font-size: 14px;
 }
 .today-readiness .rec-badge {
+  /* Styled for the old spot under the chart (right-aligned, centered on
+     phones); here it leads the stats, so it lines up with them. */
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
   margin-bottom: 12px;
+  text-align: left;
+  white-space: normal;
+}
+.today-readiness .rec-detail {
+  max-width: none;
+  font-size: 12px;
+  text-align: left;
 }
 .today-stats {
   display: grid;
@@ -1274,4 +1286,25 @@
 }
 .today-feel-ask {
   color: var(--accent);
+}
+
+/* Never let the table widen the page; scroll inside the card instead. */
+#activities-list {
+  overflow-x: auto;
+}
+.date-year-short {
+  display: none;
+}
+/* Between phone and wide desktop the sidebar leaves the table ~650px: the
+   ride column keeps its chip, and NP and climb give way. */
+@media (min-width: 641px) and (max-width: 1279px) {
+  #activities-list .ride-cell-headline {
+    display: none;
+  }
+  #activities-list .workout-table th:nth-child(6),
+  #activities-list .workout-table td:nth-child(6),
+  #activities-list .workout-table th:nth-child(9),
+  #activities-list .workout-table td:nth-child(9) {
+    display: none;
+  }
 }
