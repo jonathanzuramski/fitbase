@@ -164,10 +164,7 @@
 						<span class="cal-planned-info">
 							{{ if $p.Title }}<span class="cal-planned-title">{{ $p.Title }}</span>{{ end }}
 							<span class="cal-planned-target">{{ formatDuration $p.DurationSecs }}
-								{{ if $p.TSS }} · {{ formatOptFloat
-	$p.TSS
-	"T"
-}}
+								{{ if $p.TSS }} · {{ formatOptFloat $p.TSS "TSS" }}
 								{{ end }}</span>
 						</span>
 						<button type="button" class="cal-planned-del" data-id="{{ $p.ID }}" title="Remove planned workout">×</button>

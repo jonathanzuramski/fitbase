@@ -1,6 +1,13 @@
 // Progress page charts, on the shared uPlot theme from charts.js (baseOpts,
 // containerWidth, watchResize, COLORS, CHART_THEME).
 
+// progressEmpty says a chart has nothing to show yet, and hides its legend.
+function progressEmpty(el, text) {
+  el.textContent = text;
+  const legend = el.nextElementSibling;
+  if (legend?.classList.contains("progress-legend")) legend.hidden = true;
+}
+
 const PROGRESS_COLORS = {
   ftp: "#e2e8f0",
   indoor: "#94a3b8",
@@ -17,7 +24,7 @@ const PROGRESS_COLORS = {
 function renderFTPChart(id, d) {
   const el = document.getElementById(id);
   if (!el || !d || (!d.general?.length && !d.estimate?.length)) {
-    if (el) el.textContent = "No FTP history or power data yet.";
+    if (el) progressEmpty(el, "No FTP history or power data yet.");
     return;
   }
   const all = [...(d.general || []), ...(d.indoor || []), ...(d.estimate || [])];
@@ -49,6 +56,8 @@ function renderFTPChart(id, d) {
 
   const h = chartHeight(240);
   const base = baseOpts(containerWidth(el), h);
+  // Right padding: room for the last time label, which uPlot centers on the edge.
+  base.padding = [8, 18, 0, 0];
   const u = new uPlot({ ...base, series, scales: { x: { time: true }, y: { auto: true } }, axes: [base.axes[0], { ...base.axes[1], label: "W" }] }, data, el);
   watchResize(el, u, 240);
 }
@@ -57,7 +66,7 @@ function renderFTPChart(id, d) {
 function renderCurveChart(id, c) {
   const el = document.getElementById(id);
   if (!el || !c || !c.durations?.length || !c.all_time?.some((v) => v != null)) {
-    if (el) el.textContent = "No power data yet.";
+    if (el) progressEmpty(el, "No power data yet.");
     return;
   }
   const label = (s) => (s < 60 ? s + "s" : s < 3600 ? s / 60 + "m" : s / 3600 + "h");
@@ -103,12 +112,14 @@ function renderCurveChart(id, c) {
 function renderDurabilityChart(id, points) {
   const el = document.getElementById(id);
   if (!el || !points?.some((p) => p.ef != null || p.dec != null)) {
-    if (el) el.textContent = "Not enough steady rides with power and heart rate yet.";
+    if (el) progressEmpty(el, "Not enough steady rides with power and heart rate yet.");
     return;
   }
   const ts = points.map((p) => p.t);
   const h = chartHeight(220);
   const base = baseOpts(containerWidth(el), h);
+  // Right padding: room for the last time label, which uPlot centers on the edge.
+  base.padding = [8, 18, 0, 0];
   const u = new uPlot(
     {
       ...base,
