@@ -1266,3 +1266,12 @@
 .zseg-5 { background: #f97316; }
 .zseg-6 { background: #ef4444; }
 .zseg-7 { background: #a855f7; }
+
+.today-feel {
+  display: block;
+  margin-top: 6px;
+  font-size: 13px;
+}
+.today-feel-ask {
+  color: var(--accent);
+}

@@ -43,6 +43,9 @@ type workoutView struct {
 
 	// Ride is what the ride was: kind, headline, intervals, planned workout.
 	Ride rideSummary
+	// Feedback is how the rider says it felt; RPEScale renders the 1–10 picker.
+	Feedback models.WorkoutFeedback
+	RPEScale []rpeOption
 
 	PowerZoneSecs   *[7]int
 	HRZoneSecs      *[5]int
@@ -158,6 +161,7 @@ func (th *templateHandler) workout(w http.ResponseWriter, r *http.Request) {
 	// Non-fatal: without them the page just has no header line or table.
 	day := trainingDate(workout)
 	planned, _ := th.db.ListPlannedWorkoutsBetween(day, day)
+	feedback, _, _ := th.db.GetWorkoutFeedback(workout.ID)
 
 	renderTemplate(w, th.templates().workout, "base", workoutView{
 		Workout:     workout,
@@ -188,11 +192,38 @@ func (th *templateHandler) workout(w http.ResponseWriter, r *http.Request) {
 		RouteBestPowerID: routeBestPowerID,
 		Achievements:     achievements,
 
-		Ride: th.rideSummaryFor(workout, planned),
+		Ride:     th.rideSummaryFor(workout, planned),
+		Feedback: feedback,
+		RPEScale: rpeScale(feedback.RPE),
 
 		PowerZoneSecs:   powerZoneSecs,
 		HRZoneSecs:      hrZoneSecs,
 		PowerZoneRanges: fitness.PowerZoneRangeLabels(ftpAtTime),
 		HRZoneRanges:    fitness.HRZoneRangeLabels(hrZones, athlete.ThresholdHR),
 	})
+}
+
+// rpeOption is one button of the 1–10 "how did it feel?" scale.
+type rpeOption struct {
+	N        int
+	Label    string // very easy … max effort
+	Band     string // easy, moderate, hard, max: the button's color when picked
+	Selected bool
+}
+
+func rpeScale(current *int) []rpeOption {
+	opts := make([]rpeOption, 0, models.MaxRPE)
+	for n := models.MinRPE; n <= models.MaxRPE; n++ {
+		band := "easy"
+		switch {
+		case n >= 9:
+			band = "max"
+		case n >= 7:
+			band = "hard"
+		case n >= 5:
+			band = "moderate"
+		}
+		opts = append(opts, rpeOption{N: n, Label: models.RPELabel(n), Band: band, Selected: current != nil && *current == n})
+	}
+	return opts
 }

@@ -387,6 +387,10 @@ func (db *DB) DeleteWorkout(id string) error {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return sql.ErrNoRows
 	}
+	// Feedback has no cascade (it must survive rebuilds; see feedback.go).
+	if _, err := tx.Exec("DELETE FROM workout_feedback WHERE workout_id = ?", id); err != nil {
+		return fmt.Errorf("delete feedback: %w", err)
+	}
 	return tx.Commit()
 }
 
@@ -403,6 +407,7 @@ func (db *DB) DeleteAllWorkouts() error {
 		"workout_power_curve",
 		"workout_zone_times",
 		"workouts",
+		"workout_feedback",
 		"imported_files",
 	} {
 		if _, err := tx.Exec("DELETE FROM " + table); err != nil {
@@ -416,8 +421,9 @@ func (db *DB) DeleteAllWorkouts() error {
 // — workouts, streams, power curves, zone times, routes, and the imported-file
 // ledger — so it can be rebuilt from scratch by re-importing the archive. The
 // athlete profile, FTP history, integration tokens/credentials, mileage goals,
-// AI settings, and planned workouts are all preserved, because the reimport
-// reproduces correct derived metrics from them.
+// AI settings, planned workouts and the rider's ride feedback are all
+// preserved: the reimport reproduces correct derived metrics from them, and
+// re-creates each workout under the same ID, so feedback still matches.
 func (db *DB) ResetDerivedData() error {
 	tx, err := db.Begin()
 	if err != nil {

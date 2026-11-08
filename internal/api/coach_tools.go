@@ -72,6 +72,9 @@ func (h *CoachHandler) briefFromWorkout(w models.Workout) aicoach.WorkoutBrief {
 			brief.Structure = fitness.ShapeHeadline(shape, ftp)
 		}
 	}
+	if f, found, err := h.db.GetWorkoutFeedback(w.ID); err == nil && found {
+		brief.RPE, brief.RiderNote = f.RPE, f.Note
+	}
 	return brief
 }
 
@@ -286,11 +289,21 @@ func (h *CoachHandler) toolListRecentWorkouts(input json.RawMessage) (string, er
 		models.WorkoutSummary
 		Indoor    bool   `json:"indoor,omitempty"`
 		Structure string `json:"structure,omitempty"`
+		RPE       *int   `json:"rpe,omitempty"`
+		RiderNote string `json:"rider_note,omitempty"`
 	}
+	ids := make([]string, len(rows))
+	for i := range rows {
+		ids[i] = rows[i].ID
+	}
+	feedback, _ := h.db.FeedbackForWorkouts(ids) // non-fatal: rides just list without it
 	out := make([]listedWorkout, 0, len(rows))
 	for i := range rows {
 		w := rows[i]
 		lw := listedWorkout{WorkoutSummary: w.ToSummary(), Indoor: w.IsIndoor}
+		if f, ok := feedback[w.ID]; ok {
+			lw.RPE, lw.RiderNote = f.RPE, f.Note
+		}
 		if w.AvgPowerWatts != nil || w.NormalizedPower != nil {
 			ftp := h.db.GetFTPForRide(w.RecordedAt, w.IsIndoor)
 			if shape, err := h.db.RideShape(w.ID, ftp); err == nil {
@@ -340,7 +353,23 @@ func (h *CoachHandler) toolWorkoutDetail(input json.RawMessage) (string, error) 
 			res["aerobic_decoupling_pct"] = round2(dec)
 		}
 	}
+	if f, found, err := h.db.GetWorkoutFeedback(id); err == nil && found {
+		res["rider_feedback"] = riderFeedback(f)
+	}
 	return jsonResult(res)
+}
+
+// riderFeedback is the rider's own account of a ride for the coach.
+func riderFeedback(f models.WorkoutFeedback) map[string]any {
+	out := map[string]any{}
+	if f.RPE != nil {
+		out["rpe"] = *f.RPE
+		out["rpe_label"] = models.RPELabel(*f.RPE)
+	}
+	if f.Note != "" {
+		out["note"] = f.Note
+	}
+	return out
 }
 
 // toolWorkoutIntervals reuses the workoutShape core behind
@@ -364,6 +393,14 @@ func (h *CoachHandler) toolWorkoutIntervals(input json.RawMessage) (string, erro
 	}
 	if shape == nil {
 		return jsonResult(map[string]any{"error": "no workout with that id"})
+	}
+	// How it felt is part of grading execution: the same faded last rep
+	// reads differently at RPE 6 than at RPE 10.
+	if f, found, err := h.db.GetWorkoutFeedback(id); err == nil && found {
+		return jsonResult(struct {
+			*models.WorkoutShape
+			RiderFeedback map[string]any `json:"rider_feedback"`
+		}{shape, riderFeedback(f)})
 	}
 	return jsonResult(shape)
 }
