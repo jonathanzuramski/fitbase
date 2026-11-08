@@ -116,9 +116,14 @@ func TestGenerateWeeklyPlan_CapturesWeekWithoutTouchingDrafts(t *testing.T) {
 		t.Error("the chat's open draft was swept by a weekly-plan run")
 	}
 
-	sys := fakeCoach.requests()[0].System
-	if !strings.Contains(sys, "Weekly plan request") || !strings.Contains(sys, plan.WindowStart) {
-		t.Errorf("system prompt lacks the playbook for window %s:\n%s", plan.WindowStart, sys)
+	// The playbook is per-request context: it rides in SystemContext, never
+	// in the static (cached) System prompt.
+	first := fakeCoach.requests()[0]
+	if !strings.Contains(first.SystemContext, "Weekly plan request") || !strings.Contains(first.SystemContext, plan.WindowStart) {
+		t.Errorf("system context lacks the playbook for window %s:\n%s", plan.WindowStart, first.SystemContext)
+	}
+	if strings.Contains(first.System, "Weekly plan request") {
+		t.Error("weekly playbook leaked into the static system prompt — it would split the prompt cache by mode")
 	}
 }
 
@@ -132,7 +137,7 @@ func TestChat_HasNoWeeklyPlaybook(t *testing.T) {
 	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "event: done") {
 		t.Fatalf("chat failed: %d %s", rr.Code, rr.Body.String())
 	}
-	if reqs := fakeCoach.requests(); len(reqs) == 0 || strings.Contains(reqs[0].System, "Weekly plan request") {
+	if reqs := fakeCoach.requests(); len(reqs) == 0 || strings.Contains(reqs[0].System+reqs[0].SystemContext, "Weekly plan request") {
 		t.Error("a plain chat question carried the weekly playbook")
 	}
 }
@@ -446,7 +451,8 @@ func TestGenerateWeeklyPlan_EnforcesTrainingDays(t *testing.T) {
 	if len(ws) != 1 || ws[0].PlannedDate.Format("2006-01-02") == blocked.Format("2006-01-02") {
 		t.Errorf("stored week = %+v, want one workout off the blocked day", ws)
 	}
-	ctx := fakeCoach.requests()[0].System
+	first := fakeCoach.requests()[0]
+	ctx := first.System + first.SystemContext // availability is per-request context
 	if !strings.Contains(ctx, "Schedule nothing on "+blocked.Format("Mon 2006-01-02")) {
 		t.Errorf("prompt doesn't name the blocked date:\n%s", ctx)
 	}
