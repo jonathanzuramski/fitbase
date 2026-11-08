@@ -1,6 +1,7 @@
 package web
 
 import (
+	"math"
 	"net/http"
 
 	"github.com/fitbase/fitbase/internal/fitness"
@@ -16,6 +17,10 @@ type workoutView struct {
 	Calories    float64
 	EFTP        float64
 	EFTPRounded int
+	// ShowEFTP: the ride's eFTP (95% of its best 20 minutes) only says
+	// something about FTP when the ride was hard; from an easy ride it is
+	// just a low number next to the real FTP.
+	ShowEFTP    bool
 	MaxCadence  *int
 	MaxPower1s  *int
 	VI          float64
@@ -23,7 +28,6 @@ type workoutView struct {
 	Fitness     models.FitnessPoint
 	FTP         int
 	ThresholdHR int
-	WeightKG    float64
 
 	AllTimeCurve map[int]models.AllTimeBest
 	WorkoutCurve map[int]int
@@ -113,10 +117,12 @@ func (th *templateHandler) workout(w http.ResponseWriter, r *http.Request) {
 
 	hrZones := fitness.ResolveHRZones(athlete)
 
-	// FTP detection: flag if eFTP from this workout exceeds current FTP.
+	// FTP detection: flag a ride whose eFTP clearly beats the current FTP,
+	// on the same bar as the dashboard's FTP check (a watt or two over is
+	// noise, not a new FTP).
 	var ftpDetected bool
 	var ftpOld int
-	if eftpF > 0 && int(eftpF) > athlete.FTPWatts {
+	if fitness.EstimateRaisesFTP(eftpF, athlete.FTPWatts) {
 		ftpDetected = true
 		ftpOld = athlete.FTPWatts
 	}
@@ -152,7 +158,8 @@ func (th *templateHandler) workout(w http.ResponseWriter, r *http.Request) {
 		WorkKJ:      sm.WorkKJ,
 		Calories:    sm.Calories,
 		EFTP:        eftpF,
-		EFTPRounded: int(eftpF),
+		EFTPRounded: int(math.Round(eftpF)),
+		ShowEFTP:    eftpF > 0 && eftpF >= 0.95*float64(athlete.FTPWatts),
 		MaxCadence:  sm.MaxCadence,
 		MaxPower1s:  sm.MaxPower1s,
 		VI:          viF,
@@ -160,7 +167,6 @@ func (th *templateHandler) workout(w http.ResponseWriter, r *http.Request) {
 		Fitness:     fitnessOnDay,
 		FTP:         ftpAtTime,
 		ThresholdHR: athlete.ThresholdHR,
-		WeightKG:    athlete.WeightKG,
 
 		AllTimeCurve: allTimeCurve,
 		WorkoutCurve: workoutCurve,

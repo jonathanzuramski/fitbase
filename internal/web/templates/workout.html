@@ -42,7 +42,8 @@
 	<div class="alert-banner ftp-banner">
 		<span class="alert-icon">&#9889;</span>
 		New FTP detected: <strong>{{ .EFTPRounded }}W</strong> (was {{ .FTPOld }}W)
-		<button class="alert-link" onclick="updateFTP({{ .EFTPRounded }})">update FTP</button>
+		<button type="button" class="alert-link" data-ftp-set="{{ .EFTPRounded }}"
+			title="Applies from today; past rides keep the FTP set for their date.">update FTP</button>
 	</div>
 {{ end }} {{/* ── Activity summary ─────────────────────────────── */}}
 <section class="card">
@@ -181,7 +182,7 @@
 					<div class="metric-value">{{ printf "%.2f" .VI }}</div>
 				</div>
 			{{ end }} 
-			{{ if .EFTP }}
+			{{ if .ShowEFTP }}
 				<div class="metric-cell">
 					<div class="metric-label">eFTP</div>
 					<div class="metric-value metric-power">{{ printf "%.0f" .EFTP }}<span class="metric-unit">W</span></div>
@@ -389,12 +390,5 @@
       .then(r => { if (r.ok || r.status === 204) window.location.href = '/'; else alert('Delete failed.'); });
   }
 
-  function updateFTP(watts) {
-    fetch('/api/athlete', {
-      method: 'PUT',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ftp_watts: watts, weight_kg: {{.WeightKG}}, threshold_hr_bpm: {{.ThresholdHR}}})
-    }).then(r => { if (r.ok) location.reload(); else alert('Failed to update FTP.'); });
-  }
 </script>
 {{ end }}

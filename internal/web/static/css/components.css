@@ -151,6 +151,72 @@
   color: #fff;
 }
 
+/* ── FTP check: dashboard banner and settings note ─────── */
+.ftp-check {
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  line-height: 1.5;
+}
+.ftp-check .alert-icon {
+  line-height: 1.5;
+}
+.ftp-check-text {
+  flex: 1 1 380px;
+  min-width: 0;
+}
+.ftp-check a {
+  color: inherit;
+  text-decoration: underline;
+}
+.ftp-check-actions {
+  display: flex;
+  gap: 8px;
+  align-self: center;
+}
+.ftp-check-actions .btn-primary,
+.ftp-check-actions .btn-secondary {
+  padding: 6px 12px;
+  white-space: nowrap;
+}
+.ftp-check-actions .btn-secondary {
+  color: inherit;
+}
+.alert-banner.ftp-check-raise {
+  background: rgba(34, 197, 94, 0.1);
+  border-color: rgba(34, 197, 94, 0.3);
+  color: #86efac;
+}
+.ftp-check-note {
+  margin-top: 14px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+.ftp-check-note strong {
+  color: var(--text);
+}
+.ftp-check-note.ftp-check-lower strong {
+  color: #fde047;
+}
+.ftp-check-note.ftp-check-raise strong,
+.ftp-check-mark {
+  color: #86efac;
+}
+.ftp-check-note a {
+  color: var(--accent);
+}
+.ftp-check-note-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 8px;
+}
+.ftp-check-note-actions .btn-secondary {
+  padding: 5px 12px;
+}
+
 /* ── Delete button ────────────────────────────────────── */
 .row-actions {
   width: 32px;
