@@ -1137,10 +1137,36 @@ function mercatorY(lat) {
   return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2;
 }
 
-async function drawRouteThumbnail(canvas, coords, color) {
+// Route thumbnails. Each activity card shows its route on a dark basemap.
+//
+// The basemap used to be CARTO's raster tiles, which now require an API key
+// and answer an unkeyed request with HTTP 200 and a tile stamped "API KEY
+// REQUIRED", so the watermark was drawn as the map. Thumbnails now use the
+// same keyless OpenFreeMap vector tiles as the route map and heatmap, rendered
+// by ONE hidden MapLibre map, one card at a time: browsers cap live WebGL
+// contexts at around 16, so a map per card isn't an option.
+//
+// The route is drawn immediately on a plain background; the basemap is then
+// rendered behind it. Offline, or if MapLibre fails to load, the plain
+// version simply stays.
+
+const THUMB_STYLE = "https://tiles.openfreemap.org/styles/dark";
+// Same build the route map and heatmap load, so it is usually cached already.
+const MAPLIBRE_JS = "https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js";
+const THUMB_BG = "#111827";
+
+function drawRouteThumbnail(canvas, coords, color) {
+  drawPlainRouteThumbnail(canvas, coords, color);
+  if (coords && coords.length >= 2) queueThumbnailBasemap(canvas, coords, color);
+}
+
+// drawPlainRouteThumbnail fits the route into the canvas with a uniform
+// Web Mercator scale and draws it on a flat background: the instant first
+// paint, and the fallback when no basemap can be rendered.
+function drawPlainRouteThumbnail(canvas, coords, color) {
   const W = canvas.width, H = canvas.height;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#111827';
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = THUMB_BG;
   ctx.fillRect(0, 0, W, H);
   if (!coords || coords.length < 2) return;
 
@@ -1157,80 +1183,151 @@ async function drawRouteThumbnail(canvas, coords, color) {
   const wxMin = (pMinLng + 180) / 360, wxMax = (pMaxLng + 180) / 360;
   const wyMin = mercatorY(pMaxLat), wyMax = mercatorY(pMinLat);
 
-  // Uniform scale so routes aren't stretched — same pixels-per-unit in X and Y
+  // Uniform scale so routes aren't stretched: same pixels-per-unit in X and Y
   const wSpan = wxMax - wxMin, hSpan = wyMax - wyMin;
   const scale = Math.min(W / wSpan, H / hSpan);
   const offX = (W - wSpan * scale) / 2;
   const offY = (H - hSpan * scale) / 2;
 
-  const toCanvas = (lng, lat) => [
+  const pts = coords.map(([lng, lat]) => [
     offX + (((lng + 180) / 360) - wxMin) * scale,
     offY + (mercatorY(lat) - wyMin) * scale,
-  ];
+  ]);
+  strokeThumbnailRoute(ctx, pts, color, thumbPixelRatio(canvas));
+}
 
-  // Tile range covering the full canvas (not just the route bbox)
-  const canvasWxMin = wxMin - offX / scale, canvasWxMax = canvasWxMin + W / scale;
-  const canvasWyMin = wyMin - offY / scale, canvasWyMax = canvasWyMin + H / scale;
-
-  // Find zoom where route fits in ≤3 tiles on each axis
-  let zoom = 6;
-  for (let z = 14; z >= 6; z--) {
-    const n = 1 << z;
-    if ((Math.floor(wxMax * n) - Math.floor(wxMin * n)) <= 2 &&
-        (Math.floor(wyMax * n) - Math.floor(wyMin * n)) <= 2) {
-      zoom = z; break;
-    }
-  }
-  const n = 1 << zoom;
-  const tx1 = Math.floor(canvasWxMin * n), tx2 = Math.floor(canvasWxMax * n);
-  const ty1 = Math.floor(canvasWyMin * n), ty2 = Math.floor(canvasWyMax * n);
-
-  const cols = tx2 - tx1 + 1;
-  const tiles = await Promise.all(
-    Array.from({ length: cols * (ty2 - ty1 + 1) }, (_, i) => {
-      const tx = tx1 + (i % cols);
-      const ty = ty1 + Math.floor(i / cols);
-      return new Promise(resolve => {
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.onload = () => resolve({ tx, ty, img });
-        img.onerror = () => resolve(null);
-        img.src = `https://basemaps.cartocdn.com/dark_nolabels/${zoom}/${tx}/${ty}.png`;
-      });
-    })
-  );
-
-  for (const t of tiles) {
-    if (!t) continue;
-    const { tx, ty, img } = t;
-    const cx1 = offX + (tx / n - wxMin) * scale;
-    const cy1 = offY + (ty / n - wyMin) * scale;
-    const cx2 = offX + ((tx + 1) / n - wxMin) * scale;
-    const cy2 = offY + ((ty + 1) / n - wyMin) * scale;
-    ctx.drawImage(img, cx1, cy1, cx2 - cx1, cy2 - cy1);
-  }
-
-  const pts = coords.map(([lng, lat]) => toCanvas(lng, lat));
-
+// strokeThumbnailRoute draws the route line with start/end dots. px is the
+// canvas's device-pixel ratio, so the line keeps its on-screen weight.
+function strokeThumbnailRoute(ctx, pts, color, px) {
   ctx.strokeStyle = color;
-  ctx.lineWidth = 2.5;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
+  ctx.lineWidth = 2.5 * px;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
   ctx.beginPath();
   pts.forEach(([x, y], i) => i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
   ctx.stroke();
 
   const dot = ([x, y], fill) => {
     ctx.beginPath();
-    ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.arc(x, y, 4 * px, 0, Math.PI * 2);
     ctx.fillStyle = fill;
     ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.8)';
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(255,255,255,0.8)";
+    ctx.lineWidth = px;
     ctx.stroke();
   };
-  dot(pts[0], '#4ade80');
-  dot(pts[pts.length - 1], '#f87171');
+  dot(pts[0], "#4ade80");
+  dot(pts[pts.length - 1], "#f87171");
+}
+
+function thumbPixelRatio(canvas) {
+  return canvas.clientWidth ? canvas.width / canvas.clientWidth : 1;
+}
+
+let maplibreLoad = null;
+function loadMapLibre() {
+  if (window.maplibregl) return Promise.resolve(window.maplibregl);
+  if (!maplibreLoad) {
+    maplibreLoad = new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = MAPLIBRE_JS;
+      s.onload = () => window.maplibregl ? resolve(window.maplibregl) : reject(new Error("maplibre missing"));
+      s.onerror = () => reject(new Error("maplibre failed to load"));
+      document.head.appendChild(s);
+    }).catch((err) => { maplibreLoad = null; throw err; });
+  }
+  return maplibreLoad;
+}
+
+// getThumbMap lazily creates the single hidden map that renders every basemap.
+let thumbMap = null;
+function getThumbMap() {
+  if (!thumbMap) {
+    thumbMap = loadMapLibre().then((maplibregl) => new Promise((resolve, reject) => {
+      const el = document.createElement("div");
+      el.setAttribute("aria-hidden", "true");
+      el.style.cssText = "position:fixed;left:-10000px;top:0;width:240px;height:140px;pointer-events:none;";
+      document.body.appendChild(el);
+      const map = new maplibregl.Map({
+        container: el,
+        style: THUMB_STYLE,
+        interactive: false,
+        attributionControl: false,
+        preserveDrawingBuffer: true, // read the frame back after rendering
+        fadeDuration: 0,
+        center: [0, 0],
+        zoom: 1,
+      });
+      const timer = setTimeout(() => {
+        map.remove();
+        el.remove();
+        reject(new Error("thumbnail map timed out"));
+      }, 15000);
+      map.once("load", () => {
+        clearTimeout(timer);
+        // Place names and icons are noise at thumbnail size (the old basemap
+        // was the "no labels" variant).
+        for (const layer of map.getStyle().layers) {
+          if (layer.type === "symbol") map.setLayoutProperty(layer.id, "visibility", "none");
+        }
+        resolve({ map, el });
+      });
+    })).catch((err) => { thumbMap = null; throw err; });
+  }
+  return thumbMap;
+}
+
+// Cards render one at a time on the shared map. A newer card list
+// (pagination, filters) leaves the old canvases detached, and they are skipped.
+let thumbQueue = Promise.resolve();
+function queueThumbnailBasemap(canvas, coords, color) {
+  thumbQueue = thumbQueue
+    .then(() => renderThumbnailBasemap(canvas, coords, color))
+    .catch(() => {}); // keep the plain thumbnail; never break the queue
+}
+
+async function renderThumbnailBasemap(canvas, coords, color) {
+  if (!canvas.isConnected) return;
+  const { map, el } = await getThumbMap();
+  const w = canvas.clientWidth || 240, h = canvas.clientHeight || 140;
+  if (el.clientWidth !== w || el.clientHeight !== h) {
+    el.style.width = w + "px";
+    el.style.height = h + "px";
+    map.resize();
+  }
+  let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+  for (const [lng, lat] of coords) {
+    if (lng < minLng) minLng = lng;
+    if (lng > maxLng) maxLng = lng;
+    if (lat < minLat) minLat = lat;
+    if (lat > maxLat) maxLat = lat;
+  }
+  const padX = Math.round(w * 0.12), padY = Math.round(h * 0.14);
+  map.fitBounds([[minLng, minLat], [maxLng, maxLat]],
+    { padding: { top: padY, bottom: padY, left: padX, right: padX }, maxZoom: 15, duration: 0 });
+  await mapIdle(map, 8000);
+  if (!canvas.isConnected) return;
+
+  // Compose in the canvas's device pixels: the basemap frame, then the route
+  // projected through the same camera so the two line up exactly.
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(map.getCanvas(), 0, 0, canvas.width, canvas.height);
+  const sx = canvas.width / w, sy = canvas.height / h;
+  const pts = coords.map((c) => {
+    const pt = map.project(c);
+    return [pt.x * sx, pt.y * sy];
+  });
+  strokeThumbnailRoute(ctx, pts, color, sx);
+}
+
+// mapIdle resolves once the map has rendered with every tile loaded, or after
+// timeoutMs (a slow or failed tile shouldn't stall the whole queue).
+function mapIdle(map, timeoutMs) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, timeoutMs);
+    map.once("idle", () => { clearTimeout(timer); resolve(); });
+    map.triggerRepaint(); // an unchanged camera would otherwise never go idle again
+  });
 }
 
 function fmtDurJS(secs) {
@@ -1280,12 +1377,20 @@ function renderActivityCards(containerId, tracks, workouts) {
     </div>`;
   }).join("");
 
-  el.innerHTML = `<div class="activity-cards-grid">${html}</div>`;
+  // Basemap credit: OpenFreeMap tiles carry OpenStreetMap data, which must be
+  // attributed wherever it is shown.
+  const credit = tracks.length
+    ? `<p class="ac-map-credit">Maps: <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> © <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">OpenMapTiles</a> · data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors</p>`
+    : "";
+  el.innerHTML = `<div class="activity-cards-grid">${html}</div>${credit}`;
 
+  // Size each canvas in device pixels so thumbnails are sharp on HiDPI
+  // screens (CSS keeps the canvas at 100% of its card).
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
   el.querySelectorAll('.ac-thumb-canvas').forEach(canvas => {
     const thumb = canvas.parentElement;
-    canvas.width = thumb.clientWidth || 240;
-    canvas.height = thumb.clientHeight || 140;
+    canvas.width = Math.round((thumb.clientWidth || 240) * dpr);
+    canvas.height = Math.round((thumb.clientHeight || 140) * dpr);
     const track = trackMap[canvas.dataset.id];
     if (track) drawRouteThumbnail(canvas, track.coords, SPORT_COLORS[track.sport] || "#60a5fa");
   });
