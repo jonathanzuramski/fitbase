@@ -40,6 +40,8 @@
 		FTP is set to the default of {{ .FTPWatts }}W — your power zones and TSS may be inaccurate.
 		<a href="/settings" class="alert-link">update in settings →</a>
 	</div>
+{{ else if and .FTPCheck.Actionable (not .FTPCheck.Dismissed) }}
+	{{ template "ftp-check-banner" .FTPCheck }}
 {{ end }}
 
 {{ $imperial := .Imperial }}

@@ -25,6 +25,7 @@ type settingsView struct {
 	HRZones       []models.HRZone
 	HRZonesCustom bool
 	FTPHistory    []db.FTPHistoryEntry
+	FTPCheck      models.FTPCheck
 	Today         string
 
 	DropboxConnected   bool
@@ -68,6 +69,7 @@ func (th *templateHandler) settings(w http.ResponseWriter, r *http.Request) {
 	gdriveConfigured := gdriveClientID != ""
 
 	ftpHistory, _ := th.db.AllFTPHistory()
+	ftpCheck, _ := th.db.FTPCheck(time.Now())
 	gdriveConnected := false
 	if gdriveConfigured {
 		if token, err := th.db.GetIntegrationToken("gdrive"); err == nil {
@@ -85,6 +87,7 @@ func (th *templateHandler) settings(w http.ResponseWriter, r *http.Request) {
 		HRZones:       resolveHRZones(athlete),
 		HRZonesCustom: athlete.HRZonesJSON != "",
 		FTPHistory:    ftpHistory,
+		FTPCheck:      ftpCheck,
 		Today:         time.Now().Format("2006-01-02"),
 
 		DropboxConnected:   dropboxConnected,

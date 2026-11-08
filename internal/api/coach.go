@@ -220,9 +220,45 @@ func (h *CoachHandler) chatSystemContext(now time.Time) string {
 	if athlete, err := h.db.GetAthlete(); err == nil && athlete != nil {
 		if block := buildRiderProfileBlock(athlete); block != "" {
 			ctx += "\n\n" + block
+			// The FTP verdict rides with the FTP it qualifies. Non-fatal too.
+			if check, err := h.db.FTPCheck(now); err == nil {
+				ctx += ftpCheckLine(check)
+			}
 		}
 	}
 	return ctx
+}
+
+// ftpCheckLine tells the model how well recent rides back the FTP. Every
+// zone, IF, TSS and %FTP target scales with FTP, so a coach that trusts a
+// stale one prescribes efforts the rider can't (or easily can) hold.
+func ftpCheckLine(c models.FTPCheck) string {
+	var evidence string
+	if b := c.Basis; b != nil {
+		dur := "20 min"
+		if b.DurationSecs == 3600 {
+			dur = "60 min"
+		}
+		evidence = fmt.Sprintf("best %s in the last %d days %d W (%s) → estimate %d W, %.0f%% of FTP",
+			dur, c.WindowDays, b.Watts, b.Day, c.EstimateWatts, c.PctOfFTP)
+	}
+	var line string
+	switch c.Status {
+	case models.FTPCheckOK:
+		line = "backed by a recent effort: " + evidence + "."
+	case models.FTPCheckRaise:
+		line = "recent rides show more than this FTP: " + evidence +
+			". Zones, IF and TSS overstate effort; suggest raising FTP when it bears on the answer."
+	case models.FTPCheckLower:
+		line = "no recent ride backs this FTP: " + evidence +
+			". Zones, IF and TSS understate effort, and %FTP targets may be beyond what the rider has recently held; anchor interval targets on recent efforts and raise the FTP question when it bears on the answer."
+	default:
+		line = fmt.Sprintf("unverified: no hard 20- or 60-minute effort in the last %d days to check it against; treat %%FTP targets as approximate.", c.WindowDays)
+	}
+	if c.Dismissed {
+		line += " The rider has chosen to keep this FTP for now; don't press the point."
+	}
+	return "- FTP check: " + line + "\n"
 }
 
 const maxChatMessages = 40

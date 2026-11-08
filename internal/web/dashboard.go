@@ -25,6 +25,7 @@ type indexView struct {
 	NextPage       int
 	ShowPagination bool
 	FTPIsDefault   bool
+	FTPCheck       models.FTPCheck // banner when the FTP looks low or high
 	FTPWatts       int
 	Sort           string
 	Dir            string
@@ -158,6 +159,8 @@ func (th *templateHandler) index(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "database error", http.StatusInternalServerError)
 		return
 	}
+	// Non-fatal: without it the dashboard just shows no FTP banner.
+	ftpCheck, _ := th.db.FTPCheck(time.Now())
 
 	activeSport := r.URL.Query().Get("goal_sport")
 	switch activeSport {
@@ -198,6 +201,7 @@ func (th *templateHandler) index(w http.ResponseWriter, r *http.Request) {
 		NextPage:       page + 1,
 		ShowPagination: totalPages > 1,
 		FTPIsDefault:   !hasFTPHistory,
+		FTPCheck:       ftpCheck,
 		FTPWatts:       athlete.FTPWatts,
 		Sort:           sortKey,
 		Dir:            sortDir,

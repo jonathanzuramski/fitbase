@@ -36,9 +36,9 @@ func loadTemplatesFrom(fsys fs.FS) *pageTemplates {
 		)
 	}
 	return &pageTemplates{
-		index:     parse("templates/base.html", "templates/index.html"),
+		index:     parse("templates/base.html", "templates/ftp_check.html", "templates/index.html"),
 		workout:   parse("templates/base.html", "templates/workout.html"),
-		settings:  parse("templates/base.html", "templates/settings.html"),
+		settings:  parse("templates/base.html", "templates/ftp_check.html", "templates/settings.html"),
 		welcome:   parse("templates/welcome.html"),
 		calendar:  parse("templates/base.html", "templates/calendar.html"),
 		heatmap:   parse("templates/base.html", "templates/heatmap.html"),

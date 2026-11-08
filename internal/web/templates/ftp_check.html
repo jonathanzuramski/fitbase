@@ -1,0 +1,45 @@
+{{- /* FTP check partials: how well recent rides back the FTP. The dot is a
+     models.FTPCheck. The dashboard shows the banner when there's something to
+     act on; settings always shows the note next to the FTP field. Buttons are
+     wired by static/js/ftp-check.js. */ -}}
+
+{{ define "ftp-check-evidence" -}}
+	Your best {{ if eq .Basis.DurationSecs 3600 }}hour{{ else }}20 minutes{{ end }} in the last {{ .WindowDays }} days,
+	<a href="/workouts/{{ .Basis.WorkoutID }}">{{ .Basis.Watts }} W on {{ dayLabel .Basis.Day }}</a>, puts it near {{ .EstimateWatts }} W.
+{{- end }}
+
+{{ define "ftp-check-banner" }}
+	<div class="alert-banner ftp-check ftp-check-{{ .Status }}" data-ftp-check>
+		<span class="alert-icon">{{ if eq .Status "raise" }}&#9889;{{ else }}&#9888;{{ end }}</span>
+		<div class="ftp-check-text">
+			<strong>{{ if eq .Status "raise" }}Your rides show more than your {{ .FTPWatts }} W FTP.{{ else }}Your {{ .FTPWatts }} W FTP may be set high.{{ end }}</strong>
+			{{ template "ftp-check-evidence" . }}
+			FTP sets your zones, TSS and the coach's targets.
+		</div>
+		<div class="ftp-check-actions">
+			<button type="button" class="btn-primary" data-ftp-set="{{ .EstimateWatts }}"
+				title="Applies from today; past rides keep the FTP set for their date.">use {{ .EstimateWatts }} W</button>
+			<button type="button" class="btn-secondary" data-ftp-dismiss>keep {{ .FTPWatts }} W</button>
+		</div>
+	</div>
+{{ end }}
+
+{{ define "ftp-check-note" }}
+	<div class="ftp-check-note ftp-check-{{ .Status }}">
+		{{ if eq .Status "ok" }}
+			<span class="ftp-check-mark">&#10003;</span> Backed by your rides. {{ template "ftp-check-evidence" . }}
+		{{ else if eq .Status "raise" }}
+			<strong>Your rides show more than this FTP.</strong> {{ template "ftp-check-evidence" . }}
+		{{ else if eq .Status "lower" }}
+			<strong>This FTP may be set high.</strong> {{ template "ftp-check-evidence" . }}
+		{{ else }}
+			Nothing in the last {{ .WindowDays }} days was hard enough to check this FTP against; a 20-minute test would tell.
+		{{ end }}
+		{{ if .Actionable }}
+			<div class="ftp-check-note-actions">
+				<button type="button" class="btn-secondary" data-ftp-set="{{ .EstimateWatts }}">use {{ .EstimateWatts }} W</button>
+				<span class="muted">applies from today; past rides keep the FTP set for their date (see FTP history)</span>
+			</div>
+		{{ end }}
+	</div>
+{{ end }}
