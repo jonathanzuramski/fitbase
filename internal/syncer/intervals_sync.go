@@ -217,32 +217,54 @@ func (s *IntervalsSource) SyncFTPHistory(ctx context.Context, onProgress func(ev
 		return activities[i].StartDateLocal < activities[j].StartDateLocal
 	})
 
-	// Build FTP change points: each time icu_ftp differs from the previous value,
-	// record the date and new FTP.
+	// A ride fitbase already has keeps fitbase's own indoor flag, so this sync
+	// and the TSS recompute agree on which FTP line a ride belongs to; others
+	// fall back to intervals.icu's trainer / virtual-ride flags.
+	localIndoor, err := s.db.IndoorByFilename("intervals-")
+	if err != nil {
+		return 0, fmt.Errorf("read indoor flags: %w", err)
+	}
+	loc := s.db.AthleteLocation()
+
+	// Build FTP change points on two lines. intervals.icu keeps a separate
+	// indoor FTP, so with one line every switch between indoor and outdoor
+	// rides logged a "change" (235, 242, 235, 242, ...). An indoor point is
+	// recorded only when indoor differs from the general line (or overrides an
+	// earlier indoor value), so athletes without a separate indoor FTP get no
+	// indoor line at all.
 	type changePoint struct {
-		at  time.Time
-		ftp int
+		at     time.Time
+		ftp    int
+		indoor bool
 	}
 	var changes []changePoint
-	var lastFTP int
+	var lastGeneral, lastIndoor int
 	for _, act := range activities {
 		if act.IcuFTP == nil || *act.IcuFTP <= 0 {
 			continue
 		}
 		ftp := *act.IcuFTP
-		if ftp == lastFTP {
-			continue
+		indoor, known := localIndoor[fmt.Sprintf("intervals-%s.fit", act.ID)]
+		if !known {
+			indoor = act.Indoor()
 		}
-		t, parseErr := time.Parse("2006-01-02T15:04:05", act.StartDateLocal)
-		if parseErr != nil {
-			// Try date-only fallback
-			t, parseErr = time.Parse("2006-01-02", act.StartDateLocal[:10])
-			if parseErr != nil {
+		if indoor {
+			if ftp == lastIndoor || (lastIndoor == 0 && ftp == lastGeneral) {
 				continue
 			}
+		} else if ftp == lastGeneral {
+			continue
 		}
-		changes = append(changes, changePoint{at: t, ftp: ftp})
-		lastFTP = ftp
+		at, ok := act.StartTime(loc)
+		if !ok {
+			continue
+		}
+		changes = append(changes, changePoint{at: at, ftp: ftp, indoor: indoor})
+		if indoor {
+			lastIndoor = ftp
+		} else {
+			lastGeneral = ftp
+		}
 	}
 
 	if onProgress != nil {
@@ -254,8 +276,8 @@ func (s *IntervalsSource) SyncFTPHistory(ctx context.Context, onProgress func(ev
 		return 0, fmt.Errorf("clear ftp history: %w", err)
 	}
 	for _, cp := range changes {
-		if err := s.db.LogFTPChangeAt(cp.ftp, cp.at); err != nil {
-			slog.Warn("intervals ftp sync: insert history entry", "ftp", cp.ftp, "at", cp.at, "err", err)
+		if err := s.db.LogFTPChangeAtFor(cp.ftp, cp.at, cp.indoor); err != nil {
+			slog.Warn("intervals ftp sync: insert history entry", "ftp", cp.ftp, "at", cp.at, "indoor", cp.indoor, "err", err)
 		}
 	}
 

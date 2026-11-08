@@ -103,7 +103,7 @@ func (th *templateHandler) workout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// FTP at ride time — used for zone coloring and metric display.
-	ftpAtTime := th.db.GetFTPAtDate(workout.RecordedAt)
+	ftpAtTime := th.db.GetFTPForRide(workout.RecordedAt, workout.IsIndoor)
 
 	// Zone times — fetched from DB (computed at import); fall back to on-the-fly.
 	powerZoneSecs, hrZoneSecs, _, _ := th.db.GetZoneTimes(workout.ID)

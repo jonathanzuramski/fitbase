@@ -439,28 +439,6 @@ function renderFitnessChart(containerId, data) {
 
   const u = new uPlot(opts, [timestamps, ctlSeries, atlSeries, tsbSeries, projCtl, projAtl, projTsb], el);
   watchResize(el, u, 300);
-
-  // Recommendation badge based on the last settled TSB — the form the rider
-  // carries into today (yesterday's value until a ride with TSS is logged today).
-  const recEl = document.getElementById("fitness-recommendation");
-  const lastTSB = tsbSeries.findLast((value) => value != null);
-
-  if (recEl && lastTSB != null) {
-    const rec = fitnessRecommendation(lastTSB);
-
-    // nosemgrep: javascript.browser.security.insecure-document-method.insecure-document-method
-    recEl.innerHTML = `<div class="rec-badge ${rec.cls}"><span class="rec-label">
-    ${rec.label}</span><span class="rec-detail">${rec.detail}</span><span class="rec-tsb">
-    form ${lastTSB > 0 ? "+" : ""}${lastTSB}</span></div>`;
-  }
-}
-
-function fitnessRecommendation(tsb) {
-  if (tsb > 5) return { label: "Go Ride", cls: "rec-go", detail: "You're fresh — good day to train hard or race." };
-  if (tsb > -10) return { label: "Go Ride", cls: "rec-go", detail: "Optimal form — peak performance window." };
-  if (tsb > -30) return { label: "Train On", cls: "rec-train", detail: "Normal training fatigue — keep building." };
-  if (tsb > -50) return { label: "Ease Up", cls: "rec-ease", detail: "Overreaching — a recovery day will pay off." };
-  return { label: "Go Rest", cls: "rec-rest", detail: "Too much load — rest before your next hard effort." };
 }
 
 // ── Workout charts ──────────────────────────────────────────────────────────

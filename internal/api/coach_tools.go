@@ -67,7 +67,7 @@ func (h *CoachHandler) briefFromWorkout(w models.Workout) aicoach.WorkoutBrief {
 	if w.AvgPowerWatts != nil || w.NormalizedPower != nil {
 		// Same FTP-of-the-day rule as get_workout_intervals, so the insights
 		// line and the tool always describe a ride with the same numbers.
-		ftp := h.db.GetFTPAtDate(w.RecordedAt)
+		ftp := h.db.GetFTPForRide(w.RecordedAt, w.IsIndoor)
 		if shape, err := rideShape(h.db, w.ID, ftp); err == nil {
 			brief.Structure = shapeHeadline(shape, ftp)
 		}
@@ -213,7 +213,7 @@ func (h *CoachHandler) toolAthleteProfile() (string, error) {
 // toolReadiness reuses the same core as GET /api/athlete/readiness — current
 // CTL/ATL/TSB, days since last workout, 28-day ramp rate, and a recommendation.
 func (h *CoachHandler) toolReadiness() (string, error) {
-	report, err := readinessReport(h.db, h.db.AthleteLocation())
+	report, err := h.db.Readiness(h.db.AthleteLocation())
 	if err != nil {
 		return "", err
 	}
@@ -292,7 +292,7 @@ func (h *CoachHandler) toolListRecentWorkouts(input json.RawMessage) (string, er
 		w := rows[i]
 		lw := listedWorkout{WorkoutSummary: w.ToSummary(), Indoor: w.IsIndoor}
 		if w.AvgPowerWatts != nil || w.NormalizedPower != nil {
-			ftp := h.db.GetFTPAtDate(w.RecordedAt)
+			ftp := h.db.GetFTPForRide(w.RecordedAt, w.IsIndoor)
 			if shape, err := rideShape(h.db, w.ID, ftp); err == nil {
 				lw.Structure = shapeHeadline(shape, ftp)
 			}
@@ -556,22 +556,26 @@ func (h *CoachHandler) toolFTPHistory() (string, error) {
 	type ftpChange struct {
 		Date       string `json:"date"`
 		FTPWatts   int    `json:"ftp_watts"`
+		Indoor     bool   `json:"indoor,omitempty"`
 		DeltaWatts *int   `json:"delta_watts,omitempty"`
 	}
+	loc := h.db.AthleteLocation()
 	out := make([]ftpChange, 0, len(entries))
+	previous := map[bool]int{} // per line: indoor entries compare with indoor
 	for i := len(entries) - 1; i >= 0; i-- {
 		e := entries[i]
-		c := ftpChange{Date: e.EffectiveFrom.Format("2006-01-02"), FTPWatts: e.FTPWatts}
-		if i < len(entries)-1 {
-			d := e.FTPWatts - entries[i+1].FTPWatts
+		c := ftpChange{Date: e.EffectiveFrom.In(loc).Format("2006-01-02"), FTPWatts: e.FTPWatts, Indoor: e.Indoor}
+		if p, ok := previous[e.Indoor]; ok {
+			d := e.FTPWatts - p
 			c.DeltaWatts = &d
 		}
+		previous[e.Indoor] = e.FTPWatts
 		out = append(out, c)
 	}
 	return jsonResult(map[string]any{
 		"count":   len(out),
 		"changes": out,
-		"note":    "Oldest first. delta_watts is the change from the previous setting. Workouts' %FTP/TSS were computed against the FTP in effect on their date.",
+		"note":    "Oldest first. delta_watts is the change from the previous setting on the same line. Entries marked indoor are a separate, usually lower, FTP used for indoor rides only. Workouts' %FTP/TSS were computed against the FTP in effect on their date (indoor rides against the indoor line when there is one).",
 	})
 }
 
@@ -662,14 +666,17 @@ func (h *CoachHandler) toolPerformanceTrend(input json.RawMessage) (string, erro
 	type ftpChange struct {
 		Date     string `json:"date"`
 		FTPWatts int    `json:"ftp_watts"`
+		Indoor   bool   `json:"indoor,omitempty"`
 	}
 	ftpChanges := []ftpChange{}
 	if hist, err := h.db.AllFTPHistory(); err == nil {
+		loc := h.db.AthleteLocation()
 		for i := len(hist) - 1; i >= 0; i-- {
 			if hist[i].EffectiveFrom.After(since) {
 				ftpChanges = append(ftpChanges, ftpChange{
-					Date:     hist[i].EffectiveFrom.Format("2006-01-02"),
+					Date:     hist[i].EffectiveFrom.In(loc).Format("2006-01-02"),
 					FTPWatts: hist[i].FTPWatts,
+					Indoor:   hist[i].Indoor,
 				})
 			}
 		}

@@ -24,10 +24,35 @@ import (
 // Activity is a summary returned by the activities list endpoint.
 type Activity struct {
 	ID             string `json:"id"`
-	StartDateLocal string `json:"start_date_local"`
+	StartDate      string `json:"start_date"`       // UTC, e.g. 2025-11-11T23:10:07Z
+	StartDateLocal string `json:"start_date_local"` // the athlete's wall clock, no zone
 	Type           string `json:"type"`
 	Name           string `json:"name"`
+	Trainer        bool   `json:"trainer"` // ridden on a trainer (indoor)
 	IcuFTP         *int   `json:"icu_ftp"`
+}
+
+// StartTime returns when the activity started: start_date (UTC) when the API
+// gives it, else start_date_local (the athlete's wall clock) read in loc.
+// Reading the local time as UTC put FTP changes hours off.
+func (a Activity) StartTime(loc *time.Location) (time.Time, bool) {
+	if t, err := time.Parse(time.RFC3339, a.StartDate); err == nil {
+		return t, true
+	}
+	if t, err := time.ParseInLocation("2006-01-02T15:04:05", a.StartDateLocal, loc); err == nil {
+		return t, true
+	}
+	if len(a.StartDateLocal) >= 10 {
+		if t, err := time.ParseInLocation("2006-01-02", a.StartDateLocal[:10], loc); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
+// Indoor reports whether intervals.icu marks the activity as indoor.
+func (a Activity) Indoor() bool {
+	return a.Trainer || a.Type == "VirtualRide"
 }
 
 // Client is an authenticated intervals.icu API client.

@@ -425,10 +425,31 @@
    columns, so the inputs use placeholders instead of duplicating labels. */
 .ftp-history-add-form {
   display: grid;
-  grid-template-columns: minmax(140px, 1fr) minmax(120px, 1fr) auto;
+  grid-template-columns: minmax(140px, 1fr) minmax(120px, 1fr) auto auto;
   gap: 8px;
   align-items: center;
   margin-bottom: 16px;
+}
+
+.ftp-history-indoor-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ftp-history-indoor {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 
 .ftp-history-add-form .form-input {

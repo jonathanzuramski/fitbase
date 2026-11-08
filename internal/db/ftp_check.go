@@ -77,8 +77,7 @@ func (db *DB) ftpCheckDismissed(check models.FTPCheck, now time.Time) bool {
 
 // SetFTP changes the athlete's FTP alone, effective now, leaving the rest of
 // the profile as it is. Past rides keep the FTP that was active on their date
-// (ftp_history). A history entry is logged when the value changes, or when
-// there is no history yet (so the FTP stops counting as the seeded default).
+// (ftp_history), logged only when the value changes (logFTPIfChanged).
 func (db *DB) SetFTP(ftp int) error {
 	var current int
 	if err := db.QueryRow("SELECT ftp_watts FROM athlete WHERE id=1").Scan(&current); err != nil {
@@ -89,12 +88,26 @@ func (db *DB) SetFTP(ftp int) error {
 	); err != nil {
 		return err
 	}
-	hasHistory, err := db.HasFTPHistory()
+	return db.logFTPIfChanged(current, ftp)
+}
+
+// IndoorByFilename maps the filename of every workout whose filename starts
+// with prefix to its indoor flag (e.g. "intervals-" for rides synced from
+// intervals.icu, named intervals-<activity id>.fit).
+func (db *DB) IndoorByFilename(prefix string) (map[string]bool, error) {
+	rows, err := db.Query(`SELECT filename, is_indoor FROM workouts WHERE filename LIKE ? || '%'`, prefix)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if ftp != current || !hasHistory {
-		return db.LogFTPChange(ftp)
+	defer rows.Close() //nolint:errcheck
+	out := map[string]bool{}
+	for rows.Next() {
+		var name string
+		var indoor bool
+		if err := rows.Scan(&name, &indoor); err != nil {
+			return nil, err
+		}
+		out[name] = indoor
 	}
-	return nil
+	return out, rows.Err()
 }

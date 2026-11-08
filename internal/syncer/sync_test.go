@@ -734,3 +734,79 @@ func TestSyncFTPHistory_SkipsNullFTP(t *testing.T) {
 		t.Error("expected no FTP history entries when all icu_ftp values are nil")
 	}
 }
+
+// intervals.icu keeps a separate indoor FTP. Alternating indoor and outdoor
+// rides used to log a "change" at every switch; they now build two clean
+// lines, and indoor rides take the indoor one.
+func TestSyncFTPHistory_IndoorLine(t *testing.T) {
+	d := newSyncTestDB(t)
+	imp := importer.NewImporter(d, t.TempDir())
+	src := NewIntervalsSource(d, imp)
+
+	outdoor, indoor := 242, 235
+	acts := []intervals.Activity{
+		{ID: "1", StartDate: "2025-11-08T13:38:51Z", Type: "Ride", IcuFTP: &outdoor},
+		{ID: "2", StartDate: "2025-11-11T23:10:07Z", Type: "Ride", Trainer: true, IcuFTP: &indoor},
+		{ID: "3", StartDate: "2025-11-12T18:38:19Z", Type: "Ride", IcuFTP: &outdoor},
+		{ID: "4", StartDate: "2025-11-18T22:35:02Z", Type: "VirtualRide", IcuFTP: &indoor},
+		{ID: "5", StartDate: "2025-11-21T16:23:23Z", Type: "Ride", IcuFTP: &outdoor},
+	}
+	srv := intervalsActivitiesServer(t, acts)
+	defer srv.Close()
+	if err := d.SetIntegrationCredentials("intervals", "i1", "key"); err != nil {
+		t.Fatal(err)
+	}
+	src.overrideBase(srv.URL)
+	if _, err := src.SyncFTPHistory(context.Background(), nil); err != nil {
+		t.Fatalf("SyncFTPHistory: %v", err)
+	}
+
+	hist, err := d.AllFTPHistory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hist) != 2 {
+		t.Fatalf("history = %+v, want one general and one indoor entry", hist)
+	}
+	// Newest first: the indoor entry at the second ride's real (UTC) start.
+	if !hist[0].Indoor || hist[0].FTPWatts != 235 || !hist[0].EffectiveFrom.Equal(time.Date(2025, 11, 11, 23, 10, 7, 0, time.UTC)) {
+		t.Errorf("indoor entry = %+v", hist[0])
+	}
+	if hist[1].Indoor || hist[1].FTPWatts != 242 {
+		t.Errorf("general entry = %+v", hist[1])
+	}
+	day := time.Date(2025, 11, 20, 12, 0, 0, 0, time.UTC)
+	if got := d.GetFTPForRide(day, true); got != 235 {
+		t.Errorf("indoor ride FTP = %d, want 235", got)
+	}
+	if got := d.GetFTPForRide(day, false); got != 242 {
+		t.Errorf("outdoor ride FTP = %d, want 242", got)
+	}
+}
+
+// Without a separate indoor FTP the indoor rides carry the general value, and
+// no indoor line is built to mirror it.
+func TestSyncFTPHistory_NoIndoorLineWhenSame(t *testing.T) {
+	d := newSyncTestDB(t)
+	imp := importer.NewImporter(d, t.TempDir())
+	src := NewIntervalsSource(d, imp)
+
+	ftp := 250
+	acts := []intervals.Activity{
+		{ID: "1", StartDate: "2025-01-01T10:00:00Z", IcuFTP: &ftp},
+		{ID: "2", StartDate: "2025-01-02T10:00:00Z", Trainer: true, IcuFTP: &ftp},
+	}
+	srv := intervalsActivitiesServer(t, acts)
+	defer srv.Close()
+	if err := d.SetIntegrationCredentials("intervals", "i1", "key"); err != nil {
+		t.Fatal(err)
+	}
+	src.overrideBase(srv.URL)
+	if _, err := src.SyncFTPHistory(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	hist, _ := d.AllFTPHistory()
+	if len(hist) != 1 || hist[0].Indoor {
+		t.Errorf("history = %+v, want a single general entry", hist)
+	}
+}

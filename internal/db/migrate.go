@@ -83,6 +83,7 @@ var migrations = []func(*sql.Tx) error{
 	migrateAchievements,        // v7 — per-workout PR trophies + chronological backfill
 	migrateWorkoutShapeCache,   // v8 — lazily filled per-workout interval-shape cache
 	migrateWeeklyPlans,         // v9 — coach weekly reviews + proposed schedules
+	migrateFTPHistoryIndoor,    // v10 — indoor FTP line; date-only entries re-homed to local midnight
 }
 
 // migrate replays every migration the database hasn't run yet.
@@ -612,6 +613,62 @@ func migrateWeeklyPlans(tx *sql.Tx) error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_weekly_plans_created_at ON weekly_plans(created_at DESC)`); err != nil {
 		return fmt.Errorf("create weekly_plans: %w", err)
+	}
+	return nil
+}
+
+// migrateFTPHistoryIndoor (v10) gives FTP history an indoor line.
+// intervals.icu keeps a separate indoor FTP, and with one line the FTP sync
+// logged a "change" at every switch between indoor and outdoor rides (235,
+// 242, 235, 242, ...). Existing rows stay on the general line; re-running the
+// sync rebuilds both lines.
+//
+// It also re-homes date-only entries (the settings form stored them at UTC
+// midnight) to midnight in the athlete's timezone, now that history displays
+// and is entered in local days; at UTC midnight they would show as the day
+// before anywhere west of Greenwich.
+func migrateFTPHistoryIndoor(tx *sql.Tx) error {
+	_, err := tx.Exec(`ALTER TABLE ftp_history ADD COLUMN indoor INTEGER NOT NULL DEFAULT 0`)
+	if err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		return fmt.Errorf("add ftp_history.indoor: %w", err)
+	}
+
+	var tz string
+	_ = tx.QueryRow("SELECT timezone FROM athlete WHERE id=1").Scan(&tz)
+	loc, err := time.LoadLocation(tz)
+	if tz == "" || err != nil || loc == time.UTC {
+		return nil
+	}
+	rows, err := tx.Query(`SELECT id, effective_from FROM ftp_history WHERE effective_from LIKE '%T00:00:00Z'`)
+	if err != nil {
+		return fmt.Errorf("read date-only ftp_history: %w", err)
+	}
+	type rehome struct {
+		id int64
+		at string
+	}
+	var updates []rehome
+	for rows.Next() {
+		var id int64
+		var at string
+		if err := rows.Scan(&id, &at); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		t, err := time.Parse(time.RFC3339, at)
+		if err != nil {
+			continue
+		}
+		local := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, loc).UTC()
+		updates = append(updates, rehome{id, local.Format(time.RFC3339)})
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, u := range updates {
+		if _, err := tx.Exec(`UPDATE ftp_history SET effective_from = ? WHERE id = ?`, u.at, u.id); err != nil {
+			return fmt.Errorf("re-home ftp_history %d: %w", u.id, err)
+		}
 	}
 	return nil
 }

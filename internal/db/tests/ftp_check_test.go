@@ -150,3 +150,58 @@ func TestSetFTP_LogsHistoryOnlyOnChange(t *testing.T) {
 		t.Errorf("history after a change = %d entries, want 2", n)
 	}
 }
+
+func TestGetFTPForRide_IndoorLine(t *testing.T) {
+	d := newTestDB(t)
+	day := func(m time.Month, dd int) time.Time { return time.Date(2025, m, dd, 12, 0, 0, 0, time.UTC) }
+	for _, e := range []struct {
+		ftp    int
+		at     time.Time
+		indoor bool
+	}{
+		{242, day(9, 1), false},
+		{235, day(11, 1), true},
+		{250, day(12, 1), false}, // a general change doesn't move the indoor line
+	} {
+		if err := d.LogFTPChangeAtFor(e.ftp, e.at, e.indoor); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cases := []struct {
+		at     time.Time
+		indoor bool
+		want   int
+	}{
+		{day(10, 1), true, 242},  // indoor ride before any indoor entry: general line
+		{day(11, 15), true, 235}, // indoor line
+		{day(11, 15), false, 242},
+		{day(12, 15), true, 235},
+		{day(12, 15), false, 250},
+	}
+	for _, c := range cases {
+		if got := d.GetFTPForRide(c.at, c.indoor); got != c.want {
+			t.Errorf("GetFTPForRide(%s, indoor=%v) = %d, want %d", c.at.Format("Jan 2"), c.indoor, got, c.want)
+		}
+	}
+	if got := d.GetFTPAtDate(day(11, 15)); got != 242 {
+		t.Errorf("GetFTPAtDate ignores the indoor line: got %d, want 242", got)
+	}
+}
+
+// Saving the profile used to log an FTP history entry on every save.
+func TestUpdateAthlete_LogsFTPOnlyOnChange(t *testing.T) {
+	d := newTestDB(t)
+	a := &models.Athlete{FTPWatts: 245, WeightKG: 80}
+	for i := 0; i < 3; i++ {
+		if err := d.UpdateAthlete(a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a.FTPWatts = 250
+	if err := d.UpdateAthlete(a); err != nil {
+		t.Fatal(err)
+	}
+	if h, _ := d.AllFTPHistory(); len(h) != 2 {
+		t.Errorf("history after three identical saves and one change = %d entries, want 2", len(h))
+	}
+}

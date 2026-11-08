@@ -535,8 +535,9 @@ func (h *CoachHandler) collectCoachingData() (*aicoach.CoachingData, error) {
 		}
 		for i := len(hist) - 1; i >= 0; i-- {
 			ftpHistory = append(ftpHistory, aicoach.FTPPoint{
-				Date:     hist[i].EffectiveFrom.Format("2006-01-02"),
+				Date:     hist[i].EffectiveFrom.In(h.db.AthleteLocation()).Format("2006-01-02"),
 				FTPWatts: hist[i].FTPWatts,
+				Indoor:   hist[i].Indoor,
 			})
 		}
 	}
