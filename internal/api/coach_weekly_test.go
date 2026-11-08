@@ -68,12 +68,21 @@ func coachFixture(t *testing.T) *CoachHandler {
 
 // proposingWeek scripts the weekly playbook's shape: the model writes its
 // review and calls propose_schedule in one turn, then closes in the next.
+// firstPlanDay is the first day of a weekly plan generated now, the way the
+// handler computes it: tomorrow in the athlete's timezone, which is UTC for
+// the fixture (no timezone set). Using the machine's local "tomorrow" instead
+// fails every evening west of UTC, when UTC has already rolled over.
+func firstPlanDay() time.Time {
+	start, _ := aicoach.WeeklyPlanWindow(time.Now().UTC())
+	return start
+}
+
 func proposingWeek(review, closing string) func(in aicoach.ChatTurnInput) (*aicoach.ChatTurnOutput, error) {
 	return func(in aicoach.ChatTurnInput) (*aicoach.ChatTurnOutput, error) {
 		if len(in.Rounds) > 0 {
 			return &aicoach.ChatTurnOutput{Text: closing}, nil
 		}
-		tomorrow := time.Now().AddDate(0, 0, 1).Format("2006-01-02")
+		tomorrow := firstPlanDay().Format("2006-01-02")
 		args := `{"workouts":[{"date":"` + tomorrow + `","title":"3x10 tempo","duration_secs":3900,
 			"intervals":[{"repeat":3,"steps":[{"kind":"work","duration_secs":600,"target_pct_ftp":86},
 			{"kind":"recovery","duration_secs":300,"target_pct_ftp":50}]}]}]}`
@@ -209,7 +218,7 @@ func TestWeeklyPlanAccept_AddsWeekOnce(t *testing.T) {
 	if rr := accept(); rr.Code != http.StatusCreated {
 		t.Fatalf("accept: %d %s", rr.Code, rr.Body.String())
 	}
-	day := time.Now().AddDate(0, 0, 1)
+	day := firstPlanDay()
 	planned, err := h.db.ListPlannedWorkoutsBetween(day, day)
 	if err != nil || len(planned) != 1 || planned[0].Source != "coach" {
 		t.Fatalf("calendar after accept = %+v (err %v), want the one coach workout", planned, err)
