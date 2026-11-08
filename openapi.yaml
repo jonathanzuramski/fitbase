@@ -290,6 +290,71 @@ paths:
                   data:  { $ref: "#/components/schemas/ReadinessReport" }
                   error: { type: string, nullable: true }
 
+  /api/athlete/ftp:
+    put:
+      summary: Set the FTP
+      description: |
+        Changes the FTP alone, effective now; the rest of the profile is untouched
+        (unlike PUT /api/athlete, which replaces the whole profile). Past workouts keep
+        the FTP that was active on their date. Logs an FTP history entry when the value
+        changes. Returns the FTP check against the new value.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ftp_watts]
+              properties:
+                ftp_watts: { type: integer, minimum: 1, maximum: 600, example: 215 }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:  { $ref: "#/components/schemas/FTPCheck" }
+                  error: { type: string, nullable: true }
+        "400": { description: ftp_watts missing or outside 1–600 }
+
+  /api/athlete/ftp-check:
+    get:
+      summary: Check the FTP against recent best efforts
+      description: |
+        Estimates FTP from the best efforts of the last 90 days — the higher of 95% of the
+        best 20-minute power and the best 60-minute power — and compares it with the set
+        FTP. Every power-derived number (zones, IF, TSS, fitness) scales with FTP.
+        Statuses: `raise` (estimate above 103% of FTP: the rider produced the power, so FTP
+        is low), `ok` (95–103%), `lower` (85–95%: FTP may be set high), `unverified`
+        (below 85%, or no 20/60-minute effort: more likely no hard riding than a real loss,
+        so no number is suggested).
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:  { $ref: "#/components/schemas/FTPCheck" }
+                  error: { type: string, nullable: true }
+
+  /api/athlete/ftp-check/dismiss:
+    post:
+      summary: Keep the current FTP despite the check
+      description: |
+        Hides the raise/lower prompt for 30 days, or until the FTP or the verdict changes.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:  { $ref: "#/components/schemas/FTPCheck" }
+                  error: { type: string, nullable: true }
+        "409": { description: The check is ok or unverified — nothing to dismiss }
+
   /api/training/weekly:
     get:
       summary: Get weekly training breakdown
@@ -1356,6 +1421,25 @@ components:
         ramp_rate:              { type: number, description: "Change in CTL (fitness) over the last 28 days" }
         recommendation:         { type: string, example: "Go Ride" }
         recommendation_detail:  { type: string }
+
+    FTPEffort:
+      type: object
+      properties:
+        duration_secs: { type: integer, enum: [1200, 3600] }
+        watts:         { type: integer, example: 226 }
+        workout_id:    { type: string }
+        day:           { type: string, format: date, description: The ride's training day }
+
+    FTPCheck:
+      type: object
+      properties:
+        status:         { type: string, enum: [ok, raise, lower, unverified] }
+        ftp_watts:      { type: integer, example: 245 }
+        window_days:    { type: integer, example: 90 }
+        estimate_watts: { type: integer, example: 215, description: FTP implied by the best effort; omitted when none qualifies }
+        pct_of_ftp:     { type: number, example: 87.6, description: The estimate as a percentage of FTP }
+        basis:          { $ref: "#/components/schemas/FTPEffort" }
+        dismissed:      { type: boolean, description: The rider chose to keep this FTP; the prompt is hidden for now }
 
     OkResponse:
       type: object
