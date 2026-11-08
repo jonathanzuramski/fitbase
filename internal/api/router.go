@@ -94,7 +94,7 @@ func NewRouter(h *Handler, dropbox *DropboxHandler, intervalsH *IntervalsHandler
 	})
 
 	r.Get("/openapi.yaml", ServeOpenAPI)
-	r.Handle("/static/*", http.StripPrefix("/static", http.FileServer(staticFS)))
+	r.Handle("/static/*", staticHandler(staticFS))
 	r.Mount("/", importGate(h, templateHandler))
 
 	return r
@@ -112,5 +112,18 @@ func importGate(h *Handler, next http.Handler) http.Handler {
 			return
 		}
 		next.ServeHTTP(w, r)
+	})
+}
+
+// staticHandler serves /static/*, asking browsers to revalidate on every load.
+// Dev mode serves these files from disk with a real Last-Modified, which
+// browsers otherwise cache heuristically, pairing a fresh template with a stale
+// stylesheet and breaking the layout. The embedded files in a release carry no
+// modtime, so they were never cached and nothing changes there.
+func staticHandler(fsys http.FileSystem) http.Handler {
+	files := http.StripPrefix("/static", http.FileServer(fsys))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache")
+		files.ServeHTTP(w, r)
 	})
 }
