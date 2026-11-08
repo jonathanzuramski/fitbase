@@ -34,7 +34,7 @@
 		<nav class="nav">
 			<a href="/" class="nav-brand">fitbase</a>
 			<div class="nav-links">
-				<a href="/">dashboard</a>
+				<a href="/">today</a>
 				<a href="/calendar">calendar</a>
 				<a href="/heatmap">heatmap</a>
 				<a href="/settings">settings</a>
@@ -49,6 +49,26 @@
 				</form>
 			</div>
 		</nav>
+		{{- /* Phones: the sections live in a bottom tab bar, in thumb reach. */ -}}
+		<nav class="tabbar" aria-label="sections">
+			<a href="/"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>today</a>
+			<a href="/calendar"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>calendar</a>
+			<a href="/heatmap"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>heatmap</a>
+			<a href="/settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>settings</a>
+		</nav>
+		<script>
+			// Mark the current section in both navs: "/" only on the Today page
+			// itself, every other link for its whole subtree.
+			(function () {
+				const path = location.pathname;
+				document.querySelectorAll(".nav-links a, .tabbar a").forEach((a) => {
+					const href = a.getAttribute("href");
+					if (href === "/" ? path === "/" : path === href || path.startsWith(href + "/")) {
+						a.setAttribute("aria-current", "page");
+					}
+				});
+			})();
+		</script>
 		<main class="container{{ block " mainClass" . }}{{ end }}">{{ block "content" . }}{{ end }}</main>
 
 	<script src="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.iife.min.js"></script>

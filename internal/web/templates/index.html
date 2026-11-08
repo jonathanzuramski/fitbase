@@ -1,8 +1,8 @@
-{{ define "title" }}fitbase — dashboard{{ end }}
+{{ define "title" }}fitbase — today{{ end }}
 
 {{ define "content" }}
 <div class="page-header">
-	<h1>dashboard</h1>
+	<h1>today</h1>
 	<div class="upload-group" id="upload-group">
 		<label class="upload-btn" id="upload-single-label">
 			upload .fit / .fit.gz
@@ -49,22 +49,6 @@
 <div class="home-layout">
 
 	<aside class="home-sidebar">
-
-		<!-- ── This Week / Streak ────────────────────────────────────────────────── -->
-		<section class="card streak-card">
-			<div class="streak-header">
-				<h3 class="streak-title">this week</h3>
-				<span class="streak-count">{{ .StreakActive }} / 7</span>
-			</div>
-			<div class="streak-grid">
-				{{ range .StreakDays }}
-					<div class="streak-day{{ if .IsToday }} today{{ end }}{{ if .Active }} active{{ end }}">
-						<div class="streak-dot"></div>
-						<div class="streak-lbl">{{ .Label }}</div>
-					</div>
-				{{ end }}
-			</div>
-		</section>
 
 		<!-- ── Mileage Goals ─────────────────────────────────────────────────────── -->
 		<section class="card goal-card">
@@ -165,51 +149,86 @@
 			{{ end }}
 		</section>
 
-		<!-- ── Training Load (compact, sidebar) ──────────────────────────────────── -->
-		<section class="card" id="card-training-load">
-			<h3 class="card-title">training load</h3>
-			{{ if .TodayFitness }}
-				<div class="load-ctf-row">
-					<div class="load-ctf-item">
-						<div class="load-ctf-val ctl-color">{{ formatFloat1 .TodayFitness.Fitness }}</div>
-						<div class="load-ctf-lbl">fitness</div>
-					</div>
-					<div class="load-ctf-item">
-						<div class="load-ctf-val atl-color">{{ formatFloat1 .TodayFitness.Fatigue }}</div>
-						<div class="load-ctf-lbl">fatigue</div>
-					</div>
-					<div class="load-ctf-item">
-						<div class="load-ctf-val {{ tsbClass .TodayFitness.Form }}">{{ formatFloat1 .TodayFitness.Form }}</div>
-						<div class="load-ctf-lbl">form</div>
-					</div>
+	</aside>{{/* end .home-sidebar */}}
+
+	<main class="home-main">
+
+		<!-- ── Today: the plan beside readiness ────────────────────────────────── -->
+		<section class="card today-card">
+			<div class="today-grid">
+				<div class="today-plan">
+					<h2 class="card-title">today <span class="muted">{{ .Today.Date.Format "Monday, Jan 2" }}</span></h2>
+					{{ range $i, $p := .Today.Planned }}
+						<div class="today-planned">
+							<div class="today-planned-title">{{ if $p.Title }}{{ $p.Title }}{{ else }}planned {{ $p.Sport }}{{ end }}</div>
+							<div class="today-planned-meta muted">
+								{{ formatDuration $p.DurationSecs }}{{ if $p.TSS }} · {{ formatOptFloat $p.TSS "TSS" }}{{ end }}{{ if eq $p.Source "coach" }} · from your coach{{ end }}
+							</div>
+							{{ if and (eq $i 0) $p.Intervals }}
+								<canvas id="plan-profile" class="plan-profile today-profile" data-ftp="{{ $.FTPWatts }}"></canvas>
+								<div class="plan-profile-steps" id="today-plan-steps"></div>
+							{{ end }}
+							{{ if $p.Description }}<p class="today-planned-desc">{{ $p.Description }}</p>{{ end }}
+						</div>
+					{{ end }}
+					{{ range .Today.Rides }}
+						<a class="today-ride" href="/workouts/{{ .Workout.ID }}">
+							<span class="today-ride-check" aria-hidden="true">&#10003;</span>
+							{{ if .Ride.KindLabel }}<span class="ride-kind ride-kind-{{ .Ride.Kind }}">{{ .Ride.KindLabel }}</span>{{ end }}
+							<span class="today-ride-meta">ridden · {{ formatDuration .Workout.DurationSecs }}{{ if .Workout.TSS }} · {{ formatOptFloat .Workout.TSS "TSS" }}{{ end }}</span>
+							{{ if .Ride.Headline }}<span class="today-ride-headline">{{ .Ride.Headline }}</span>{{ end }}
+						</a>
+					{{ end }}
+					{{ if or .Today.Planned .Today.Rides }}{{ else }}
+						<p class="today-empty muted">Nothing planned today. <a href="/calendar">Plan your week →</a></p>
+					{{ end }}
 				</div>
-				<div class="goal-divider"></div>
-			{{ end }}
-			<div class="stat-blocks">
-				<div class="stat-block">
-					<div class="stat-block-hdr">week</div>
-					<div class="stat-block-row"><span class="stat-td">{{ formatFloat1 .WeekSummary.TSS }}</span><span
-							class="stat-lbl">tss</span>
-					</div>
-					<div class="stat-block-row"><span class="stat-td">{{ formatDuration
-	.WeekSummary.DurationSecs
-}}</span><span class="stat-lbl">time</span></div>
-				</div>
-				<div class="stat-block">
-					<div class="stat-block-hdr">year</div>
-					<div class="stat-block-row"><span class="stat-td">{{ formatFloat1 .YearSummary.TSS }}</span><span
-							class="stat-lbl">tss</span>
-					</div>
-					<div class="stat-block-row"><span class="stat-td">{{ formatDuration
-	.YearSummary.DurationSecs
-}}</span><span class="stat-lbl">time</span></div>
+				{{- /* Server-rendered from db.Readiness, the same recommendation the coach and the readiness API give. */ -}}
+				<div class="today-readiness">
+					{{ with .Readiness }}{{ if .AsOf }}
+						<div class="rec-badge rec-{{ .RecommendationTone }}"><span class="rec-label">{{ .Recommendation }}</span><span class="rec-detail">{{ .RecommendationDetail }}</span></div>
+						<dl class="today-stats">
+							<div><dt>form</dt><dd class="{{ tsbClass .Form }}">{{ if gt .Form 0.0 }}+{{ end }}{{ printf "%.1f" .Form }}</dd></div>
+							<div><dt>fitness</dt><dd class="ctl-color">{{ printf "%.1f" .Fitness }}</dd></div>
+							<div><dt>fatigue</dt><dd class="atl-color">{{ printf "%.1f" .Fatigue }}</dd></div>
+							<div title="Change in fitness (CTL) over the last 4 weeks"><dt>ramp</dt><dd>{{ if gt .RampRate 0.0 }}+{{ end }}{{ printf "%.1f" .RampRate }}<span class="muted"> / 4 wk</span></dd></div>
+							<div><dt>last ride</dt><dd>{{ if eq .DaysSinceLastWorkout 0 }}today{{ else if eq .DaysSinceLastWorkout 1 }}yesterday{{ else }}{{ .DaysSinceLastWorkout }} days ago{{ end }}</dd></div>
+						</dl>
+					{{ end }}{{ end }}
 				</div>
 			</div>
 		</section>
 
-	</aside>{{/* end .home-sidebar */}}
-
-	<main class="home-main">
+		<!-- ── This week: planned against ridden, day by day ────────────────────── -->
+		<section class="card week-card">
+			<div class="card-header-row">
+				<h2 class="card-title">this week</h2>
+				<div class="week-totals">
+					<strong>{{ printf "%.0f" .Week.DoneTSS }}</strong>{{ if gt .Week.PlannedTSS 0.0 }}<span class="muted"> / {{ printf "%.0f" .Week.PlannedTSS }}</span>{{ end }} TSS
+					· <strong>{{ formatDuration .Week.DoneSecs }}</strong>{{ if gt .Week.PlannedSecs 0 }}<span class="muted"> / {{ formatDuration .Week.PlannedSecs }}</span>{{ end }}
+				</div>
+			</div>
+			<div class="week-strip">
+				{{ $max := .Week.MaxTSS }}
+				{{ range .Week.Days }}
+					<a class="week-day{{ if .IsToday }} today{{ end }}{{ if .IsFuture }} future{{ end }}"
+						href="{{ if .RideID }}/workouts/{{ .RideID }}{{ else }}/calendar{{ end }}"
+						title="{{ .Date.Format "Mon Jan 2" }}{{ range .Planned }} · planned: {{ .Title }}{{ end }}{{ if .Rides }} · {{ .Rides }} ride{{ if gt .Rides 1 }}s{{ end }}{{ end }}">
+						<div class="week-day-bars">
+							{{ if gt .PlannedTSS 0.0 }}<div class="week-bar week-bar-planned" style="height: {{ .PlannedHeightPct $max }}%"></div>{{ end }}
+							{{ if gt .DoneTSS 0.0 }}<div class="week-bar week-bar-done" style="height: {{ .DoneHeightPct $max }}%"></div>{{ end }}
+						</div>
+						<div class="week-day-tss">{{ if gt .DoneTSS 0.0 }}{{ printf "%.0f" .DoneTSS }}{{ else if gt .PlannedTSS 0.0 }}<span class="muted">{{ printf "%.0f" .PlannedTSS }}</span>{{ else }}<span class="muted">–</span>{{ end }}</div>
+						<div class="week-day-label">{{ .Label }}</div>
+					</a>
+				{{ end }}
+			</div>
+			<div class="week-foot muted">
+				<span><span class="week-key week-key-done"></span>ridden</span>
+				<span><span class="week-key week-key-planned"></span>planned</span>
+				<span class="week-year">this year {{ printf "%.0f" .YearSummary.TSS }} TSS · {{ formatDuration .YearSummary.DurationSecs }}</span>
+			</div>
+		</section>
 
 		<!-- ── Fitness chart ─────────────────────────────────────────────────────── -->
 		{{ if .Fitness }}
@@ -238,12 +257,6 @@
 							<span class="tsb-legend-label">−50 to −30</span>
 							<span class="tsb-legend-desc">Overreaching — recover</span>
 						</div>
-					</div>
-					{{- /* Server-rendered from db.Readiness, the same recommendation the coach and the readiness API give. */ -}}
-					<div id="fitness-recommendation">
-						{{ with .Readiness }}{{ if .AsOf }}
-							<div class="rec-badge rec-{{ .RecommendationTone }}"><span class="rec-label">{{ .Recommendation }}</span><span class="rec-detail">{{ .RecommendationDetail }}</span><span class="rec-tsb">form {{ if gt .Form 0.0 }}+{{ end }}{{ printf "%.1f" .Form }}</span></div>
-						{{ end }}{{ end }}
 					</div>
 				</div>
 			</section>
@@ -276,6 +289,7 @@
 						analyze your training.
 					</div>
 					<div id="ai-insights" class="ai-insights markdown-body" hidden></div>
+					<button type="button" class="ai-insights-more" id="ai-insights-more" hidden>read more</button>
 					<div id="ai-error" class="ai-error" hidden></div>
 
 					{{ if .AIChatCapable }}
@@ -336,7 +350,7 @@
 						<thead>
 							<tr>
 								<th><a href="{{ sortURL .Sort .Dir "date" .TypeFilter }}" class="sort-link">date {{ sortArrow .Sort .Dir "date" }}</a></th>
-								<th><a href="{{ sortURL .Sort .Dir "sport" .TypeFilter }}" class="sort-link">sport {{ sortArrow .Sort .Dir "sport" }}</a></th>
+								<th>ride</th>
 								<th><a href="{{ sortURL .Sort .Dir "duration" .TypeFilter }}" class="sort-link">duration {{ sortArrow .Sort .Dir "duration" }}</a></th>
 								<th><a href="{{ sortURL .Sort .Dir "distance" .TypeFilter }}" class="sort-link">distance {{ sortArrow .Sort .Dir "distance" }}</a></th>
 								<th><a href="{{ sortURL .Sort .Dir "power" .TypeFilter }}" class="sort-link">power / pace {{ sortArrow .Sort .Dir "power" }}</a></th>
@@ -353,7 +367,7 @@
 							{{ range .Workouts }}
 								<tr class="workout-row" onclick="location.href='/workouts/{{ .ID }}'">
 									<td class="date">{{ .RecordedAt.Format "Jan 02 2006" }}</td>
-									<td><span class="sport-badge sport-{{ .Sport }}">{{ .Sport }}</span></td>
+									<td class="ride-cell">{{ if ne .Sport "cycling" }}<span class="sport-badge sport-{{ .Sport }}">{{ .Sport }}</span> {{ end }}{{ with index $.RideKinds .ID }}{{ if .KindLabel }}<span class="ride-kind ride-kind-{{ .Kind }}">{{ .KindLabel }}</span>{{ end }}{{ if .Headline }} <span class="ride-cell-headline" title="{{ .Headline }}">{{ .Headline }}</span>{{ end }}{{ end }}</td>
 									<td>{{ formatDuration .DurationSecs }}</td>
 									<td>{{ formatDistance .DistanceMeters $imperial }}</td>
 									<td>
@@ -409,7 +423,37 @@
 <script src="/static/js/purify.min.js"></script>
 <!-- renderSafeMarkdown, parseSSE, markdownStreamer, escapeHTML (shared with the calendar's weekly plan) -->
 <script src="/static/js/coach-render.js"></script>
+<script src="/static/js/plan-profile.js"></script>
 <script>
+	// ── Today's planned workout profile ─────────────────────────────────────────
+	{{ with .Today.Planned }}{{ with index . 0 }}{{ if .Intervals }}
+	(function () {
+		const intervals = {{ .Intervals | toJSON }};
+		const canvas = document.getElementById('plan-profile');
+		const segments = [];
+		const total = planFlatten(intervals, segments, 0);
+		planDrawProfile(canvas, segments, total);
+		planAttachTooltip(canvas);
+		document.getElementById('today-plan-steps').textContent = planDescribeIntervals(intervals);
+	})();
+	{{ end }}{{ end }}{{ end }}
+
+	// ── Insights preview: a long review opens on its first part ─────────────────
+	(function () {
+		const box = document.getElementById('ai-insights');
+		const more = document.getElementById('ai-insights-more');
+		if (!box || !more) return;
+		let expanded = false;
+		const update = () => {
+			box.classList.toggle('ai-insights-clamped', !expanded);
+			more.textContent = expanded ? 'show less' : 'read more';
+			more.hidden = box.hidden || (!expanded && box.scrollHeight <= box.clientHeight + 4);
+		};
+		more.addEventListener('click', () => { expanded = !expanded; update(); });
+		new MutationObserver(update).observe(box, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden'] });
+		update();
+	})();
+
 	// ── Upload dropdown ─────────────────────────────────────────────────────────
 	(function () {
 		const more = document.getElementById('upload-more');
@@ -611,13 +655,12 @@
 		apply(localStorage.getItem(KEY) === '1');
 	})();
 
-	// ── Mobile layout: pull training load + goals under fitness chart ───────────
+	// ── Mobile layout: pull the goals card under the fitness chart ───────────
 	(function () {
 		const inject = document.getElementById('mobile-card-inject');
-		const trainingLoad = document.getElementById('card-training-load');
 		const goalCard = document.querySelector('.goal-card');
 		const sidebar = document.querySelector('.home-sidebar');
-		if (!inject || !trainingLoad || !goalCard) return;
+		if (!inject || !goalCard) return;
 
 		let mobileState = null;
 
@@ -626,11 +669,9 @@
 			if (mobile === mobileState) return;
 			mobileState = mobile;
 			if (mobile) {
-				inject.appendChild(trainingLoad);
 				inject.appendChild(goalCard);
 			} else {
 				sidebar.appendChild(goalCard);
-				sidebar.appendChild(trainingLoad);
 			}
 		}
 

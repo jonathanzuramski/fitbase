@@ -166,6 +166,14 @@ code {
 .nav-links a:hover {
   color: var(--text);
 }
+.nav-links a[aria-current="page"] {
+  color: var(--text);
+}
+
+/* Phone tab bar (responsive.css shows it and hides the top links). */
+.tabbar {
+  display: none;
+}
 
 .units-toggle {
   display: flex;
