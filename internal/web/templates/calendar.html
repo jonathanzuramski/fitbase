@@ -127,6 +127,11 @@
 	<div class="cal-header cal-header-week">Week</div>
 
 	{{ range $week := $cal.Weeks }}
+		{{- /* Week header: phone day list only (hidden in the desktop grid). */ -}}
+		<div class="cal-week-head{{ if $week.IsCurrent }} current{{ end }}">
+			<span class="cal-week-head-label">Week {{ $week.WeekNum }} · {{ $week.RangeLabel }}</span>
+			<span class="cal-week-head-stats">{{ if gt $week.TotalDurSecs 0 }}{{ formatDuration $week.TotalDurSecs }}{{ if gt $week.TotalDistM 0.0 }} · {{ formatDistance $week.TotalDistM $imperial }}{{ end }}{{ if gt $week.TotalTSS 0.0 }} · {{ printf "%.0f" $week.TotalTSS }} TSS{{ end }}{{ else if gt $week.PlannedDurSecs 0 }}planned {{ formatDuration $week.PlannedDurSecs }}{{ if gt $week.PlannedTSS 0.0 }} · {{ printf "%.0f" $week.PlannedTSS }} TSS{{ end }}{{ end }}</span>
+		</div>
 		{{ range $day := $week.Days }}
 			<div class="cal-day{{ if not $day.InMonth }} outside{{ end }}{{ if $day.IsToday }} today{{ end }}"
 				data-date="{{ $day.DateISO }}">
@@ -162,7 +167,7 @@
 				{{ end }}
 			</div>
 		{{ end }}
-		<div class="cal-week-summary{{ if not (gt $week.TotalDurSecs 0) }} empty{{ end }}">
+		<div class="cal-week-summary">
 			{{ if gt $week.TotalDurSecs 0 }}
 				<div class="cal-week-stat">{{ formatDuration $week.TotalDurSecs }}</div>
 				{{ if gt $week.TotalDistM 0.0 }}<div class="cal-week-stat">{{ formatDistance $week.TotalDistM $imperial }}</div>

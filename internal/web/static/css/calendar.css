@@ -355,7 +355,8 @@
 
 /* Shown only in the phone day list (responsive.css). */
 .cal-dow,
-.cal-workout-tss { display: none; }
+.cal-workout-tss,
+.cal-week-head { display: none; }
 
 /* Long coach prose is hard to read at full desktop width. */
 .weekly-plan-review > * { max-width: 80ch; }

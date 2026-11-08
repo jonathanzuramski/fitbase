@@ -109,6 +109,26 @@ type CalendarWeek struct {
 	TotalTSS     float64
 	TotalDurSecs int
 	TotalDistM   float64
+
+	// The phone day list heads every week with these ("Week 46 · Nov 9 – 15"),
+	// so each week is visibly separated even when nothing was ridden in it.
+	WeekNum    int    // ISO week number of the week's Monday
+	RangeLabel string // "Nov 9 – 15", or "Oct 26 – Nov 1" across months
+	IsCurrent  bool   // the week containing today
+	// Planned volume (in-month planned workouts) — shown for weeks with no
+	// completed rides yet, so an upcoming week still says how big it is.
+	PlannedDurSecs int
+	PlannedTSS     float64
+}
+
+// weekRangeLabel formats a Monday–Sunday span compactly: "Nov 9 – 15" within
+// one month, "Oct 26 – Nov 1" across two.
+func weekRangeLabel(monday time.Time) string {
+	sunday := monday.AddDate(0, 0, 6)
+	if monday.Month() == sunday.Month() {
+		return fmt.Sprintf("%s %d – %d", monday.Format("Jan"), monday.Day(), sunday.Day())
+	}
+	return fmt.Sprintf("%s %d – %s %d", monday.Format("Jan"), monday.Day(), sunday.Format("Jan"), sunday.Day())
 }
 
 // CalendarData is the full month view passed to the template.
@@ -174,6 +194,8 @@ func buildCalendarData(year int, month time.Month, workouts []models.Workout, pl
 	cursor := gridStart
 	for cursor.Before(last) || cursor.Equal(last) || cursor.Weekday() != time.Monday {
 		var week CalendarWeek
+		_, week.WeekNum = cursor.ISOWeek() // cursor is this week's Monday
+		week.RangeLabel = weekRangeLabel(cursor)
 		for i := 0; i < 7; i++ {
 			cy, cm, cd := cursor.Date()
 			inMonth := cm == month && cy == year
@@ -194,6 +216,15 @@ func buildCalendarData(year int, month time.Month, workouts []models.Workout, pl
 				if cw.TSS != nil {
 					week.TotalTSS += *cw.TSS
 				}
+			}
+			for _, cp := range day.Planned {
+				week.PlannedDurSecs += cp.DurationSecs
+				if cp.TSS != nil {
+					week.PlannedTSS += *cp.TSS
+				}
+			}
+			if day.IsToday {
+				week.IsCurrent = true
 			}
 			week.Days[i] = day
 			cursor = cursor.AddDate(0, 0, 1)
