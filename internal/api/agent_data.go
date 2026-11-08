@@ -17,78 +17,6 @@ import (
 // handlers.go and the AI coach's tool executor (coach_tools.go) both call
 // these so the REST surface and the coach can never drift apart.
 
-// readinessReport computes today's readiness snapshot: current Fitness/Fatigue/
-// Form, days since last workout, 28-day CTL ramp rate, and a recommendation.
-// Backs GET /api/athlete/readiness and the coach's readiness tool. tz defines
-// "today" — the viewer's timezone for the REST route, the profile timezone for
-// the coach.
-//
-// "Current" means the last settled day (see db.GetFitnessOnDate): until a ride
-// with TSS is logged for today the values are yesterday's, so Form is the freshness the
-// rider carries into today rather than a zero-TSS forecast that — because
-// fatigue decays faster than fitness — would read several points too fresh.
-// AsOf reports which day that is.
-func readinessReport(database *db.DB, tz *time.Location) (models.ReadinessReport, error) {
-	today := time.Now().In(tz)
-
-	fp, err := database.GetFitnessOnDate(today, tz)
-	if err != nil {
-		return models.ReadinessReport{}, err
-	}
-	asOf := ""
-	if !fp.Date.IsZero() {
-		asOf = fp.Date.Format("2006-01-02")
-	}
-
-	lastDate, err := database.GetLastWorkoutDate()
-	if err != nil {
-		return models.ReadinessReport{}, err
-	}
-	daysSince := 0
-	if lastDate != nil {
-		daysSince = int(today.Sub(*lastDate).Hours() / 24)
-	}
-
-	var rampRate float64
-	if history, histErr := database.GetFitnessHistory(42, tz); histErr == nil {
-		rampRate = fitness.RampRate(history, 28)
-	}
-
-	rec, detail := readinessRecommendation(fp.Form, rampRate, daysSince)
-	return models.ReadinessReport{
-		Date:                 today.Format("2006-01-02"),
-		AsOf:                 asOf,
-		Fitness:              math.Round(fp.Fitness*10) / 10,
-		Fatigue:              math.Round(fp.Fatigue*10) / 10,
-		Form:                 math.Round(fp.Form*10) / 10,
-		DaysSinceLastWorkout: daysSince,
-		RampRate:             rampRate,
-		Recommendation:       rec,
-		RecommendationDetail: detail,
-	}, nil
-}
-
-func readinessRecommendation(form, rampRate float64, daysSince int) (string, string) {
-	switch {
-	case daysSince > 7:
-		return "Resume Training", "More than a week without training — fitness is declining. Ease back in with a light ride."
-	case rampRate > 10:
-		return "Ease Up", "Training load has increased sharply over the last 4 weeks. Prioritise sleep and monitor fatigue."
-	case form > 15:
-		return "Race Ready", "You're very fresh. Consider a peak effort or race — extended rest risks fitness loss."
-	case form > 5:
-		return "Go Ride", "Good form. Ready for a quality session or race effort."
-	case form >= -10:
-		return "Maintain", "Normal training load. Keep building consistency."
-	case form >= -25:
-		return "Training Block", "Productive fatigue — you're adapting. A recovery day will pay off soon."
-	case form >= -40:
-		return "Ease Up", "Heavy fatigue. Schedule a recovery ride or rest day before your next hard effort."
-	default:
-		return "Rest", "Significant overreach — rest now to avoid illness or injury."
-	}
-}
-
 // powerCurveReport returns all-time best power at the six standard durations
 // with W/kg and %FTP. Backs GET /api/athlete/power-curve and the coach's
 // power-curve tool.
@@ -272,7 +200,7 @@ func workoutShape(database *db.DB, id string) (*models.WorkoutShape, error) {
 	}
 	// The FTP of the ride's day, not today's: "118% FTP" should mean what it
 	// meant when the rider did the work — the same FTP its TSS/IF used.
-	ftp := database.GetFTPAtDate(w.RecordedAt)
+	ftp := database.GetFTPForRide(w.RecordedAt, w.IsIndoor)
 	shape, err := rideShape(database, id, ftp)
 	if err != nil {
 		return nil, err

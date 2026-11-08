@@ -524,7 +524,7 @@ func (imp *Importer) BackfillSweetSpotZone() {
 		if err != nil || w == nil {
 			continue
 		}
-		ftp := imp.db.GetFTPAtDate(w.RecordedAt)
+		ftp := imp.db.GetFTPForRide(w.RecordedAt, w.IsIndoor)
 		ssLow, ssHigh := fitness.SweetSpotBand(ftp)
 		if ssLow == 0 || ssHigh == 0 {
 			// No FTP at workout time — store 0 so we don't keep retrying.

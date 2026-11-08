@@ -34,6 +34,7 @@ type CoachingData struct {
 type FTPPoint struct {
 	Date     string `json:"date"`
 	FTPWatts int    `json:"ftp_watts"`
+	Indoor   bool   `json:"indoor,omitempty"` // a separate FTP for indoor rides
 }
 
 type AthleteProfile struct {

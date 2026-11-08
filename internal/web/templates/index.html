@@ -239,7 +239,12 @@
 							<span class="tsb-legend-desc">Overreaching — recover</span>
 						</div>
 					</div>
-					<div id="fitness-recommendation"></div>
+					{{- /* Server-rendered from db.Readiness, the same recommendation the coach and the readiness API give. */ -}}
+					<div id="fitness-recommendation">
+						{{ with .Readiness }}{{ if .AsOf }}
+							<div class="rec-badge rec-{{ .RecommendationTone }}"><span class="rec-label">{{ .Recommendation }}</span><span class="rec-detail">{{ .RecommendationDetail }}</span><span class="rec-tsb">form {{ if gt .Form 0.0 }}+{{ end }}{{ printf "%.1f" .Form }}</span></div>
+						{{ end }}{{ end }}
+					</div>
 				</div>
 			</section>
 		{{ end }}

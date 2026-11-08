@@ -449,7 +449,7 @@ func (h *Handler) GetWeeklyTraining(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/athlete/readiness
 func (h *Handler) GetReadiness(w http.ResponseWriter, r *http.Request) {
-	report, err := readinessReport(h.db, h.viewerTZ(r))
+	report, err := h.db.Readiness(h.viewerTZ(r))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database error")
 		return

@@ -69,6 +69,12 @@ func (th *templateHandler) settings(w http.ResponseWriter, r *http.Request) {
 	gdriveConfigured := gdriveClientID != ""
 
 	ftpHistory, _ := th.db.AllFTPHistory()
+	// Effective dates are days in the athlete's timezone (entered that way
+	// below); shown in UTC, an evening change read as the next day.
+	loc := th.db.AthleteLocation()
+	for i := range ftpHistory {
+		ftpHistory[i].EffectiveFrom = ftpHistory[i].EffectiveFrom.In(loc)
+	}
 	ftpCheck, _ := th.db.FTPCheck(time.Now())
 	gdriveConnected := false
 	if gdriveConfigured {
@@ -88,7 +94,7 @@ func (th *templateHandler) settings(w http.ResponseWriter, r *http.Request) {
 		HRZonesCustom: athlete.HRZonesJSON != "",
 		FTPHistory:    ftpHistory,
 		FTPCheck:      ftpCheck,
-		Today:         time.Now().Format("2006-01-02"),
+		Today:         time.Now().In(loc).Format("2006-01-02"),
 
 		DropboxConnected:   dropboxConnected,
 		DropboxFolder:      dropboxFolder,
@@ -177,12 +183,14 @@ func (th *templateHandler) addFTPHistory(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	dateStr := r.FormValue("effective_from")
-	t, err := time.Parse("2006-01-02", dateStr)
+	// Midnight in the athlete's timezone: the day they picked, where they ride.
+	t, err := time.ParseInLocation("2006-01-02", dateStr, th.db.AthleteLocation())
 	if err != nil {
 		http.Error(w, "invalid effective_from (expect YYYY-MM-DD)", http.StatusBadRequest)
 		return
 	}
-	if err := th.db.LogFTPChangeAt(ftp, t); err != nil {
+	indoor := r.FormValue("indoor") == "1"
+	if err := th.db.LogFTPChangeAtFor(ftp, t, indoor); err != nil {
 		slog.Error("add ftp history", "err", err)
 		http.Error(w, "database error", http.StatusInternalServerError)
 		return

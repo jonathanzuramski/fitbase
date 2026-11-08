@@ -836,6 +836,8 @@ func (db *DB) GetAthlete() (*models.Athlete, error) {
 // UpdateAthlete saves all athlete profile fields and logs an FTP history entry
 // if FTPWatts > 0.
 func (db *DB) UpdateAthlete(a *models.Athlete) error {
+	var previousFTP int
+	_ = db.QueryRow("SELECT ftp_watts FROM athlete WHERE id=1").Scan(&previousFTP)
 	_, err := db.Exec(`
 		UPDATE athlete SET
 			ftp_watts=?, weight_kg=?, threshold_hr=?, max_hr=?, resting_hr=?,
@@ -848,8 +850,23 @@ func (db *DB) UpdateAthlete(a *models.Athlete) error {
 	if err != nil {
 		return err
 	}
-	if a.FTPWatts > 0 {
-		return db.LogFTPChange(a.FTPWatts)
+	return db.logFTPIfChanged(previousFTP, a.FTPWatts)
+}
+
+// logFTPIfChanged logs an FTP history entry, effective now, when the FTP
+// changed, or when there is no history yet (so the seeded default stops
+// counting as unset). Saving the profile used to log one on every save,
+// burying real changes among identical rows.
+func (db *DB) logFTPIfChanged(previous, ftp int) error {
+	if ftp <= 0 {
+		return nil
+	}
+	hasHistory, err := db.HasFTPHistory()
+	if err != nil {
+		return err
+	}
+	if ftp != previous || !hasHistory {
+		return db.LogFTPChange(ftp)
 	}
 	return nil
 }
@@ -908,13 +925,14 @@ func (db *DB) HasFTPHistory() (bool, error) {
 	return n > 0, nil
 }
 
-// GetFTPAtDate returns the FTP that was active at time t.
-// Falls back to current athlete FTP if no history entry predates t.
+// GetFTPAtDate returns the FTP that was active at time t on the general
+// (outdoor) line. Falls back to current athlete FTP if no history entry
+// predates t. Rides should use GetFTPForRide, which knows indoor FTP.
 func (db *DB) GetFTPAtDate(t time.Time) int {
 	var ftp int
 	err := db.QueryRow(`
 		SELECT ftp_watts FROM ftp_history
-		WHERE effective_from <= ?
+		WHERE indoor = 0 AND effective_from <= ?
 		ORDER BY effective_from DESC
 		LIMIT 1`, t.UTC().Format(time.RFC3339)).Scan(&ftp)
 	if err != nil || ftp <= 0 {
@@ -923,11 +941,37 @@ func (db *DB) GetFTPAtDate(t time.Time) int {
 	return ftp
 }
 
-// LogFTPChangeAt records an FTP value in the history table with an explicit effective date.
+// GetFTPForRide returns the FTP a ride at t was trained against. An indoor
+// ride uses the latest indoor entry on or before t when there is one
+// (intervals.icu keeps a separate indoor FTP, usually a little lower);
+// everything else, and indoor rides before any indoor entry, use the
+// general line (GetFTPAtDate).
+func (db *DB) GetFTPForRide(t time.Time, indoor bool) int {
+	if indoor {
+		var ftp int
+		err := db.QueryRow(`
+			SELECT ftp_watts FROM ftp_history
+			WHERE indoor = 1 AND effective_from <= ?
+			ORDER BY effective_from DESC
+			LIMIT 1`, t.UTC().Format(time.RFC3339)).Scan(&ftp)
+		if err == nil && ftp > 0 {
+			return ftp
+		}
+	}
+	return db.GetFTPAtDate(t)
+}
+
+// LogFTPChangeAt records an FTP value on the general line with an explicit effective date.
 func (db *DB) LogFTPChangeAt(ftp int, at time.Time) error {
+	return db.LogFTPChangeAtFor(ftp, at, false)
+}
+
+// LogFTPChangeAtFor records an FTP value with an explicit effective date on
+// the indoor line (indoor rides only) or the general line.
+func (db *DB) LogFTPChangeAtFor(ftp int, at time.Time, indoor bool) error {
 	_, err := db.Exec(
-		"INSERT INTO ftp_history (ftp_watts, effective_from) VALUES (?, ?)",
-		ftp, at.UTC().Format(time.RFC3339),
+		"INSERT INTO ftp_history (ftp_watts, effective_from, indoor) VALUES (?, ?, ?)",
+		ftp, at.UTC().Format(time.RFC3339), indoor,
 	)
 	return err
 }
@@ -943,12 +987,13 @@ type FTPHistoryEntry struct {
 	ID            int64
 	FTPWatts      int
 	EffectiveFrom time.Time
+	Indoor        bool // the indoor line (see GetFTPForRide)
 }
 
 // AllFTPHistory returns every FTP history entry, newest first.
 func (db *DB) AllFTPHistory() ([]FTPHistoryEntry, error) {
 	rows, err := db.Query(`
-		SELECT id, ftp_watts, effective_from
+		SELECT id, ftp_watts, effective_from, indoor
 		FROM ftp_history
 		ORDER BY effective_from DESC, id DESC`)
 	if err != nil {
@@ -959,7 +1004,7 @@ func (db *DB) AllFTPHistory() ([]FTPHistoryEntry, error) {
 	for rows.Next() {
 		var e FTPHistoryEntry
 		var eff string
-		if err := rows.Scan(&e.ID, &e.FTPWatts, &eff); err != nil {
+		if err := rows.Scan(&e.ID, &e.FTPWatts, &eff, &e.Indoor); err != nil {
 			return nil, err
 		}
 		e.EffectiveFrom, _ = time.Parse(time.RFC3339, eff)
@@ -987,7 +1032,7 @@ func (db *DB) RecomputePowerLoad(onProgress func(done, total int)) (updated int,
 		onProgress(0, len(workouts))
 	}
 	for i, wk := range workouts {
-		ftp := db.GetFTPAtDate(wk.RecordedAt)
+		ftp := db.GetFTPForRide(wk.RecordedAt, wk.IsIndoor)
 		if ftp <= 0 {
 			if onProgress != nil {
 				onProgress(i+1, len(workouts))
@@ -1015,13 +1060,14 @@ type WorkoutTSSRow struct {
 	RecordedAt      time.Time
 	DurationSecs    int
 	NormalizedPower float64
+	IsIndoor        bool
 }
 
 // AllWorkoutsForTSSBackfill returns all workouts that have normalized power stored,
 // which is sufficient to recompute TSS and intensity factor from FTP alone.
 func (db *DB) AllWorkoutsForTSSBackfill() ([]WorkoutTSSRow, error) {
 	rows, err := db.Query(`
-		SELECT id, recorded_at, duration_secs, normalized_power
+		SELECT id, recorded_at, duration_secs, normalized_power, is_indoor
 		FROM workouts
 		WHERE normalized_power IS NOT NULL AND normalized_power > 0`)
 	if err != nil {
@@ -1032,7 +1078,7 @@ func (db *DB) AllWorkoutsForTSSBackfill() ([]WorkoutTSSRow, error) {
 	for rows.Next() {
 		var r WorkoutTSSRow
 		var recordedAt string
-		if err := rows.Scan(&r.ID, &recordedAt, &r.DurationSecs, &r.NormalizedPower); err != nil {
+		if err := rows.Scan(&r.ID, &recordedAt, &r.DurationSecs, &r.NormalizedPower, &r.IsIndoor); err != nil {
 			return nil, err
 		}
 		r.RecordedAt, _ = time.Parse(time.RFC3339, recordedAt)
