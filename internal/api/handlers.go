@@ -473,6 +473,21 @@ func (h *Handler) GetWorkoutAnalysis(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, analysis)
 }
 
+// GET /api/workouts/{id}/shape
+func (h *Handler) GetWorkoutShape(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	shape, err := workoutShape(h.db, id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "database error")
+		return
+	}
+	if shape == nil {
+		writeError(w, http.StatusNotFound, "workout not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, shape)
+}
+
 func (h *Handler) viewerTZ(r *http.Request) *time.Location {
 	return timeutil.ViewerLocation(r, h.db.AthleteLocation())
 }

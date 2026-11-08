@@ -10,6 +10,7 @@ const (
 	ToolListPlannedWorkouts = "list_planned_workouts"
 	ToolListRecentWorkouts  = "list_recent_workouts"
 	ToolGetWorkoutDetail    = "get_workout_detail"
+	ToolGetWorkoutIntervals = "get_workout_intervals"
 	ToolGetWeeklyBreakdown  = "get_weekly_breakdown"
 	ToolGetPowerCurve       = "get_power_curve"
 	ToolGetZoneDistribution = "get_zone_distribution"
@@ -84,7 +85,7 @@ func CoachTools() []ToolSpec {
 		{
 			Name:        ToolListRecentWorkouts,
 			Label:       "your recent workouts",
-			Description: "Recent workouts newest-first with summary metrics (date, sport, duration, distance, elevation, avg/normalized power, avg HR, TSS, IF). Use to review training, find a session, or summarize a block. Each item has an 'id' — call get_workout_detail with it for zone distribution, EF/VI, and decoupling on a specific ride.",
+			Description: "Recent workouts newest-first with summary metrics (date, sport, duration, distance, elevation, avg/normalized power, avg HR, TSS, IF, indoor) and a one-line 'structure' of the intervals detected in each ride — e.g. '3×12:00 @ 86% FTP, held power across reps, max HR +14', 'steady — no efforts at or above 85% FTP', or a list of surges for a group ride. Use structure, not IF, to tell which rides were interval sessions: an indoor 3×12 at 86% and a steady tempo ride can share an IF. Each item has an 'id' — call get_workout_intervals for the rep-by-rep detail of a session, or get_workout_detail for zone distribution, EF/VI, and decoupling.",
 			InputSchema: objSchema(map[string]any{
 				"days":  intProp("Look-back window in days, 1–365. Default 56 if omitted."),
 				"sport": stringProp("Optional sport filter, e.g. 'cycling' or 'running'. Omit for all sports."),
@@ -94,9 +95,17 @@ func CoachTools() []ToolSpec {
 		{
 			Name:        ToolGetWorkoutDetail,
 			Label:       "that workout",
-			Description: "Deep detail for one workout: the summary metrics, full power/HR zone distribution, a separate Sweet Spot (88–94% FTP) time-in-band reading, variability index, efficiency factor, 90-day context for the same sport, and aerobic decoupling (Pw:HR drift) for rides long enough to compute it. SS overlaps Z3/Z4 — treat it as a parallel indicator, not an additional zone. Use when the rider asks about a specific session surfaced by list_recent_workouts.",
+			Description: "Deep detail for one workout: the summary metrics, full power/HR zone distribution, a separate Sweet Spot (88–94% FTP) time-in-band reading, variability index, efficiency factor, 90-day context for the same sport, and aerobic decoupling (Pw:HR drift) for rides long enough to compute it. SS overlaps Z3/Z4 — treat it as a parallel indicator, not an additional zone. Use when the rider asks about a specific session surfaced by list_recent_workouts. These are whole-ride numbers: for how the intervals inside the ride went, call get_workout_intervals.",
 			InputSchema: objSchema(map[string]any{
 				"id": stringProp("The workout id from list_recent_workouts."),
+			}, "id"),
+		},
+		{
+			Name:        ToolGetWorkoutIntervals,
+			Label:       "that workout's intervals",
+			Description: "The shape of one workout — what actually happened inside it, which whole-ride averages hide. Returns: efforts auto-detected from the power stream (each with start time, duration, avg/max watts, %FTP, avg/max HR, cadence, and the recovery that followed); sets grouping repeated efforts like 5×4min, with per-rep duration and power (rep_duration_secs, rep_avg_watts), last_vs_first_rep_pct (negative = the rider faded, positive = they built), per-rep max HR and hr_creep_bpm; a coarse time-bucketed profile of power/HR/cadence for pacing and drift; and the workout planned for that day, if any, with its structured intervals. ALWAYS call this when the rider asks how a session, interval set, or race went, whether they hit their targets, or why a workout felt hard — never judge intervals from average power or IF. With a plan attached, grade execution against it: rep count, durations, and power vs target_pct_ftp (relative to ftp_watts). A last rep much shorter than the others usually means the rider stopped early. Without a plan, judge consistency: fading less than ~3% across reps is well paced, a big drop on later reps means the targets were too ambitious or recovery too short; rising max HR at constant power means accumulating fatigue. Efforts only count work at or above ~85% FTP — tempo and endurance blocks appear in the profile, not as efforts.",
+			InputSchema: objSchema(map[string]any{
+				"id": stringProp("The workout id from list_recent_workouts or get_weekly_breakdown."),
 			}, "id"),
 		},
 		{
