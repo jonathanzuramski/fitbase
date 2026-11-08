@@ -156,7 +156,6 @@ func (th *templateHandler) workout(w http.ResponseWriter, r *http.Request) {
 	achievements, _ := th.db.GetWorkoutAchievements(workout.ID)
 
 	// Non-fatal: without them the page just has no header line or table.
-	shape, _ := th.db.RideShape(workout.ID, ftpAtTime)
 	day := trainingDate(workout)
 	planned, _ := th.db.ListPlannedWorkoutsBetween(day, day)
 
@@ -189,7 +188,7 @@ func (th *templateHandler) workout(w http.ResponseWriter, r *http.Request) {
 		RouteBestPowerID: routeBestPowerID,
 		Achievements:     achievements,
 
-		Ride: summarizeRide(shape, ftpAtTime, workout.IntensityFactor, planned),
+		Ride: th.rideSummaryFor(workout, planned),
 
 		PowerZoneSecs:   powerZoneSecs,
 		HRZoneSecs:      hrZoneSecs,

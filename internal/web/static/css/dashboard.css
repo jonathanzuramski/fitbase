@@ -939,3 +939,204 @@
 .goal-cancel-btn:hover {
 	color: var(--text);
 }
+
+/* ── Today: the plan beside readiness ───────────────────────────────── */
+.today-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 16px 28px;
+}
+.today-planned + .today-planned,
+.today-planned + .today-ride {
+  margin-top: 12px;
+}
+.today-planned-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+.today-planned-meta {
+  margin-top: 2px;
+  font-size: 13px;
+}
+.today-profile {
+  margin-top: 10px;
+}
+.today-planned-desc {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.today-ride {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+}
+.today-ride:hover {
+  border-color: var(--accent);
+  text-decoration: none;
+}
+.today-ride-check {
+  color: var(--green);
+  font-weight: 700;
+}
+.today-ride-headline {
+  flex-basis: 100%;
+  color: var(--text-muted);
+}
+.today-empty {
+  margin: 4px 0 0;
+  font-size: 14px;
+}
+.today-readiness .rec-badge {
+  margin-bottom: 12px;
+}
+.today-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 10px 14px;
+  margin: 0;
+}
+.today-stats dt {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.today-stats dd {
+  margin: 2px 0 0;
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── This week: planned against ridden ─────────────────────────────── */
+.week-totals {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.week-strip {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+.week-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 0;
+  border-radius: 6px;
+  color: var(--text);
+}
+.week-day:hover {
+  background: var(--bg-hover);
+  text-decoration: none;
+}
+.week-day.today {
+  background: rgba(59, 130, 246, 0.08);
+}
+.week-day-bars {
+  position: relative;
+  width: 60%;
+  max-width: 34px;
+  height: 64px;
+}
+.week-bar {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  min-height: 2px;
+  border-radius: 3px 3px 0 0;
+}
+.week-bar-planned {
+  border: 1px dashed var(--text-muted);
+  border-bottom: none;
+}
+.week-bar-done {
+  background: var(--accent);
+}
+.week-day-tss {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.week-day-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.week-day.today .week-day-label {
+  color: var(--accent);
+  font-weight: 600;
+}
+.week-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-top: 10px;
+  font-size: 12px;
+}
+.week-key {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 5px;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+.week-key-done {
+  background: var(--accent);
+}
+.week-key-planned {
+  border: 1px dashed var(--text-muted);
+}
+.week-year {
+  margin-left: auto;
+}
+
+/* ── Coach insights preview ──────────────────────────────────────────── */
+.ai-insights-clamped {
+  max-height: 15em;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 65%, transparent);
+  mask-image: linear-gradient(to bottom, #000 65%, transparent);
+}
+.ai-insights-more {
+  margin-top: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+/* ── Recent rides: what each ride was ───────────────────────────────── */
+/* Numbers stay on one line; the ride column gives way (ellipsis). */
+.workout-table td {
+  white-space: nowrap;
+}
+.ride-cell {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ride-cell .ride-kind {
+  padding: 1px 6px;
+  font-size: 10px;
+}
+.ride-cell-headline {
+  font-size: 12px;
+  color: var(--text-muted);
+}

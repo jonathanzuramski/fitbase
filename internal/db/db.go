@@ -250,10 +250,13 @@ func (db *DB) ListWorkouts(limit, offset int, sortKey, sortDir, typeFilter strin
 // calendar months — no timezone parameter needed, because each workout
 // already knows which day it happened on.
 func (db *DB) GetWorkoutsForMonth(year int, month time.Month) ([]models.Workout, error) {
-	start := fmt.Sprintf("%04d-%02d-01", year, month)
 	next := time.Date(year, month+1, 1, 0, 0, 0, 0, time.UTC)
-	end := next.Format("2006-01-02")
+	return db.GetWorkoutsBetweenDays(fmt.Sprintf("%04d-%02d-01", year, month), next.Format("2006-01-02"))
+}
 
+// GetWorkoutsBetweenDays returns the workouts whose training day falls in
+// [start, end) (YYYY-MM-DD), oldest first.
+func (db *DB) GetWorkoutsBetweenDays(start, end string) ([]models.Workout, error) {
 	rows, err := db.Query(`
 		SELECT `+workoutCols+`
 		FROM workouts
@@ -1479,35 +1482,6 @@ func (db *DB) SetAutoSync(name string, enabled bool) error {
 type PeriodSummary struct {
 	DurationSecs int
 	TSS          float64
-}
-
-// GetWeekActivityDays returns a 7-element array (Mon=0 … Sun=6) where each
-// entry is true if any workout was recorded on that day of the ISO week.
-func (db *DB) GetWeekActivityDays(weekStart time.Time, tz *time.Location) ([7]bool, error) {
-	var days [7]bool
-	weekEnd := weekStart.AddDate(0, 0, 7)
-	rows, err := db.Query(`
-		SELECT DISTINCT training_day FROM workouts
-		WHERE training_day >= ? AND training_day < ? AND training_day IS NOT NULL`,
-		weekStart.Format("2006-01-02"),
-		weekEnd.Format("2006-01-02"),
-	)
-	if err != nil {
-		return days, err
-	}
-	defer rows.Close() //nolint:errcheck
-	for rows.Next() {
-		var dayStr string
-		if err := rows.Scan(&dayStr); err != nil {
-			return days, err
-		}
-		t, err := time.ParseInLocation("2006-01-02", dayStr, tz)
-		if err != nil {
-			continue
-		}
-		days[timeutil.DaysSinceMonday(t)] = true
-	}
-	return days, rows.Err()
 }
 
 // GetPeriodSummary returns the total duration and TSS across all sports on or
