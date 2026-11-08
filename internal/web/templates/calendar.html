@@ -127,10 +127,18 @@
 	<div class="cal-header cal-header-week">Week</div>
 
 	{{ range $week := $cal.Weeks }}
-		{{- /* Week header: phone day list only (hidden in the desktop grid). */ -}}
-		<div class="cal-week-head{{ if $week.IsCurrent }} current{{ end }}">
-			<span class="cal-week-head-label">Week {{ $week.WeekNum }} · {{ $week.RangeLabel }}</span>
-			<span class="cal-week-head-stats">{{ if gt $week.TotalDurSecs 0 }}{{ formatDuration $week.TotalDurSecs }}{{ if gt $week.TotalDistM 0.0 }} · {{ formatDistance $week.TotalDistM $imperial }}{{ end }}{{ if gt $week.TotalTSS 0.0 }} · {{ printf "%.0f" $week.TotalTSS }} TSS{{ end }}{{ else if gt $week.PlannedDurSecs 0 }}planned {{ formatDuration $week.PlannedDurSecs }}{{ if gt $week.PlannedTSS 0.0 }} · {{ printf "%.0f" $week.PlannedTSS }} TSS{{ end }}{{ end }}</span>
+		{{- /* The summary leads each week so the phone day list reads it as the
+		     week's heading; the desktop grid pins it to the last column. */ -}}
+		<div class="cal-week-summary{{ if $week.IsCurrent }} current{{ end }}">
+			<span class="cal-week-label">Week {{ $week.WeekNum }} · {{ $week.RangeLabel }}</span>
+			{{ if gt $week.TotalDurSecs 0 }}
+				<div class="cal-week-stat">{{ formatDuration $week.TotalDurSecs }}</div>
+				{{ if gt $week.TotalDistM 0.0 }}<div class="cal-week-stat">{{ formatDistance $week.TotalDistM $imperial }}</div>{{ end }}
+				{{ if gt $week.TotalTSS 0.0 }}<div class="cal-week-stat">{{ printf "%.0f" $week.TotalTSS }} TSS</div>{{ end }}
+			{{ else if gt $week.PlannedDurSecs 0 }}
+				<div class="cal-week-stat cal-week-planned">planned {{ formatDuration $week.PlannedDurSecs }}</div>
+				{{ if gt $week.PlannedTSS 0.0 }}<div class="cal-week-stat cal-week-planned">{{ printf "%.0f" $week.PlannedTSS }} TSS</div>{{ end }}
+			{{ end }}
 		</div>
 		{{ range $day := $week.Days }}
 			<div class="cal-day{{ if not $day.InMonth }} outside{{ end }}{{ if $day.IsToday }} today{{ end }}"
@@ -167,14 +175,6 @@
 				{{ end }}
 			</div>
 		{{ end }}
-		<div class="cal-week-summary">
-			{{ if gt $week.TotalDurSecs 0 }}
-				<div class="cal-week-stat">{{ formatDuration $week.TotalDurSecs }}</div>
-				{{ if gt $week.TotalDistM 0.0 }}<div class="cal-week-stat">{{ formatDistance $week.TotalDistM $imperial }}</div>
-				{{ end }}
-				{{ if gt $week.TotalTSS 0.0 }}<div class="cal-week-stat">{{ printf "%.0f" $week.TotalTSS }} TSS</div>{{ end }}
-			{{ end }}
-		</div>
 	{{ end }}
 </div>
 

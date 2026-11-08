@@ -39,6 +39,10 @@
 .cal-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr) 120px;
+  /* Each week's summary precedes its days in the markup (it heads the week
+     in the phone list) but sits in column 8 here; dense packing lets the
+     days that follow it fill columns 1–7 of the same row. */
+  grid-auto-flow: row dense;
   gap: 1px;
   background: var(--border);
   border-radius: 6px;
@@ -126,6 +130,7 @@
 }
 
 .cal-week-summary {
+  grid-column: 8;
   background: var(--bg-card);
   padding: 6px 8px;
   display: flex;
@@ -356,7 +361,8 @@
 /* Shown only in the phone day list (responsive.css). */
 .cal-dow,
 .cal-workout-tss,
-.cal-week-head { display: none; }
+.cal-week-label,
+.cal-week-planned { display: none; }
 
 /* Long coach prose is hard to read at full desktop width. */
 .weekly-plan-review > * { max-width: 80ch; }

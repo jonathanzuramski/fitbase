@@ -110,8 +110,9 @@ type CalendarWeek struct {
 	TotalDurSecs int
 	TotalDistM   float64
 
-	// The phone day list heads every week with these ("Week 46 · Nov 9 – 15"),
-	// so each week is visibly separated even when nothing was ridden in it.
+	// The phone day list labels every week's summary row with these
+	// ("Week 46 · Nov 9 – 15"), so each week is visibly separated even when
+	// nothing was ridden in it.
 	WeekNum    int    // ISO week number of the week's Monday
 	RangeLabel string // "Nov 9 – 15", or "Oct 26 – Nov 1" across months
 	IsCurrent  bool   // the week containing today
