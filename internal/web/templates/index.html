@@ -178,6 +178,11 @@
 							<span class="today-ride-meta">ridden · {{ formatDuration .Workout.DurationSecs }}{{ if .Workout.TSS }} · {{ formatOptFloat .Workout.TSS "TSS" }}{{ end }}</span>
 							{{ if .Ride.Headline }}<span class="today-ride-headline">{{ .Ride.Headline }}</span>{{ end }}
 						</a>
+						{{ if .Feedback.RPE }}
+							<div class="today-feel muted">felt <strong>{{ .Feedback.RPE }}/10</strong> · {{ rpeLabel .Feedback.RPE }}{{ if .Feedback.Note }} · “{{ .Feedback.Note }}”{{ end }}</div>
+						{{ else }}
+							<a class="today-feel today-feel-ask" href="/workouts/{{ .Workout.ID }}#feel">How did it feel? Rate it →</a>
+						{{ end }}
 					{{ end }}
 					{{ if or .Today.Planned .Today.Rides }}{{ else }}
 						<p class="today-empty muted">Nothing planned today. <a href="/calendar">Plan your week →</a></p>

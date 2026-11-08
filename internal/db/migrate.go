@@ -84,6 +84,7 @@ var migrations = []func(*sql.Tx) error{
 	migrateWorkoutShapeCache,   // v8 — lazily filled per-workout interval-shape cache
 	migrateWeeklyPlans,         // v9 — coach weekly reviews + proposed schedules
 	migrateFTPHistoryIndoor,    // v10 — indoor FTP line; date-only entries re-homed to local midnight
+	migrateWorkoutFeedback,     // v11 — the rider's RPE and note per ride
 }
 
 // migrate replays every migration the database hasn't run yet.
@@ -669,6 +670,23 @@ func migrateFTPHistoryIndoor(tx *sql.Tx) error {
 		if _, err := tx.Exec(`UPDATE ftp_history SET effective_from = ? WHERE id = ?`, u.at, u.id); err != nil {
 			return fmt.Errorf("re-home ftp_history %d: %w", u.id, err)
 		}
+	}
+	return nil
+}
+
+// migrateWorkoutFeedback (v11) creates workout_feedback: the rider's rating
+// of how hard a ride felt (RPE 1–10) and a note. No foreign key to workouts,
+// deliberately — see db/feedback.go: an archive rebuild re-creates every
+// workout under the same ID, and a cascade would wipe the ratings.
+func migrateWorkoutFeedback(tx *sql.Tx) error {
+	if _, err := tx.Exec(`
+		CREATE TABLE IF NOT EXISTS workout_feedback (
+			workout_id TEXT PRIMARY KEY,
+			rpe        INTEGER CHECK (rpe IS NULL OR rpe BETWEEN 1 AND 10),
+			note       TEXT NOT NULL DEFAULT '',
+			updated_at TEXT NOT NULL
+		)`); err != nil {
+		return fmt.Errorf("create workout_feedback: %w", err)
 	}
 	return nil
 }

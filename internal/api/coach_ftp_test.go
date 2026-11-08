@@ -54,3 +54,26 @@ func TestChatSystemContext_CarriesFTPCheck(t *testing.T) {
 		t.Errorf("system context lacks the FTP check:\n%s", ctx)
 	}
 }
+
+// The coach reads the rider's own account of a ride in the list and detail
+// tools.
+func TestCoachTools_RiderFeedback(t *testing.T) {
+	h := coachFixture(t)
+	w := &models.Workout{ID: "fb1", Filename: "fb1.fit", Sport: "cycling", RecordedAt: time.Now().Add(-24 * time.Hour),
+		DurationSecs: 3600, CreatedAt: time.Now()}
+	if err := h.db.InsertWorkout(w, nil); err != nil {
+		t.Fatal(err)
+	}
+	rpe := 9
+	if err := h.db.SaveWorkoutFeedback("fb1", &rpe, "felt flat, short night"); err != nil {
+		t.Fatal(err)
+	}
+	list, err := h.toolListRecentWorkouts([]byte(`{"days":7}`))
+	if err != nil || !strings.Contains(list, `"rpe":9`) || !strings.Contains(list, `"rider_note":"felt flat, short night"`) {
+		t.Errorf("list_recent_workouts lacks the feedback (%v):\n%s", err, list)
+	}
+	detail, err := h.toolWorkoutDetail([]byte(`{"id":"fb1"}`))
+	if err != nil || !strings.Contains(detail, `"rider_feedback":{"note":"felt flat, short night","rpe":9,"rpe_label":"max effort"}`) {
+		t.Errorf("get_workout_detail lacks the feedback (%v):\n%s", err, detail)
+	}
+}

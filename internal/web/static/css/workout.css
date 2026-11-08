@@ -510,3 +510,48 @@
   text-transform: uppercase;
   color: var(--text-muted);
 }
+
+/* ── How it felt ──────────────────────────────────────────────────────── */
+.ride-feel-status {
+  font-size: 12px;
+}
+.rpe-scale {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 4px;
+}
+.rpe-btn {
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.rpe-btn:hover {
+  border-color: var(--text-muted);
+  color: var(--text);
+}
+.rpe-btn.selected {
+  color: #111;
+  font-weight: 700;
+}
+.rpe-btn.rpe-easy.selected { background: var(--power-color); border-color: var(--power-color); }
+.rpe-btn.rpe-moderate.selected { background: var(--green); border-color: var(--green); }
+.rpe-btn.rpe-hard.selected { background: var(--orange); border-color: var(--orange); }
+.rpe-btn.rpe-max.selected { background: var(--red); border-color: var(--red); }
+.rpe-legend {
+  display: flex;
+  justify-content: space-between;
+  margin: 4px 0 10px;
+  font-size: 11px;
+}
+.ride-feel-note {
+  width: 100%;
+  resize: vertical;
+  font-family: var(--font); /* prose, not the inputs' monospace */
+  font-size: 14px;
+}

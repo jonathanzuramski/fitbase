@@ -17,8 +17,9 @@ type todayCard struct {
 
 // todayRide is a ride logged today, with what it was.
 type todayRide struct {
-	Workout models.Workout
-	Ride    rideSummary
+	Workout  models.Workout
+	Ride     rideSummary
+	Feedback models.WorkoutFeedback // how it felt, or a nudge to say
 }
 
 // weekView is the "this week" strip: each day's planned load against what was
@@ -149,7 +150,8 @@ func (th *templateHandler) buildToday(now time.Time, wk weekView) todayCard {
 		day := d.Date.Format("2006-01-02")
 		if rides, err := th.db.GetWorkoutsBetweenDays(day, d.Date.AddDate(0, 0, 1).Format("2006-01-02")); err == nil {
 			for _, w := range rides {
-				card.Rides = append(card.Rides, todayRide{Workout: w, Ride: th.rideSummaryFor(&w, nil)})
+				f, _, _ := th.db.GetWorkoutFeedback(w.ID)
+				card.Rides = append(card.Rides, todayRide{Workout: w, Ride: th.rideSummaryFor(&w, nil), Feedback: f})
 			}
 		}
 	}

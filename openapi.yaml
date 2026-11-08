@@ -290,6 +290,49 @@ paths:
                   data:  { $ref: "#/components/schemas/ReadinessReport" }
                   error: { type: string, nullable: true }
 
+  /api/workouts/{id}/feedback:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      summary: Get the rider's feedback on a workout
+      description: How hard the ride felt (RPE 1–10) and the rider's note. Empty when there is none.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:  { $ref: "#/components/schemas/WorkoutFeedback" }
+                  error: { type: string, nullable: true }
+        "404": { description: No such workout }
+    put:
+      summary: Set the rider's feedback on a workout
+      description: |
+        Replaces the RPE and note. A null rpe with an empty note removes the feedback.
+        Feedback survives an archive rebuild (workouts are re-created under the same id)
+        and is removed when the workout is deleted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rpe:  { type: integer, minimum: 1, maximum: 10, nullable: true, example: 7 }
+                note: { type: string, maxLength: 2000, example: "Legs heavy after a short night; cut the last rep." }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:  { $ref: "#/components/schemas/WorkoutFeedback" }
+                  error: { type: string, nullable: true }
+        "400": { description: rpe outside 1–10, note over 2000 characters, or invalid JSON }
+        "404": { description: No such workout }
+
   /api/athlete/ftp:
     put:
       summary: Set the FTP
@@ -1422,6 +1465,14 @@ components:
         recommendation:         { type: string, example: "Go Ride" }
         recommendation_detail:  { type: string }
         recommendation_tone:    { type: string, enum: [go, train, ease, rest], description: "Groups the recommendation for display" }
+
+    WorkoutFeedback:
+      type: object
+      properties:
+        workout_id: { type: string }
+        rpe:        { type: integer, minimum: 1, maximum: 10, description: How hard the ride felt; omitted when not rated }
+        note:       { type: string }
+        updated_at: { type: string, format: date-time }
 
     FTPEffort:
       type: object

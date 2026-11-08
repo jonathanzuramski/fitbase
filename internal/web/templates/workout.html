@@ -136,6 +136,20 @@
 	</dl>
 </section>
 
+{{/* ── How it felt: the rider's RPE and note ─────────────────────── */}}
+<section class="card ride-feel" id="feel" data-workout="{{ $w.ID }}">
+	<div class="card-header-row">
+		<h2 class="card-title">how did it feel?</h2>
+		<span class="ride-feel-status muted" id="feel-status" aria-live="polite"></span>
+	</div>
+	<div class="rpe-scale" role="radiogroup" aria-label="How hard it felt, 1 (very easy) to 10 (max effort)">
+		{{ range .RPEScale }}<button type="button" class="rpe-btn rpe-{{ .Band }}{{ if .Selected }} selected{{ end }}" data-rpe="{{ .N }}" role="radio" aria-checked="{{ if .Selected }}true{{ else }}false{{ end }}" title="{{ .N }} · {{ .Label }}">{{ .N }}</button>{{ end }}
+	</div>
+	<div class="rpe-legend muted"><span>very easy</span><span>moderate</span><span>max effort</span></div>
+	<textarea id="feel-note" class="form-input ride-feel-note" rows="2" maxlength="2000"
+		placeholder="Anything worth remembering? Legs, sleep, why you cut it short… The coach reads this.">{{ .Feedback.Note }}</textarea>
+</section>
+
 {{/* ── Ride charts: stacked, one crosshair, drag to measure ──────── */}}
 {{ if .Streams }}
 	<section class="card ride-charts" id="ride-charts">
@@ -328,6 +342,7 @@
     {{end}}
     initRidePage({ ride, map, streams, ftp: {{.FTP}} });
   }
+  initRideFeedback();
 
   if (powerZoneSecs) {
     renderZoneDistribution('power-zone-chart', powerZoneSecs, POWER_ZONE_NAMES, POWER_ZONE_COLORS, powerZoneRanges);
