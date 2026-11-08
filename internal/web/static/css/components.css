@@ -161,9 +161,11 @@
 .ftp-check .alert-icon {
   line-height: 1.5;
 }
+/* Zero basis with a floor: the text stays beside the icon and only the
+   buttons wrap to their own line on narrow screens. */
 .ftp-check-text {
-  flex: 1 1 380px;
-  min-width: 0;
+  flex: 1 1 0;
+  min-width: 240px;
 }
 .ftp-check a {
   color: inherit;
