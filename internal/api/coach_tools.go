@@ -68,8 +68,8 @@ func (h *CoachHandler) briefFromWorkout(w models.Workout) aicoach.WorkoutBrief {
 		// Same FTP-of-the-day rule as get_workout_intervals, so the insights
 		// line and the tool always describe a ride with the same numbers.
 		ftp := h.db.GetFTPForRide(w.RecordedAt, w.IsIndoor)
-		if shape, err := rideShape(h.db, w.ID, ftp); err == nil {
-			brief.Structure = shapeHeadline(shape, ftp)
+		if shape, err := h.db.RideShape(w.ID, ftp); err == nil {
+			brief.Structure = fitness.ShapeHeadline(shape, ftp)
 		}
 	}
 	return brief
@@ -293,8 +293,8 @@ func (h *CoachHandler) toolListRecentWorkouts(input json.RawMessage) (string, er
 		lw := listedWorkout{WorkoutSummary: w.ToSummary(), Indoor: w.IsIndoor}
 		if w.AvgPowerWatts != nil || w.NormalizedPower != nil {
 			ftp := h.db.GetFTPForRide(w.RecordedAt, w.IsIndoor)
-			if shape, err := rideShape(h.db, w.ID, ftp); err == nil {
-				lw.Structure = shapeHeadline(shape, ftp)
+			if shape, err := h.db.RideShape(w.ID, ftp); err == nil {
+				lw.Structure = fitness.ShapeHeadline(shape, ftp)
 			}
 		}
 		out = append(out, lw)
