@@ -33,8 +33,9 @@ func TestWeeklyPlanWindow_CrossesMonthEnd(t *testing.T) {
 	}
 }
 
-// The brief must pin the exact dates (propose_schedule rejects nothing in the
-// future, so a wrong window would land silently) and must send the model to
+// The brief must pin the exact dates (propose_schedule rejects dates outside
+// the window, so a model that inferred the wrong week would burn rounds
+// re-planning) and must send the model to
 // get_workout_intervals — grading sessions from averages is the failure mode
 // this feature exists to avoid.
 func TestWeeklyPlanBrief_PinsWindowAndIntervalGrading(t *testing.T) {

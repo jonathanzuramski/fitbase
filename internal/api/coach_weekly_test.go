@@ -467,6 +467,92 @@ func TestGenerateWeeklyPlan_EnforcesTrainingDays(t *testing.T) {
 	}
 }
 
+// ── Proposal dates ───────────────────────────────────────────────────────────
+
+// proposeOne is propose_schedule's input for a single one-hour ride on day.
+func proposeOne(day time.Time) json.RawMessage {
+	return json.RawMessage(`{"workouts":[{"date":"` + day.Format("2006-01-02") + `","title":"Z2","duration_secs":3600}]}`)
+}
+
+// Accepting a proposal deletes coach entries on every proposed date, so a
+// past date would erase the plan a finished ride is graded against.
+func TestToolProposeSchedule_RejectsPastDates(t *testing.T) {
+	h := coachFixture(t)
+	now := time.Now().In(h.db.AthleteLocation())
+	captured := 0
+	ev := toolEvents{Capture: func([]plannedRequest) string { captured++; return "x" }}
+
+	_, err := h.toolProposeSchedule(proposeOne(now.AddDate(0, 0, -1)), ev)
+	if err == nil || !strings.Contains(err.Error(), "before today") || !strings.Contains(err.Error(), now.Format("2006-01-02")) {
+		t.Errorf("yesterday: err = %v, want a before-today rejection naming today", err)
+	}
+	if captured != 0 {
+		t.Errorf("a rejected proposal was captured %d time(s)", captured)
+	}
+	if _, err := h.toolProposeSchedule(proposeOne(now), ev); err != nil {
+		t.Errorf("today rejected: %v", err)
+	}
+	if _, err := h.toolProposeSchedule(proposeOne(now.AddDate(0, 0, 1)), ev); err != nil {
+		t.Errorf("tomorrow rejected: %v", err)
+	}
+	if captured != 2 {
+		t.Errorf("captured = %d, want 2 (today and tomorrow)", captured)
+	}
+}
+
+func TestToolProposeSchedule_EnforcesPlanWindow(t *testing.T) {
+	h := coachFixture(t)
+	now := time.Now().In(h.db.AthleteLocation())
+	start, end := aicoach.WeeklyPlanWindow(now)
+	ev := toolEvents{
+		Capture: func([]plannedRequest) string { return "x" },
+		Window:  &planWindow{Start: start.Format("2006-01-02"), End: end.Format("2006-01-02")},
+	}
+
+	_, err := h.toolProposeSchedule(proposeOne(end.AddDate(0, 0, 1)), ev)
+	if err == nil || !strings.Contains(err.Error(), "outside the plan window") ||
+		!strings.Contains(err.Error(), ev.Window.Start) || !strings.Contains(err.Error(), ev.Window.End) {
+		t.Errorf("day after the window: err = %v, want a window rejection naming both ends", err)
+	}
+	if _, err := h.toolProposeSchedule(proposeOne(start), ev); err != nil {
+		t.Errorf("first day of the window rejected: %v", err)
+	}
+}
+
+// End to end: a weekly run that proposes a day past its window gets the
+// reason back, re-plans, and stores only the in-window day.
+func TestGenerateWeeklyPlan_EnforcesWindow(t *testing.T) {
+	h := coachFixture(t)
+	start, end := aicoach.WeeklyPlanWindow(time.Now().In(h.db.AthleteLocation()))
+	propose := func(day time.Time) *aicoach.ChatTurnOutput {
+		return &aicoach.ChatTurnOutput{Calls: []aicoach.ToolExchange{{ID: "p", Name: aicoach.ToolProposeSchedule, Input: proposeOne(day)}}}
+	}
+	var firstResult string
+	fakeCoach.turn = func(in aicoach.ChatTurnInput) (*aicoach.ChatTurnOutput, error) {
+		switch len(in.Rounds) {
+		case 0:
+			return propose(end.AddDate(0, 0, 1)), nil
+		case 1:
+			firstResult = in.Rounds[0].Exchanges[0].Result
+			return propose(start), nil
+		default:
+			return &aicoach.ChatTurnOutput{Text: "Fixed the dates."}, nil
+		}
+	}
+
+	plan, err := h.generateWeeklyPlan(context.Background(), weeklyPlanRun{trigger: models.WeeklyPlanManual}, discardEvents)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if !strings.Contains(firstResult, "outside the plan window") {
+		t.Errorf("first proposal's tool result = %s, want a window error for the model", firstResult)
+	}
+	ws, err := planWorkouts(&plan)
+	if err != nil || len(ws) != 1 || ws[0].PlannedDate.Format("2006-01-02") != start.Format("2006-01-02") {
+		t.Errorf("stored week = %+v (err %v), want one workout on %s", ws, err, start.Format("2006-01-02"))
+	}
+}
+
 func TestWeeklyPlanSetPreferences(t *testing.T) {
 	h := coachFixture(t)
 	put := func(body string) (int, models.WeeklyPlanPrefs) {

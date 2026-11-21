@@ -44,7 +44,7 @@ What is improving and what is stalling, from performance signals (FTP history, r
 ## Focus for the week
 One or two priorities and why, tied to form (TSB), ctl_ramp_per_week, and what is underdeveloped.
 
-Then call propose_schedule for the window — one entry per training day, rest days skipped, dates %s to %s only. Build the key sessions from what the rider actually executed:
+Then call propose_schedule for the window — one entry per training day, rest days skipped, dates %s to %s only (propose_schedule rejects any other date). Build the key sessions from what the rider actually executed:
 - Reps completed fading less than ~3%% (last_vs_first_rep_pct above -3) and HR settling between reps → progress one step: one more rep, +2–3%% target, or longer reps — not all three.
 - Fading more than ~5%%, missed reps, or a session cut short → repeat the same session, or cut a rep.
 - Deeply negative TSB (below about -25) or ctl_ramp_per_week above ~8 (get_readiness) → make it a recovery or consolidation week regardless.

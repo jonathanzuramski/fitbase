@@ -111,7 +111,15 @@ type toolEvents struct {
 	// The error goes back to the model, which re-plans — constraints stated
 	// only in prose are the kind models occasionally ignore.
 	Availability *planAvailability
+	// Window, when set, makes propose_schedule reject dates outside it
+	// (weekly plans). Accepting a proposal replaces coach entries on every
+	// proposed date, so an off-by-one date would overwrite a day outside the
+	// week the rider asked for.
+	Window *planWindow
 }
+
+// planWindow is the date range a proposal must stay inside.
+type planWindow struct{ Start, End string } // YYYY-MM-DD, inclusive
 
 // planAvailability is the rider's weekly-plan availability as enforced on a
 // proposal.
@@ -537,6 +545,13 @@ func (h *CoachHandler) toolProposeSchedule(input json.RawMessage, ev toolEvents)
 	}
 	// Validate every item before persisting so a malformed entry doesn't leave
 	// the model with a draft id pointing at unreviewable content.
+	//
+	// Dates are checked here, not in toModel: the manual quick-add and
+	// planWorkouts (which re-decodes a stored plan at accept time) share it
+	// and must keep accepting past dates. Accepting a proposal deletes coach
+	// entries on every proposed date, so a past date would erase the plan
+	// get_workout_intervals grades that day's ride against.
+	today := time.Now().In(h.db.AthleteLocation()).Format("2006-01-02")
 	proposed := make([]models.PlannedWorkout, 0, len(args.Workouts))
 	for i, req := range args.Workouts {
 		p, err := req.toModel("coach")
@@ -547,6 +562,14 @@ func (h *CoachHandler) toolProposeSchedule(input json.RawMessage, ev toolEvents)
 		// string can still arrive; the preview card would render '(untitled)'.
 		if strings.TrimSpace(req.Title) == "" {
 			return "", fmt.Errorf("workouts[%d]: title is required — a short session label the rider sees on the card, e.g. '2x20 threshold'", i)
+		}
+		// PlannedDate is UTC midnight from time.Parse, so this round-trips.
+		day := p.PlannedDate.Format("2006-01-02")
+		if day < today {
+			return "", fmt.Errorf("workouts[%d] (%q) is dated %s, before today (%s) — schedule from today onward", i, req.Title, day, today)
+		}
+		if w := ev.Window; w != nil && (day < w.Start || day > w.End) {
+			return "", fmt.Errorf("workouts[%d] (%q) is dated %s, outside the plan window %s to %s — use only those dates", i, req.Title, day, w.Start, w.End)
 		}
 		proposed = append(proposed, p)
 	}

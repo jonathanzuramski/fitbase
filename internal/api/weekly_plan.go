@@ -132,6 +132,7 @@ func (h *CoachHandler) generateWeeklyPlan(ctx context.Context, run weeklyPlanRun
 			return "weekly-plan"
 		},
 		Availability: &planAvailability{prefs: prefs},
+		Window:       &planWindow{Start: plan.WindowStart, End: plan.WindowEnd},
 	}
 	exec := func(ctx context.Context, name string, input json.RawMessage) (string, error) {
 		return h.execTool(ctx, name, input, ev)
