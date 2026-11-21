@@ -73,6 +73,10 @@ func TestWeeklyPlanRevisionBrief(t *testing.T) {
 		"exactly as listed: same date, title, description",
 		"Planning rules",
 		aicoach.ToolProposeSchedule,
+		// The week's earlier sessions still count: for the weekly total
+		// and for key sessions on consecutive days.
+		"an earlier session the message lists counts",
+		"the new weekly total if it changed, earlier sessions included",
 	} {
 		if !strings.Contains(brief, want) {
 			t.Errorf("revision brief is missing %q:\n%s", want, brief)
@@ -268,15 +272,42 @@ func TestWeeklyPlanAvailability(t *testing.T) {
 	end := start.AddDate(0, 0, 6)
 	noWedFri := func(wd time.Weekday) bool { return wd != time.Wednesday && wd != time.Friday }
 
-	got := aicoach.WeeklyPlanAvailability(start, end, noWedFri, 8)
+	got := aicoach.WeeklyPlanAvailability(start, end, noWedFri, 8, 0)
 	for _, want := range []string{"Schedule nothing on Wed 2026-11-11, Fri 2026-11-13", "Mon 2026-11-09", "about 8 hours"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("availability text missing %q:\n%s", want, got)
 		}
 	}
 
-	open := aicoach.WeeklyPlanAvailability(start, end, func(time.Weekday) bool { return true }, 0)
+	everyDay := func(time.Weekday) bool { return true }
+	open := aicoach.WeeklyPlanAvailability(start, end, everyDay, 0, 0)
 	if !strings.Contains(open, "any day") || !strings.Contains(open, "not set") {
 		t.Errorf("open availability text:\n%s", open)
+	}
+}
+
+// A revision made on a later day plans only the days left, but the budget is
+// the week's: the text says what the earlier sessions leave for these days.
+// It used to offer the days left the whole budget.
+func TestWeeklyPlanAvailability_RevisionCountsTheWeeksEarlierSessions(t *testing.T) {
+	start := time.Date(2026, 11, 11, 0, 0, 0, 0, time.UTC)
+	end := start.AddDate(0, 0, 4)
+	everyDay := func(time.Weekday) bool { return true }
+
+	got := aicoach.WeeklyPlanAvailability(start, end, everyDay, 3, 2)
+	for _, want := range []string{"about 3 hours of training for the week", "earlier sessions take 2 h", "Plan up to 1 h for these days", "earlier sessions included"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("revision availability lacks %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Plan up to that") {
+		t.Errorf("the days left are offered the whole week's budget:\n%s", got)
+	}
+
+	if spent := aicoach.WeeklyPlanAvailability(start, end, everyDay, 3, 3.25); !strings.Contains(spent, "no time for these days") {
+		t.Errorf("earlier sessions over the budget should leave nothing:\n%s", spent)
+	}
+	if open := aicoach.WeeklyPlanAvailability(start, end, everyDay, 0, 1.5); !strings.Contains(open, "earlier sessions take 1.5 h; count them") {
+		t.Errorf("without a budget the weekly total should still count the earlier sessions:\n%s", open)
 	}
 }

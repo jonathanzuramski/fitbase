@@ -802,7 +802,9 @@ paths:
         The rider's standing availability, used by every plan run including the
         Sunday auto-plan. Proposals are enforced against it: a workout on a day
         not listed, or a week more than 10% over `weekly_hours`, is rejected
-        back to the coach, which re-plans.
+        back to the coach, which re-plans. A revision made later in the week
+        plans only the days left, and its week still counts the sessions the
+        plan had on the days before.
       requestBody:
         required: true
         content:

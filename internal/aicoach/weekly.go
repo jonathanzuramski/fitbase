@@ -2,6 +2,7 @@ package aicoach
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -59,7 +60,8 @@ Finish, without a heading, with two or three sentences on the shape of the week 
 // the long ride to Sunday"), in place of WeeklyPlanBrief. The window is what
 // is left of the week being revised, start being today (the date of now)
 // when the revision comes on a later day; the rider's message lists the
-// sessions in it.
+// sessions in it, and the week's earlier ones, which the weekly total and
+// the rule against key sessions on consecutive days still count.
 //
 // It asks for no review: the server keeps the one the plan already has and
 // adds this run's text under it as a change note (the stored review is what
@@ -90,7 +92,7 @@ func WeeklyPlanRevisionBrief(start, end, now time.Time) string {
 	if from == now.In(start.Location()).Format("2006-01-02") {
 		window += ", today included"
 	}
-	return fmt.Sprintf(`Weekly plan revision — the rider wants a change to the week you proposed. Their message says what, and lists the proposed week's sessions from %[1]s through %[2]s (%[3]s), the part of the week still ahead; a session marked (today) is still to be ridden and stays in the plan unless the change touches it.
+	return fmt.Sprintf(`Weekly plan revision — the rider wants a change to the week you proposed. Their message says what, and lists the proposed week's sessions from %[1]s through %[2]s (%[3]s), the part of the week still ahead; a session marked (today) is still to be ridden and stays in the plan unless the change touches it. When the week began earlier, the message lists its earlier sessions too: they are past and not yours to propose, but they are still part of the week.
 
 A revision replaces two parts of the Planning section in your instructions:
 - "Gather context first": the week was built on that gather, and the rules that read rpe and rider_note have already shaped it, so don't gather again. Fetch only what the change needs (for example list_planned_workouts if a session moves onto another day, or get_workout_intervals if the change asks for a different key session).
@@ -98,9 +100,9 @@ A revision replaces two parts of the Planning section in your instructions:
 
 The review you wrote stands: it is kept, and what you write now is added under it as a change note. Don't write the review again or repeat its sections.
 
-Call propose_schedule with the whole plan again — dates %[4]s to %[5]s only (propose_schedule rejects any other date); it replaces the proposed week. Copy every session the change doesn't touch exactly as listed: same date, title, description, structure and targets. Whatever the change moves or reshapes follows the Planning rules in your instructions; if it puts two key sessions on consecutive days or breaks the rider's availability, move something else and say so.
+Call propose_schedule with the whole plan again — dates %[4]s to %[5]s only (propose_schedule rejects any other date); it replaces the proposed week. Copy every session the change doesn't touch exactly as listed: same date, title, description, structure and targets. Whatever the change moves or reshapes follows the Planning rules in your instructions; if it puts two key sessions on consecutive days (an earlier session the message lists counts) or breaks the rider's availability or weekly time, move something else and say so.
 
-Then write the change note, without a heading: what moved, anything else that moved with it and why, and the new weekly total if it changed — two to four sentences. Do not list the workouts: the rider sees them as cards; call them "the proposed week".`,
+Then write the change note, without a heading: what moved, anything else that moved with it and why, and the new weekly total if it changed, earlier sessions included — two to four sentences. Do not list the workouts: the rider sees them as cards; call them "the proposed week".`,
 		start.Format("Monday, 2006-01-02"), end.Format("Monday, 2006-01-02"), span,
 		from, to, window)
 }
@@ -134,8 +136,11 @@ func StandingAvailability(allowed func(time.Weekday) bool, weeklyHours float64) 
 // plan window, appended after WeeklyPlanBrief. Days are listed as dates, not
 // weekday names, so the model never has to map "Wednesday" onto the window.
 // weeklyHours <= 0 means no budget: the coach chooses the volume.
-// propose_schedule enforces both, so this text is guidance, not the guard.
-func WeeklyPlanAvailability(start, end time.Time, allowed func(time.Weekday) bool, weeklyHours float64) string {
+// earlierHours is the time the week's earlier sessions take when a revision
+// made on a later day plans only the days left: the budget is the week's, so
+// the text states what they leave for the window. propose_schedule enforces
+// the days and the budget, so this text is guidance, not the guard.
+func WeeklyPlanAvailability(start, end time.Time, allowed func(time.Weekday) bool, weeklyHours, earlierHours float64) string {
 	var open, closed []string
 	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
 		label := d.Format("Mon 2006-01-02")
@@ -153,11 +158,25 @@ func WeeklyPlanAvailability(start, end time.Time, allowed func(time.Weekday) boo
 		fmt.Fprintf(&b, "- Training days: %s. Schedule nothing on %s — those are rest days.\n",
 			strings.Join(open, ", "), strings.Join(closed, ", "))
 	}
-	if weeklyHours > 0 {
+	hours := func(h float64) string { return strconv.FormatFloat(h, 'f', -1, 64) }
+	earlier := math.Round(earlierHours*10) / 10
+	switch {
+	case weeklyHours > 0 && earlier > 0:
+		left := math.Round((weeklyHours-earlier)*10) / 10
+		fmt.Fprintf(&b, "- Weekly time: about %s hours of training for the week, and its earlier sessions take %s h of it. ", hours(weeklyHours), hours(earlier))
+		if left <= 0 {
+			b.WriteString("That leaves no time for these days: propose nothing more, and tell the rider, who can raise the budget on the calendar page.")
+		} else {
+			fmt.Fprintf(&b, "Plan up to %s h for these days, not over it — a lighter week is right when form or a comeback calls for it. Mention the week's total, earlier sessions included.", hours(left))
+		}
+	case weeklyHours > 0:
 		fmt.Fprintf(&b, "- Weekly time: about %s hours of training in total. Plan up to that, not over it — a lighter week is right when form or a comeback calls for it. Mention the total you planned.",
-			strconv.FormatFloat(weeklyHours, 'f', -1, 64))
-	} else {
+			hours(weeklyHours))
+	default:
 		b.WriteString("- Weekly time: not set — choose the volume from their recent weeks and current form, and state the total hours you planned.")
+		if earlier > 0 {
+			fmt.Fprintf(&b, " The week's earlier sessions take %s h; count them in that total.", hours(earlier))
+		}
 	}
 	return b.String()
 }

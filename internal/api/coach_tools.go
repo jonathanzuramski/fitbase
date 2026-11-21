@@ -125,6 +125,10 @@ type planWindow struct{ Start, End string } // YYYY-MM-DD, inclusive
 // proposal.
 type planAvailability struct {
 	prefs models.WeeklyPlanPrefs
+	// earlierSecs is the time the week's earlier sessions already take. A
+	// revision made on a later day proposes only the days left, but the
+	// budget is the week's: checked alone, the days left got all of it.
+	earlierSecs int
 }
 
 // budgetSlack is how far over the weekly hours budget a proposal may run
@@ -140,9 +144,25 @@ func (a *planAvailability) check(ws []models.PlannedWorkout) error {
 		}
 		total += w.DurationSecs
 	}
-	if h := a.prefs.WeeklyHours; h != nil && float64(total) > *h*3600*budgetSlack {
-		return fmt.Errorf("the plan totals %.1f h but the rider's weekly budget is %s h — trim it to fit (a lighter week is fine)",
-			float64(total)/3600, strconv.FormatFloat(*h, 'f', -1, 64))
+	h := a.prefs.WeeklyHours
+	if h == nil {
+		return nil
+	}
+	budget, limit := strconv.FormatFloat(*h, 'f', -1, 64), *h*3600*budgetSlack
+	switch {
+	case a.earlierSecs == 0:
+		if float64(total) > limit {
+			return fmt.Errorf("the plan totals %.1f h but the rider's weekly budget is %s h — trim it to fit (a lighter week is fine)",
+				float64(total)/3600, budget)
+		}
+	case float64(a.earlierSecs) >= limit:
+		// Trimming can't fix this, so say so rather than have the model
+		// shave sessions until it runs out of rounds.
+		return fmt.Errorf("the week's earlier sessions already take %.1f h of the rider's %s h weekly budget, so no session fits in the days left — don't propose again; tell the rider, who can raise the budget on the calendar page",
+			float64(a.earlierSecs)/3600, budget)
+	case float64(total+a.earlierSecs) > limit:
+		return fmt.Errorf("the plan totals %.1f h, and with the %.1f h of the week's earlier sessions the week comes to %.1f h, but the rider's weekly budget is %s h — trim it to fit (a lighter week is fine)",
+			float64(total)/3600, float64(a.earlierSecs)/3600, float64(total+a.earlierSecs)/3600, budget)
 	}
 	return nil
 }
