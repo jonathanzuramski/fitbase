@@ -530,23 +530,43 @@ function compareTable(c) {
     <p class="an-note muted">Green and red only where better is plain: power bests, efficiency, heart rate and power at matched effort, decoupling. More time, TSS or intensity is neither, and changes under 2% are left uncoloured.</p>`;
 }
 
+// shownDelta is a row's change between the numbers on screen, and how to
+// write it. The server rounds most units as the page shows them; the ones
+// the page converts (minutes, miles or km, feet or metres) are converted and
+// rounded here first, so 22h 13m against 22h 51m is −38m, never −37m.
+function shownDelta(row) {
+  const { a, b } = row;
+  switch (row.unit) {
+    case "duration_secs": {
+      const d = Math.round(a / 60) - Math.round(b / 60);
+      return [d, fmtHours(d * 60)];
+    }
+    case "distance_meters": {
+      const digits = (m) => (toDist(Math.abs(m)) >= 100 ? 0 : 1);
+      const shown = (m) => Math.round(toDist(m) * 10 ** digits(m)) / 10 ** digits(m);
+      const places = Math.max(digits(a), digits(b));
+      const d = Math.round((shown(a) - shown(b)) * 10 ** places) / 10 ** places;
+      return [d, `${num(Math.abs(d), places)} ${distUnit}`];
+    }
+    case "elevation_meters": {
+      const d = Math.round(toClimb(a)) - Math.round(toClimb(b));
+      return [d, `${num(Math.abs(d))} ${climbUnit}`];
+    }
+    case "pct":
+      return [row.delta, `${num(Math.abs(row.delta), 1)} pts`];
+  }
+  return [row.delta, FMT[row.unit](row.delta)];
+}
+
 function deltaCell(row) {
   if (row.delta == null) return `<td class="an-delta muted">—</td>`;
-  const d = row.delta;
+  const [d, val] = shownDelta(row);
   if (d === 0) return `<td class="an-delta muted">same</td>`;
-  // Changes inside a ride-to-ride wobble get no colour: under 2%, or under
-  // half a point for a percentage.
-  const small = row.unit === "pct" ? Math.abs(d) < 0.5 : row.delta_pct != null && Math.abs(row.delta_pct) < 2;
-  let cls = "";
-  let verdict = "";
-  if (row.better && !small) {
-    const good = (row.better === "higher") === d > 0;
-    cls = good ? "an-good" : "an-bad";
-    verdict = good ? " (better)" : " (worse)";
-  }
+  // The server says better or worse only where that is plain and the change
+  // is more than a ride-to-ride wobble.
+  const cls = row.verdict === "better" ? "an-good" : row.verdict === "worse" ? "an-bad" : "";
+  const verdict = row.verdict ? ` (${row.verdict})` : "";
   const sign = d > 0 ? "+" : MINUS;
-  let val = row.unit === "pct" ? `${num(Math.abs(d), 1)} pts` : FMT[row.unit](d);
-  if (Math.abs(d) < 1 && (row.unit === "watts" || row.unit === "bpm")) val = `${num(Math.abs(d), 1)} ${row.unit === "watts" ? "W" : "bpm"}`;
   const pct = row.delta_pct != null ? `<span class="an-pct">${row.delta_pct > 0 ? "+" : MINUS}${num(Math.abs(row.delta_pct), Math.abs(row.delta_pct) < 10 ? 1 : 0)}%</span>` : "";
   return `<td class="an-delta ${cls}" title="${sign}${esc(val)}${verdict}"><span class="an-arrow" aria-hidden="true">${d > 0 ? "▲" : "▼"}</span>${sign}${val}${pct}</td>`;
 }

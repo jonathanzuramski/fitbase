@@ -659,3 +659,77 @@ func TestAnalyticsTrends_CadenceWithoutPower(t *testing.T) {
 		t.Errorf("cadence = %+v, want 84 rpm from the one ride without power (the run's 170 doesn't count)", b)
 	}
 }
+
+// A change is taken between the numbers shown (IF and EF to two decimals,
+// RPE to one, watts and bpm whole), so the table never says 0.75 against
+// 0.75 changed by +0.00.
+func TestComparePeriods_DeltaBetweenShownNumbers(t *testing.T) {
+	d := newTestDB(t)
+	insertRides(t, d,
+		aRide("n", "2026-11-03", func(w *models.Workout) { w.IntensityFactor = f64(0.754) }),
+		aRide("o", "2026-10-03", func(w *models.Workout) { w.IntensityFactor = f64(0.751) }),
+		aRide("o2", "2026-10-04", func(w *models.Workout) { w.IntensityFactor = f64(0.751) }),
+	)
+	for id, rpe := range map[string]int{"n": 6, "o": 6, "o2": 7} {
+		if err := d.SaveWorkoutFeedback(id, iptr(rpe), ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c, err := d.ComparePeriods(novemberVsOctober(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row := rowOf(t, c, "avg_if"); row == nil || val(row.A) != 0.75 || val(row.B) != 0.75 || val(row.Delta) != 0 {
+		t.Errorf("IF row = %+v, want 0.75 against 0.75, no change", row)
+	}
+	if row := rowOf(t, c, "avg_rpe"); row == nil || val(row.B) != 6.5 || val(row.Delta) != -0.5 {
+		t.Errorf("RPE row = %+v, want 6 against 6.5, a change of -0.5", row)
+	}
+	if row := rowOf(t, c, "avg_np_watts"); row == nil || val(row.A) != math.Round(val(row.A)) {
+		t.Errorf("NP row = %+v, want whole watts", row)
+	}
+}
+
+// Decoupling is judged by its distance from zero: drifting -3% is worse
+// than +2%, not an improvement. Small moves get no verdict at all.
+func TestComparePeriods_Verdicts(t *testing.T) {
+	d := newTestDB(t)
+	insertRides(t, d,
+		aRide("n", "2026-11-08", lasting(2*3600), power(185, 139)),
+		aRide("o", "2026-10-08", lasting(2*3600), power(185, 147)),
+	)
+	if err := d.SaveWorkoutDecoupling("n", f64(-3)); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.SaveWorkoutDecoupling("o", f64(2)); err != nil {
+		t.Fatal(err)
+	}
+	c, err := d.ComparePeriods(novemberVsOctober(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row := rowOf(t, c, "decoupling_pct"); row == nil || row.Better != "closer_to_zero" || row.Verdict != "worse" {
+		t.Errorf("decoupling row = %+v, want closer_to_zero and worse (-3%% drifts further than +2%%)", row)
+	}
+	if row := rowOf(t, c, "hr_at_power_outdoor"); row == nil || row.Verdict != "better" {
+		t.Errorf("HR at power row = %+v, want better: 139 against 147 bpm", row)
+	}
+	if row := rowOf(t, c, "ef_outdoor"); row == nil || row.Verdict != "better" {
+		t.Errorf("EF row = %+v, want better", row)
+	}
+	if row := rowOf(t, c, "duration_secs"); row == nil || row.Verdict != "" {
+		t.Errorf("time row = %+v, want no verdict", row)
+	}
+}
+
+func TestComparePeriods_SmallChangeHasNoVerdict(t *testing.T) {
+	d := newTestDB(t)
+	insertRides(t, d, aRide("n", "2026-11-08", power(185, 140)), aRide("o", "2026-10-08", power(185, 141)))
+	c, err := d.ComparePeriods(novemberVsOctober(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row := rowOf(t, c, "hr_at_power_outdoor"); row == nil || row.Delta == nil || row.Verdict != "" {
+		t.Errorf("HR at power row = %+v, want a change (140 against 141) but no verdict: under 2%%", row)
+	}
+}

@@ -629,11 +629,41 @@ func periodStats(p timeutil.Period, rides []analyticsRide, scope string) models.
 	return s
 }
 
-// unitDigits is how many decimals each unit's values carry, so a delta is
-// taken between the numbers shown.
+// unitDigits is how many decimals each unit's values carry: as many as the
+// page shows (IF 0.76, EF 1.42, RPE 6.5, 182 W), so a delta is taken
+// between the numbers shown and never reads 0.75 against 0.75, +0.00.
+// Durations, distances and climbing keep their precision: the page shows
+// them converted (hours and minutes, miles or km) and takes their change
+// from the converted numbers.
 var unitDigits = map[string]int{
 	"duration_secs": 0, "distance_meters": 1, "elevation_meters": 1, "count": 0,
-	"tss": 1, "kj": 0, "if": 3, "watts": 1, "bpm": 1, "ef": 3, "pct": 1, "rpe": 2,
+	"tss": 0, "kj": 0, "if": 2, "watts": 0, "bpm": 0, "ef": 2, "pct": 1, "rpe": 1,
+}
+
+// verdict says whether a row's change is better or worse, where its Better
+// direction is plain and the change is more than a ride-to-ride wobble:
+// under 2%, or half a point for a percentage, gets none.
+func verdict(row models.ComparisonRow) string {
+	if row.Better == "" || row.A == nil || row.B == nil {
+		return ""
+	}
+	a, b := *row.A, *row.B
+	gain := a - b // how far it moved the better way
+	switch row.Better {
+	case "lower":
+		gain = b - a
+	case "closer_to_zero":
+		gain = math.Abs(b) - math.Abs(a)
+	}
+	switch {
+	case gain == 0,
+		row.Unit == "pct" && math.Abs(gain) < 0.5,
+		row.Unit != "pct" && b != 0 && math.Abs(gain/b) < 0.02:
+		return ""
+	case gain > 0:
+		return "better"
+	}
+	return "worse"
 }
 
 // comparisonRows lays the two periods side by side, one row per metric
@@ -658,6 +688,7 @@ func comparisonRows(a, b models.PeriodStats, refs matchRefs) []models.Comparison
 				row.DeltaPct = ptrFloat(round((*row.A-*row.B)/math.Abs(*row.B)*100, 1))
 			}
 		}
+		row.Verdict = verdict(row)
 		rows = append(rows, row)
 		return &rows[len(rows)-1]
 	}
@@ -704,7 +735,7 @@ func comparisonRows(a, b models.PeriodStats, refs matchRefs) []models.Comparison
 
 	addMarker("efficiency", "ef_outdoor", "EF · outdoor", "ef", "higher", a.EF.Outdoor, b.EF.Outdoor)
 	addMarker("efficiency", "ef_indoor", "EF · indoor", "ef", "higher", a.EF.Indoor, b.EF.Indoor)
-	addMarker("efficiency", "decoupling_pct", "decoupling, long rides", "pct", "lower", a.DecouplingPct, b.DecouplingPct)
+	addMarker("efficiency", "decoupling_pct", "decoupling, long rides", "pct", "closer_to_zero", a.DecouplingPct, b.DecouplingPct)
 
 	add("heart_rate", "avg_hr_bpm", "average HR", "bpm", "", a.AvgHRBPM, b.AvgHRBPM)
 	envName := [2]string{"outdoor", "indoor"}

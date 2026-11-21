@@ -158,9 +158,14 @@ type ComparisonRow struct {
 	Delta    *float64 `json:"delta,omitempty"`     // A − B, when both are present
 	DeltaPct *float64 `json:"delta_pct,omitempty"` // the change as a % of B (not for percentages)
 	// Better is "higher" or "lower" when that direction is plainly better —
-	// more power at a duration, lower HR at the same power — and empty when
-	// it isn't: more volume or intensity is neither better nor worse.
+	// more power at a duration, lower HR at the same power — or
+	// "closer_to_zero" for decoupling, where drift either way is worse. Empty
+	// when no direction is better: more volume or intensity is neither.
 	Better string `json:"better,omitempty"`
+	// Verdict is "better" or "worse" when Better applies and the change is
+	// more than a ride-to-ride wobble (2%, or half a point for a
+	// percentage); empty otherwise.
+	Verdict string `json:"verdict,omitempty"`
 	// RidesA and RidesB are how many rides an averaged marker is from.
 	RidesA *int `json:"rides_a,omitempty"`
 	RidesB *int `json:"rides_b,omitempty"`

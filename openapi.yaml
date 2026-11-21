@@ -1802,11 +1802,12 @@ components:
         key:   { type: string, example: hr_at_power_outdoor }
         label: { type: string, example: "HR at 185 W · outdoor" }
         unit:  { type: string, enum: [duration_secs, distance_meters, elevation_meters, count, tss, kj, if, watts, bpm, ef, pct, rpe] }
-        a:     { type: number, nullable: true }
+        a:     { type: number, nullable: true, description: "Rounded as shown: IF and EF to 2 decimals, RPE and percentages to 1, watts, bpm, TSS and kJ whole" }
         b:     { type: number, nullable: true }
         delta:     { type: number, description: "a − b, when both are present" }
         delta_pct: { type: number, description: "The change as a percentage of b; absent for percentages and when b is 0" }
-        better:    { type: string, enum: [higher, lower], description: "Present only when that direction is plainly better (power bests, EF, HR at matched power, decoupling). Volume and intensity have none." }
+        better:    { type: string, enum: [higher, lower, closer_to_zero], description: "Present only when that direction is plainly better: higher for power bests, EF and power at matched HR; lower for HR at matched power; closer_to_zero for decoupling, where drift either way is worse. Volume and intensity have none." }
+        verdict:   { type: string, enum: [better, worse], description: "Present when better applies and the change is more than a ride-to-ride wobble (2%, or half a point for a percentage)." }
         rides_a:   { type: integer, description: "How many rides an averaged marker is from" }
         rides_b:   { type: integer }
 
