@@ -637,3 +637,25 @@ func TestAnalyticsTrends_IndoorLineFollowsGeneralOverride(t *testing.T) {
 		}
 	}
 }
+
+// Cadence comes from a cadence sensor, not a power meter: a rider without
+// power still gets a cadence trend. A run's cadence (steps) never counts.
+func TestAnalyticsTrends_CadenceWithoutPower(t *testing.T) {
+	d := newTestDB(t)
+	now := time.Now().UTC()
+	today := timeutil.DateOf(now)
+	thisMonth := timeutil.Date(today.Year(), today.Month(), 1)
+	lastMonth := thisMonth.AddDate(0, -1, 0)
+	insertRides(t, d,
+		aRide("sensor", dayStr(lastMonth.AddDate(0, 0, 3)), noPower, func(w *models.Workout) { w.AvgCadenceRPM = iptr(84) }),
+		aRide("run", dayStr(lastMonth.AddDate(0, 0, 4)), sport("running"), noPower, func(w *models.Workout) { w.AvgCadenceRPM = iptr(170) }),
+	)
+	tr, err := d.AnalyticsTrends("1y", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := bucketByStart(tr, dayStr(lastMonth))
+	if b == nil || b.CadenceRPM.Outdoor == nil || b.CadenceRPM.Outdoor.Value != 84 || b.CadenceRPM.Outdoor.Rides != 1 {
+		t.Errorf("cadence = %+v, want 84 rpm from the one ride without power (the run's 170 doesn't count)", b)
+	}
+}

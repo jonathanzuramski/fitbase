@@ -169,6 +169,11 @@ func (db *DB) AnalyticsTrends(rangeKey string, now time.Time) (models.AnalyticsT
 		if r.RPE != nil {
 			acc.rpe.add(float64(*r.RPE))
 		}
+		// Cadence comes from a cadence sensor, power meter or not; only a
+		// ride's counts (a run's cadence is steps).
+		if r.Sport == "cycling" && r.Cadence != nil && *r.Cadence > 0 {
+			acc.cadence[r.env()].add(float64(*r.Cadence), r.Secs)
+		}
 		if r.power() {
 			if r.IF != nil {
 				acc.ifBands[fitness.IFBand(*r.IF)]++
@@ -177,9 +182,6 @@ func (db *DB) AnalyticsTrends(rangeKey string, now time.Time) (models.AnalyticsT
 				for z, secs := range r.PowerZones {
 					acc.zones[z] += secs
 				}
-			}
-			if r.Cadence != nil && *r.Cadence > 0 {
-				acc.cadence[r.env()].add(float64(*r.Cadence), r.Secs)
 			}
 			if ef, ok := r.ef(); ok {
 				acc.ef[r.env()].add(ef)
