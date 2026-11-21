@@ -590,3 +590,50 @@ func TestYearOverYear(t *testing.T) {
 		t.Errorf("all sports: %d years, want 2 (the run's year too)", len(all.Years))
 	}
 }
+
+// The indoor line is the FTP indoor rides are scored against
+// (GetFTPForRide), so a newer general entry takes it over: after a profile
+// change to 280 W, indoor rides are scored at 280, and the chart must not
+// keep drawing the older 230 W indoor entry to today.
+func TestAnalyticsTrends_IndoorLineFollowsGeneralOverride(t *testing.T) {
+	d := newTestDB(t)
+	now := time.Now().UTC()
+	today := timeutil.DateOf(now)
+	if err := d.LogFTPChangeAt(250, today.AddDate(0, -10, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.LogFTPChangeAtFor(230, today.AddDate(0, -9, 0), true); err != nil {
+		t.Fatal(err)
+	}
+	override := today.AddDate(0, -4, 0)
+	if err := d.LogFTPChangeAt(280, override); err != nil {
+		t.Fatal(err)
+	}
+	tr, err := d.AnalyticsTrends("1y", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := tr.FTP.Indoor
+	if len(in) < 3 {
+		t.Fatalf("indoor line = %+v, want 230 W, then 280 W from the general change, held to now", in)
+	}
+	if in[0].W != 230 || in[len(in)-1].W != 280 {
+		t.Errorf("indoor line runs %d W to %d W, want 230 W to 280 W", in[0].W, in[len(in)-1].W)
+	}
+	var stepAt int64
+	for _, p := range in {
+		if p.W == 280 {
+			stepAt = p.T
+			break
+		}
+	}
+	if stepAt != override.Unix() {
+		t.Errorf("indoor line steps to 280 W at %d, want the general change at %d", stepAt, override.Unix())
+	}
+	// Every indoor point agrees with how an indoor ride at that time is scored.
+	for _, p := range in {
+		if got := d.GetFTPForRide(time.Unix(p.T, 0), true); got != p.W {
+			t.Errorf("indoor line says %d W at %s; an indoor ride then is scored at %d W", p.W, time.Unix(p.T, 0).UTC(), got)
+		}
+	}
+}

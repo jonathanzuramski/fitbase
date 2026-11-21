@@ -420,8 +420,8 @@ func (db *DB) ftpTrend(from, today, now time.Time) (models.FTPTrend, error) {
 		return trend, err
 	}
 	start := time.Date(from.Year(), from.Month(), from.Day(), 0, 0, 0, 0, tz)
-	// Each line starts with the value in effect when the range opens, then its
-	// changes, then holds to now.
+	// The general line starts with the value in effect when the range opens,
+	// then its changes, then holds to now.
 	line := func(entries []FTPHistoryEntry) []models.FTPPoint {
 		pts := []models.FTPPoint{}
 		before := 0
@@ -444,7 +444,7 @@ func (db *DB) ftpTrend(from, today, now time.Time) (models.FTPTrend, error) {
 		return pts
 	}
 	trend.General = line(lines.general)
-	trend.Indoor = line(lines.indoor)
+	trend.Indoor = lines.indoorLine(start, now)
 
 	rows, err := db.Query(`
 		SELECT w.training_day, w.recorded_at, w.is_indoor, wpc.duration_secs, wpc.watts

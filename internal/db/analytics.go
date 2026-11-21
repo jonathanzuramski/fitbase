@@ -263,6 +263,43 @@ func (l ftpLines) generalEquivalent(watts int, t time.Time, indoor bool) float64
 	return float64(watts) * float64(general) / float64(line)
 }
 
+// indoorLine is the FTP indoor rides were scored against from start to now,
+// as chart steps: it begins when the first indoor entry takes effect (or at
+// start, if one already had), then is read with forRide at every indoor and
+// general change. A newer general entry outranks an older indoor one, so the
+// line follows it there rather than holding the stale indoor value. Repeated
+// values are dropped; the last holds to now. Empty without an indoor entry.
+func (l ftpLines) indoorLine(start, now time.Time) []models.FTPPoint {
+	pts := []models.FTPPoint{}
+	if len(l.indoor) == 0 || l.indoor[0].EffectiveFrom.After(now) {
+		return pts
+	}
+	first := l.indoor[0].EffectiveFrom
+	if first.Before(start) {
+		first = start
+	}
+	times := []time.Time{first}
+	for _, line := range [][]FTPHistoryEntry{l.indoor, l.general} {
+		for _, e := range line {
+			if e.EffectiveFrom.After(first) && !e.EffectiveFrom.After(now) {
+				times = append(times, e.EffectiveFrom)
+			}
+		}
+	}
+	slices.SortFunc(times, func(a, b time.Time) int { return a.Compare(b) })
+	for _, t := range times {
+		w := l.forRide(t, true)
+		if n := len(pts); w <= 0 || (n > 0 && pts[n-1].W == w) {
+			continue
+		}
+		pts = append(pts, models.FTPPoint{T: t.Unix(), W: w})
+	}
+	if len(pts) > 0 {
+		pts = append(pts, models.FTPPoint{T: now.Unix(), W: pts[len(pts)-1].W})
+	}
+	return pts
+}
+
 // ── Power bests ───────────────────────────────────────────────────────────────
 
 // cyclingBestsBetweenDays returns the best watts per stored duration across
