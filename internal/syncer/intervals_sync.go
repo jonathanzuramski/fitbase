@@ -251,24 +251,21 @@ func (s *IntervalsSource) SyncFTPHistory(ctx context.Context, onProgress func(ev
 		onProgress("ftpchanges", map[string]any{"count": len(changes)})
 	}
 
-	// Replace ftp_history with the intervals-derived change points.
+	// Replace ftp_history with the intervals-derived change points. Each
+	// general entry written moves the profile FTP along with it
+	// (LogFTPChangeAtFor), so it ends on the latest general FTP: the rider
+	// profile, the FTP check and the coach agree with what rides are scored
+	// against, and a profile save that re-submits it writes no history. That
+	// holds while the newest change is an indoor one nothing has confirmed
+	// yet, too: it sits on the indoor line, where GetFTPForRide gives it to
+	// indoor rides. The profile used to stay on an older FTP then, and every
+	// later profile save logged that FTP as a change, ending the indoor line.
 	if err := s.db.ClearFTPHistory(); err != nil {
 		return 0, fmt.Errorf("clear ftp history: %w", err)
 	}
 	for _, cp := range changes {
 		if err := s.db.LogFTPChangeAtFor(cp.ftp, cp.at, cp.indoor); err != nil {
 			slog.Warn("intervals ftp sync: insert history entry", "ftp", cp.ftp, "at", cp.at, "indoor", cp.indoor, "err", err)
-		}
-	}
-
-	// The profile FTP follows the history just written, so the rider profile,
-	// the FTP check and the coach agree with what rides are scored against.
-	// Not while the newest change is an indoor one that no outdoor ride has
-	// confirmed or contradicted, for a rider who has never shown a separate
-	// indoor FTP: it may be a new FTP or a new indoor one.
-	if lines.general > 0 && (lines.pending < 0 || lines.separateIndoor) {
-		if err := s.db.SetProfileFTP(lines.general); err != nil {
-			slog.Warn("intervals ftp sync: set profile ftp", "ftp", lines.general, "err", err)
 		}
 	}
 
@@ -299,7 +296,9 @@ func (s *IntervalsSource) SyncFTPHistory(ctx context.Context, onProgress func(ev
 //   - A change often shows up on an indoor ride first (an FTP test on the
 //     trainer). When the next outdoor ride carries the same FTP, that indoor
 //     point was a general change and moves to the general line; when it
-//     carries another, the indoor FTP is a separate one.
+//     carries another, the indoor FTP is a separate one. Until then it stays
+//     on the indoor line: indoor rides get it, outdoor rides and the profile
+//     keep the general FTP.
 type ftpLines struct {
 	changes []ftpChangePoint
 	// general and indoor are the latest FTP on each line; indoor is 0 when
@@ -309,9 +308,6 @@ type ftpLines struct {
 	// pending is the index of the indoor point logged since the last outdoor
 	// ride, or -1: no outdoor ride has confirmed or contradicted it yet.
 	pending int
-	// separateIndoor records that an outdoor ride has shown the rider's
-	// indoor FTP to be a separate one.
-	separateIndoor bool
 }
 
 type ftpChangePoint struct {
@@ -333,10 +329,7 @@ func (l *ftpLines) add(at time.Time, ftp int, indoor bool) {
 		l.sawOutdoor = true
 		if p := l.pending; p >= 0 {
 			l.pending = -1
-			switch {
-			case l.changes[p].ftp != ftp:
-				l.separateIndoor = true
-			case ftp != l.general:
+			if l.changes[p].ftp == ftp && ftp != l.general {
 				// The newest point (nothing is logged after a pending one).
 				l.changes[p].indoor = false
 				l.general, l.indoor = ftp, 0

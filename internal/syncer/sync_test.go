@@ -958,9 +958,7 @@ func TestSyncFTPHistory_IndoorLineAfterGeneralChange(t *testing.T) {
 }
 
 // The profile FTP follows the synced history, so the rider profile, the FTP
-// check and the coach agree with what rides are scored against. Not when the
-// newest change is an indoor one nothing has confirmed yet, for a rider
-// without a separate indoor FTP: it may be a new FTP or a new indoor one.
+// check and the coach agree with what rides are scored against.
 func TestSyncFTPHistory_ProfileFollowsHistory(t *testing.T) {
 	d := newSyncTestDB(t)
 	if err := d.UpdateAthlete(&models.Athlete{FTPWatts: 240, WeightKG: 75}); err != nil {
@@ -973,7 +971,16 @@ func TestSyncFTPHistory_ProfileFollowsHistory(t *testing.T) {
 	if got := d.GetFTPAtDate(time.Now()); got != 250 {
 		t.Errorf("effective FTP = %d, want 250", got)
 	}
+}
 
+// When the newest change is an indoor one nothing has confirmed yet, the
+// profile still takes the general FTP: the indoor value is on the indoor line,
+// where indoor rides get it. The sync used to leave the profile on the
+// rider's older 255, and the settings form re-submits the FTP with every
+// save, so a weight-only edit logged 255 as a general change effective now,
+// which ended the synced indoor line.
+func TestSyncFTPHistory_WeightOnlySaveAfterUnconfirmedIndoorChange(t *testing.T) {
+	d := newSyncTestDB(t)
 	if err := d.UpdateAthlete(&models.Athlete{FTPWatts: 255, WeightKG: 75}); err != nil {
 		t.Fatal(err)
 	}
@@ -984,7 +991,31 @@ func TestSyncFTPHistory_ProfileFollowsHistory(t *testing.T) {
 	if got := historyString(hist); got != "250 262i" {
 		t.Fatalf("history = %q, want 250 262i", got)
 	}
-	if a, _ := d.GetAthlete(); a.FTPWatts != 255 {
-		t.Errorf("profile FTP = %d, want the rider's 255 left alone", a.FTPWatts)
+	a, err := d.GetAthlete()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.FTPWatts != 250 {
+		t.Errorf("profile FTP = %d, want the general line's 250", a.FTPWatts)
+	}
+
+	// The settings form: the FTP it shows, and a new weight.
+	a.WeightKG = 74
+	if err := d.UpdateAthlete(a); err != nil {
+		t.Fatal(err)
+	}
+	after, err := d.AllFTPHistory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := historyString(after); got != "262i 250" { // newest first
+		t.Errorf("history after a weight-only save = %q, want it unchanged (262i 250)", got)
+	}
+	soon := time.Now().Add(time.Hour)
+	if got := d.GetFTPForRide(soon, true); got != 262 {
+		t.Errorf("indoor ride = %d, want the synced indoor 262", got)
+	}
+	if got := d.GetFTPForRide(soon, false); got != 250 {
+		t.Errorf("outdoor ride = %d, want 250", got)
 	}
 }

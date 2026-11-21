@@ -304,40 +304,81 @@ func TestGetFTPForRide_SetFTPReachesIndoorRides(t *testing.T) {
 	}
 }
 
-// Saving the profile with the FTP it shows makes that FTP the effective one,
-// even when it equals the stored profile value: a history synced from
-// intervals.icu (or the newest entry deleted) can say otherwise.
-func TestUpdateAthlete_SaveReconcilesWithHistory(t *testing.T) {
+// Deleting the newest FTP entry makes the one before it current, and the
+// profile follows: the settings form re-submits the FTP it shows with every
+// save, so a profile left on the deleted FTP would log it back as a change on
+// the next weight-only edit, or hold it as the FTP while rides use another.
+func TestDeleteFTPHistoryEntry_ProfileFollowsHistory(t *testing.T) {
 	d := newTestDB(t)
-	a := &models.Athlete{FTPWatts: 240, WeightKG: 80}
+	if err := d.LogFTPChangeAt(240, time.Now().AddDate(0, -1, 0)); err != nil {
+		t.Fatal(err)
+	}
+	a := &models.Athlete{FTPWatts: 260, WeightKG: 80}
+	if err := d.UpdateAthlete(a); err != nil { // a change: logs 260, effective now
+		t.Fatal(err)
+	}
+	h, err := d.AllFTPHistory()
+	if err != nil || len(h) != 2 || h[0].FTPWatts != 260 {
+		t.Fatalf("setup: history = %+v (err %v), want 260 then 240", h, err)
+	}
+	if err := d.DeleteFTPHistoryEntry(h[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	a, err = d.GetAthlete()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.FTPWatts != 240 {
+		t.Errorf("profile FTP after deleting the newest entry = %d, want 240", a.FTPWatts)
+	}
+
+	// A weight-only save re-submits that FTP: not a change.
+	a.WeightKG = 79
 	if err := d.UpdateAthlete(a); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.ClearFTPHistory(); err != nil {
+	if h, _ := d.AllFTPHistory(); len(h) != 1 {
+		t.Errorf("history after a weight-only save = %d entries, want 1", len(h))
+	}
+	if got := d.GetFTPAtDate(time.Now().Add(time.Hour)); got != 240 {
+		t.Errorf("effective FTP = %d, want 240", got)
+	}
+}
+
+// Saving the profile with the FTP it already has writes no history, even when
+// the history has another general FTP in effect now (a profile last saved
+// before syncs kept it in step, or a future-dated entry since come into
+// effect): the form re-submits the FTP with every save, a weight-only edit
+// too, and logging it there ended whatever the history made current, here the
+// indoor line.
+func TestUpdateAthlete_UnchangedFTPWritesNoHistory(t *testing.T) {
+	d := newTestDB(t)
+	now := time.Now()
+	if err := d.LogFTPChangeAt(250, now.AddDate(0, -2, 0)); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.LogFTPChangeAt(250, time.Now().AddDate(0, -1, 0)); err != nil {
+	if err := d.LogFTPChangeAtFor(262, now.AddDate(0, -1, 0), true); err != nil {
 		t.Fatal(err)
 	}
-	soon := time.Now().Add(2 * time.Second)
-	if got := d.GetFTPAtDate(soon); got != 250 {
-		t.Fatalf("setup: effective FTP = %d, want the history's 250", got)
+	if _, err := d.Exec("UPDATE athlete SET ftp_watts = 255 WHERE id = 1"); err != nil {
+		t.Fatal(err)
 	}
+	a, err := d.GetAthlete()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.WeightKG = 79
 	if err := d.UpdateAthlete(a); err != nil {
 		t.Fatal(err)
 	}
-	if got := d.GetFTPAtDate(soon); got != 240 {
-		t.Errorf("effective FTP after saving the profile's 240 = %d, want 240", got)
-	}
-	if h, _ := d.AllFTPHistory(); len(h) != 2 {
-		t.Errorf("history = %d entries, want 2", len(h))
-	}
-	// A second identical save is not a change.
-	if err := d.SetFTP(240); err != nil {
+	if err := d.SetFTP(255); err != nil {
 		t.Fatal(err)
 	}
 	if h, _ := d.AllFTPHistory(); len(h) != 2 {
-		t.Errorf("history after an unchanged save = %d entries, want 2", len(h))
+		t.Errorf("history after unchanged saves = %d entries, want 2", len(h))
+	}
+	if got := d.GetFTPForRide(now.Add(time.Hour), true); got != 262 {
+		t.Errorf("indoor ride = %d, want the indoor line's 262", got)
 	}
 }
 

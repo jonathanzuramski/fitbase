@@ -872,12 +872,17 @@ func (db *DB) UpdateAthlete(a *models.Athlete) error {
 	return db.logFTPIfChanged(previousFTP, a.FTPWatts)
 }
 
-// logFTPIfChanged logs an FTP history entry, effective now, when the FTP
-// changed, when there is no history yet (so the seeded default stops counting
-// as unset), or when the history says another FTP is in effect now (a synced
-// history, or the newest entry deleted): saving the FTP the profile shows
-// makes it the one in effect. Saving the profile used to log one on every
-// save, burying real changes among identical rows.
+// logFTPIfChanged logs an FTP history entry, effective now, when the rider
+// changed the FTP, or when there is no history yet (so the seeded default
+// stops counting as unset). Saving the profile used to log one on every save,
+// burying real changes among identical rows.
+//
+// The settings form re-submits the FTP with every save (a weight-only edit
+// too), so an unchanged FTP is never a change. It is the general FTP in
+// effect now: every history write that can move that FTP (a dated entry, so
+// the intervals.icu sync too, and deleting one) sets the profile to it
+// (syncProfileFTP). Logging it anyway, when the two disagreed, ended whatever
+// the history had made current, such as a synced indoor line.
 func (db *DB) logFTPIfChanged(previous, ftp int) error {
 	if ftp <= 0 {
 		return nil
@@ -886,17 +891,26 @@ func (db *DB) logFTPIfChanged(previous, ftp int) error {
 	if err != nil {
 		return err
 	}
-	if ftp != previous || !hasHistory || ftp != db.GetFTPAtDate(time.Now()) {
+	if ftp != previous || !hasHistory {
 		return db.LogFTPChange(ftp)
 	}
 	return nil
 }
 
-// SetProfileFTP sets the profile FTP without logging an FTP history entry,
-// for a sync that has just written the history it comes from.
-func (db *DB) SetProfileFTP(ftp int) error {
-	_, err := db.Exec(
-		"UPDATE athlete SET ftp_watts=?, updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id=1", ftp)
+// syncProfileFTP sets the profile FTP to the general FTP in effect now, so
+// the profile (the settings form, the FTP check, the coach's rider profile)
+// says what new rides are scored against. It writes no history. With no
+// general entry in effect now the profile stays as it is: GetFTPAtDate falls
+// back to it then. Indoor rides keep their indoor line (GetFTPForRide).
+// LogFTPChangeAtFor and DeleteFTPHistoryEntry call it.
+func (db *DB) syncProfileFTP() error {
+	ftp, err := db.generalFTPAt(time.Now())
+	if err != nil || ftp <= 0 {
+		return err
+	}
+	_, err = db.Exec(
+		"UPDATE athlete SET ftp_watts=?, updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id=1 AND ftp_watts != ?",
+		ftp, ftp)
 	return err
 }
 
@@ -958,16 +972,26 @@ func (db *DB) HasFTPHistory() (bool, error) {
 // (outdoor) line. Falls back to current athlete FTP if no history entry
 // predates t. Rides should use GetFTPForRide, which knows indoor FTP.
 func (db *DB) GetFTPAtDate(t time.Time) int {
-	var ftp int
-	err := db.QueryRow(`
-		SELECT ftp_watts FROM ftp_history
-		WHERE indoor = 0 AND effective_from <= ?
-		ORDER BY effective_from DESC
-		LIMIT 1`, t.UTC().Format(time.RFC3339)).Scan(&ftp)
+	ftp, err := db.generalFTPAt(t)
 	if err != nil || ftp <= 0 {
 		_ = db.QueryRow("SELECT ftp_watts FROM athlete WHERE id=1").Scan(&ftp)
 	}
 	return ftp
+}
+
+// generalFTPAt returns the latest general-line entry on or before t, or 0
+// when there is none.
+func (db *DB) generalFTPAt(t time.Time) (int, error) {
+	var ftp int
+	err := db.QueryRow(`
+		SELECT ftp_watts FROM ftp_history
+		WHERE indoor = 0 AND effective_from <= ?
+		ORDER BY effective_from DESC, id DESC
+		LIMIT 1`, t.UTC().Format(time.RFC3339)).Scan(&ftp)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return ftp, err
 }
 
 // GetFTPForRide returns the FTP a ride at t was trained against. An indoor
@@ -1004,13 +1028,20 @@ func (db *DB) LogFTPChangeAt(ftp int, at time.Time) error {
 }
 
 // LogFTPChangeAtFor records an FTP value with an explicit effective date on
-// the indoor line (indoor rides only) or the general line.
+// the indoor line (indoor rides only) or the general line. A general entry
+// that is now the one in effect (a backdated change added on the settings
+// page) becomes the profile FTP too (syncProfileFTP).
 func (db *DB) LogFTPChangeAtFor(ftp int, at time.Time, indoor bool) error {
-	_, err := db.Exec(
+	if _, err := db.Exec(
 		"INSERT INTO ftp_history (ftp_watts, effective_from, indoor) VALUES (?, ?, ?)",
 		ftp, at.UTC().Format(time.RFC3339), indoor,
-	)
-	return err
+	); err != nil {
+		return err
+	}
+	if indoor {
+		return nil
+	}
+	return db.syncProfileFTP()
 }
 
 // ClearFTPHistory deletes all rows from the FTP history table.
@@ -1050,10 +1081,14 @@ func (db *DB) AllFTPHistory() ([]FTPHistoryEntry, error) {
 	return out, rows.Err()
 }
 
-// DeleteFTPHistoryEntry removes a single FTP history row by id.
+// DeleteFTPHistoryEntry removes a single FTP history row by id and sets the
+// profile FTP to the general FTP now in effect: deleting the newest entry
+// makes the one before it current.
 func (db *DB) DeleteFTPHistoryEntry(id int64) error {
-	_, err := db.Exec("DELETE FROM ftp_history WHERE id = ?", id)
-	return err
+	if _, err := db.Exec("DELETE FROM ftp_history WHERE id = ?", id); err != nil {
+		return err
+	}
+	return db.syncProfileFTP()
 }
 
 // RecomputePowerLoad recomputes TSS and intensity factor for every workout that
