@@ -214,14 +214,53 @@ func (h *CoachHandler) toolAthleteProfile() (string, error) {
 	})
 }
 
+// coachReadinessReport is get_readiness's shape for the model.
+// ReadinessReport's ramp_rate is a 28-day CTL delta with no unit; the
+// planning rules are per week, so the model read a steady 3 CTL/week build
+// (ramp_rate 12) as "above ~8 CTL/week" and forced a recovery week.
+type coachReadinessReport struct {
+	Date                 string  `json:"date"`
+	AsOf                 string  `json:"as_of"`
+	Fitness              float64 `json:"fitness"`
+	Fatigue              float64 `json:"fatigue"`
+	Form                 float64 `json:"form"`
+	DaysSinceLastWorkout int     `json:"days_since_last_workout"`
+	CTLChange28d         float64 `json:"ctl_change_28d"`
+	CTLRampPerWeek       float64 `json:"ctl_ramp_per_week"`
+	Recommendation       string  `json:"recommendation"`
+	RecommendationDetail string  `json:"recommendation_detail"`
+	Note                 string  `json:"note"`
+}
+
+// coachReadiness maps the shared readiness report onto the coach's shape:
+// the ramp stated both as the raw 28-day change and per week, and the
+// display-only tone dropped.
+func coachReadiness(r models.ReadinessReport) coachReadinessReport {
+	return coachReadinessReport{
+		Date:                 r.Date,
+		AsOf:                 r.AsOf,
+		Fitness:              r.Fitness,
+		Fatigue:              r.Fatigue,
+		Form:                 r.Form,
+		DaysSinceLastWorkout: r.DaysSinceLastWorkout,
+		CTLChange28d:         r.RampRate,
+		CTLRampPerWeek:       round1(r.RampRate / 4),
+		Recommendation:       r.Recommendation,
+		RecommendationDetail: r.RecommendationDetail,
+		Note: "ctl_ramp_per_week is CTL points gained per week over the last 28 days (ctl_change_28d ÷ 4): about 3–5 is a steady build, 5–8 hard, above 8 aggressive, below 0 detraining. " +
+			"recommendation is the dashboard's badge — its load warning fires on any 28-day CTL rise above 10 (2.5/week) — so judge the build pace from ctl_ramp_per_week.",
+	}
+}
+
 // toolReadiness reuses the same core as GET /api/athlete/readiness — current
-// CTL/ATL/TSB, days since last workout, 28-day ramp rate, and a recommendation.
+// CTL/ATL/TSB, days since last workout, the CTL ramp and a recommendation —
+// in the coach's shape (coachReadiness), which states the ramp per week.
 func (h *CoachHandler) toolReadiness() (string, error) {
 	report, err := h.db.Readiness(h.db.AthleteLocation())
 	if err != nil {
 		return "", err
 	}
-	return jsonResult(report)
+	return jsonResult(coachReadiness(report))
 }
 
 func (h *CoachHandler) toolFitnessTrend(input json.RawMessage) (string, error) {

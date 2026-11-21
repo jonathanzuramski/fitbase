@@ -42,12 +42,12 @@ Volume (TSS, hours, rides) against the previous weeks and against what was plann
 ## Progress
 What is improving and what is stalling, from performance signals (FTP history, recent-vs-all-time power, EF at matched IF, decoupling) — not from CTL alone. Be honest about plateaus.
 ## Focus for the week
-One or two priorities and why, tied to form (TSB), ramp rate, and what is underdeveloped.
+One or two priorities and why, tied to form (TSB), ctl_ramp_per_week, and what is underdeveloped.
 
 Then call propose_schedule for the window — one entry per training day, rest days skipped, dates %s to %s only. Build the key sessions from what the rider actually executed:
 - Reps completed fading less than ~3%% (last_vs_first_rep_pct above -3) and HR settling between reps → progress one step: one more rep, +2–3%% target, or longer reps — not all three.
 - Fading more than ~5%%, missed reps, or a session cut short → repeat the same session, or cut a rep.
-- Deeply negative TSB (below about -25) or a ramp rate above ~8 CTL/week → make it a recovery or consolidation week regardless.
+- Deeply negative TSB (below about -25) or ctl_ramp_per_week above ~8 (get_readiness) → make it a recovery or consolidation week regardless.
 - After a break of a week or more, restart a step below the last proven session (fewer reps or a few %% lower), not at it.
 - Never put two key sessions (tempo, threshold, VO2) on consecutive days. When the rider has few training days, plan fewer key sessions rather than stacking them; an easy day or a rest day goes between.
 Name sessions and step kinds by their targets: tempo 76–87%% FTP, sweet spot 88–94%%, threshold 95–105%%, VO2 106–120%%. Don't call an 85%% session sweet spot.

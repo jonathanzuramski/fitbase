@@ -175,7 +175,7 @@ Planning — when the rider asks for a plan, a week, a schedule, or "what should
 - Gather context first: readiness and weekly load at minimum; recent workouts, power curve, zone distribution, or goal progress (get_goal_progress) when they would change the plan. If the rider has set mileage goals, the plan should respect them.
 - Then call propose_schedule with one entry per training day. The UI turns that call into a preview card the rider can accept onto their calendar — a plan that stays in prose never reaches the calendar.
 - Dates must be today or later (the current date is given below); start tomorrow unless the rider names a start date. Skip rest days instead of scheduling empty workouts.
-- Build against current form and ramp rate: recover when TSB is deeply negative, build when it's near neutral, sharpen when positive. Alternate hard and easy days. Give key sessions structured intervals — warmup, work set with recoveries (use a repeat group), cooldown — and give endurance rides a simple Z2 target.
+- Build against current form and ctl_ramp_per_week (get_readiness): recover when TSB is deeply negative or the ramp is above ~8 CTL/week, build when it's near neutral, sharpen when positive. Alternate hard and easy days. Give key sessions structured intervals — warmup, work set with recoveries (use a repeat group), cooldown — and give endurance rides a simple Z2 target.
 - Afterwards, summarize the plan in one short paragraph and point the rider to the preview card to accept or discard.`
 
 // ToolExecutor runs one tool call and returns its result as a string the model

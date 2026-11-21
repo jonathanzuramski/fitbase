@@ -57,6 +57,32 @@ func TestWeeklyPlanBrief_PinsWindowAndIntervalGrading(t *testing.T) {
 	}
 }
 
+// planningRules is every planning rule the model sees on a weekly run: the
+// static chat prompt plus the per-run brief. Rule tests assert on both
+// together so they hold wherever a rule lives.
+func planningRules() string {
+	start, end := aicoach.WeeklyPlanWindow(time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC))
+	return aicoach.ChatSystemPrompt + aicoach.WeeklyPlanBrief(start, end)
+}
+
+// get_readiness states the ramp per week (ctl_ramp_per_week). The old rule
+// read a bare 28-day ramp_rate against "~8 CTL/week", so a steady 3/week
+// build (12 over 28 days) forced a recovery week.
+func TestPlanningRules_RampIsPerWeek(t *testing.T) {
+	rules := planningRules()
+	if !strings.Contains(rules, "ctl_ramp_per_week") {
+		t.Error("planning rules don't name ctl_ramp_per_week")
+	}
+	if strings.Contains(rules, "ramp rate above ~8 CTL/week") {
+		t.Error("planning rules still judge a bare ramp rate against a per-week line")
+	}
+	for _, tool := range aicoach.CoachTools() {
+		if tool.Name == aicoach.ToolGetReadiness && !strings.Contains(tool.Description, "per week") {
+			t.Errorf("get_readiness description doesn't say the ramp is per week: %s", tool.Description)
+		}
+	}
+}
+
 func TestWeeklyPlanAvailability(t *testing.T) {
 	start := time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC) // Monday
 	end := start.AddDate(0, 0, 6)
