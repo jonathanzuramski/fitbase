@@ -66,8 +66,6 @@ func coachFixture(t *testing.T) *CoachHandler {
 	return h
 }
 
-// proposingWeek scripts the weekly playbook's shape: the model writes its
-// review and calls propose_schedule in one turn, then closes in the next.
 // firstPlanDay is the first day of a weekly plan generated now, the way the
 // handler computes it: tomorrow in the athlete's timezone, which is UTC for
 // the fixture (no timezone set). Using the machine's local "tomorrow" instead
@@ -77,6 +75,8 @@ func firstPlanDay() time.Time {
 	return start
 }
 
+// proposingWeek scripts the weekly playbook's shape: the model writes its
+// review and calls propose_schedule in one turn, then closes in the next.
 func proposingWeek(review, closing string) func(in aicoach.ChatTurnInput) (*aicoach.ChatTurnOutput, error) {
 	return func(in aicoach.ChatTurnInput) (*aicoach.ChatTurnOutput, error) {
 		if len(in.Rounds) > 0 {
@@ -151,6 +151,62 @@ func TestChat_HasNoWeeklyPlaybook(t *testing.T) {
 	}
 }
 
+// postChat sends one plain chat question and waits for the turn to finish.
+func postChat(t *testing.T, h *CoachHandler) aicoach.ChatTurnInput {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/coach/chat",
+		strings.NewReader(`{"messages":[{"role":"user","content":"Plan my next few days"}]}`))
+	rr := httptest.NewRecorder()
+	h.Chat(rr, req)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "event: done") {
+		t.Fatalf("chat failed: %d %s", rr.Code, rr.Body.String())
+	}
+	reqs := fakeCoach.requests()
+	if len(reqs) == 0 {
+		t.Fatal("the chat never reached the model")
+	}
+	return reqs[0]
+}
+
+// A plan made in chat sees the training days and hours the rider saved, as
+// a weekly run does.
+func TestChat_CarriesStandingAvailability(t *testing.T) {
+	h := coachFixture(t)
+	six := 6.0
+	if err := h.db.SaveWeeklyPlanPrefs(models.WeeklyPlanPrefs{Days: []string{"mon", "wed", "sat"}, WeeklyHours: &six}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := postChat(t, h).SystemContext
+	if !strings.Contains(ctx, "Mon, Wed, Sat") || !strings.Contains(ctx, "about 6 hours") {
+		t.Errorf("chat context lacks the rider's availability:\n%s", ctx)
+	}
+}
+
+func TestChat_NoAvailabilityWithDefaults(t *testing.T) {
+	h := coachFixture(t)
+	if ctx := postChat(t, h).SystemContext; strings.Contains(ctx, "standing availability") {
+		t.Errorf("default availability (every day, no budget) still stated:\n%s", ctx)
+	}
+}
+
+// A weekly run states availability by date and enforces it; the chat line,
+// by weekday and advisory, must not ride along.
+func TestGenerateWeeklyPlan_AvailabilityByDateOnly(t *testing.T) {
+	h := coachFixture(t)
+	six := 6.0
+	if err := h.db.SaveWeeklyPlanPrefs(models.WeeklyPlanPrefs{Days: append([]string(nil), models.WeekdayKeys...), WeeklyHours: &six}); err != nil {
+		t.Fatal(err)
+	}
+	fakeCoach.turn = proposingWeek("Review.", "Done.")
+	if _, err := h.generateWeeklyPlan(context.Background(), weeklyPlanRun{trigger: models.WeeklyPlanManual}, discardEvents); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	ctx := fakeCoach.requests()[0].SystemContext
+	if strings.Contains(ctx, "standing availability") || !strings.Contains(ctx, "Rider availability —") {
+		t.Errorf("weekly context should state availability by date only:\n%s", ctx)
+	}
+}
+
 // A revision replays the plan it revises and accumulates the rider's
 // constraints, so "no riding Wednesday" isn't forgotten by the next change.
 func TestGenerateWeeklyPlan_RevisionReplaysPlan(t *testing.T) {
@@ -165,20 +221,251 @@ func TestGenerateWeeklyPlan_RevisionReplaysPlan(t *testing.T) {
 	fakeCoach.mu.Lock()
 	fakeCoach.seen = nil
 	fakeCoach.mu.Unlock()
-	fakeCoach.turn = proposingWeek("Review two.", "Done.")
+	fakeCoach.turn = proposingWeek("Moved the long ride to Sunday.", "Nothing else changed.")
 	second, err := h.generateWeeklyPlan(context.Background(),
 		weeklyPlanRun{trigger: models.WeeklyPlanManual, notes: "move the long ride to Sunday", revise: &first}, discardEvents)
 	if err != nil {
 		t.Fatalf("revision: %v", err)
 	}
 
-	hist := fakeCoach.requests()[0].History
+	req := fakeCoach.requests()[0]
+	hist := req.History
 	if len(hist) != 3 || hist[0].Content != first.Request || hist[1].Content != first.ReviewMD ||
 		!strings.Contains(hist[2].Content, "move the long ride to Sunday") {
 		t.Fatalf("revision history = %+v, want [first request, first review, the change]", hist)
 	}
+	// The change carries the week it changes: the review never lists the
+	// workouts, so without them the coach rebuilt the week from scratch.
+	for _, want := range []string{
+		firstPlanDay().Format("Mon 2006-01-02"),
+		"3x10 tempo",
+		"45 min", // toModel sums the intervals: 3×(10+5) min
+		"3×(work 10:00 @ 86% + recovery 5:00 @ 50%)",
+	} {
+		if !strings.Contains(hist[2].Content, want) {
+			t.Errorf("revision message lacks %q:\n%s", want, hist[2].Content)
+		}
+	}
+	// The instructions agree with the user turn: change only what was asked,
+	// and no second review (the weekly brief's full gather and three sections).
+	if !strings.Contains(req.SystemContext, "Weekly plan revision") || strings.Contains(req.SystemContext, "Weekly plan request") ||
+		!strings.Contains(req.SystemContext, "Copy every session the change doesn't touch exactly as listed") {
+		t.Errorf("revision system context should carry the revision brief only:\n%s", req.SystemContext)
+	}
+	// The static prompt's Planning section, which weekly plans follow too,
+	// gathers recent rides "at minimum" and starts tomorrow; the revision
+	// context settles that its own gather and window win. Revised the day it
+	// was made, the week still starts tomorrow, so today isn't in it.
+	if !strings.Contains(req.System, "Gather context first") ||
+		!strings.Contains(req.SystemContext, `- "Gather context first": the week was built on that gather`) ||
+		!strings.Contains(req.SystemContext, `- "start tomorrow unless the rider names a start date": the plan covers what is left of the week, `+
+			first.WindowStart+" to "+first.WindowEnd+".") {
+		t.Errorf("revision context doesn't replace the Planning section's gather and start date:\n%s", req.SystemContext)
+	}
 	if !strings.Contains(second.Request, "no riding Wednesday") || !strings.Contains(second.Request, "long ride to Sunday") {
 		t.Errorf("revised request = %q, want both constraints", second.Request)
+	}
+	if strings.Contains(second.Request, "3×(") {
+		t.Errorf("revised request = %q — the replayed week must not accumulate into Request", second.Request)
+	}
+	// The stored review is the one revised, with the change note under it:
+	// the calendar shows it, and the next revision replays it.
+	if want := first.ReviewMD + "\n\n**Revised:** Moved the long ride to Sunday.\n\nNothing else changed."; second.ReviewMD != want {
+		t.Errorf("revised review = %q, want %q", second.ReviewMD, want)
+	}
+	if second.WindowStart != first.WindowStart || second.WindowEnd != first.WindowEnd {
+		t.Errorf("revised window = %s..%s, want the week revised (%s..%s)",
+			second.WindowStart, second.WindowEnd, first.WindowStart, first.WindowEnd)
+	}
+}
+
+// A revision on a later day changes what is left of the week: today's
+// session is presented as today's and stays in the plan (the window used to
+// restart tomorrow, which called it "in the past" and dropped it), and the
+// window keeps its last day. Descriptions are replayed so the model can send
+// them back unchanged.
+func TestGenerateWeeklyPlan_RevisionOnALaterDayKeepsToday(t *testing.T) {
+	h := coachFixture(t)
+	now := time.Now().In(h.db.AthleteLocation())
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	day := func(offset int) string { return today.AddDate(0, 0, offset).Format("2006-01-02") }
+	week, err := json.Marshal(draftPayload{Workouts: []plannedRequest{
+		{Date: day(-1), Title: "Yesterday's VO2", DurationSecs: 3600},
+		{Date: day(0), Title: "Sweet spot 3x12", Description: "Seated, 90 rpm.\nFuel before the second rep.", DurationSecs: 4500},
+		{Date: day(2), Title: "Long ride", DurationSecs: 10800},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prev := models.WeeklyPlan{
+		ID: "prev", Status: models.WeeklyPlanReady, Trigger: models.WeeklyPlanManual,
+		WindowStart: day(-2), WindowEnd: day(4),
+		Request: "Plan my week.", ReviewMD: "## How the last week went\nSolid.", WorkoutsJSON: string(week),
+	}
+
+	fakeCoach.turn = func(in aicoach.ChatTurnInput) (*aicoach.ChatTurnOutput, error) {
+		if len(in.Rounds) > 0 {
+			return &aicoach.ChatTurnOutput{Text: "Moved the long ride to the weekend."}, nil
+		}
+		args := `{"workouts":[{"date":"` + day(0) + `","title":"Sweet spot 3x12","description":"Seated, 90 rpm.\nFuel before the second rep.","duration_secs":4500},
+			{"date":"` + day(4) + `","title":"Long ride","duration_secs":10800}]}`
+		return &aicoach.ChatTurnOutput{Calls: []aicoach.ToolExchange{{ID: "p", Name: aicoach.ToolProposeSchedule, Input: json.RawMessage(args)}}}, nil
+	}
+	plan, err := h.generateWeeklyPlan(context.Background(),
+		weeklyPlanRun{trigger: models.WeeklyPlanManual, notes: "move the long ride to the weekend", revise: &prev}, discardEvents)
+	if err != nil {
+		t.Fatalf("revision: %v", err)
+	}
+
+	req := fakeCoach.requests()[0]
+	msg := req.History[2].Content
+	for _, want := range []string{
+		"- " + today.Format("Mon 2006-01-02") + " (today) · Sweet spot 3x12 · 75 min",
+		`description: "Seated, 90 rpm.\nFuel before the second rep."`,
+		"Long ride",
+		"Earlier in the week, now past and not part of this plan",
+		"- " + today.AddDate(0, 0, -1).Format("Mon 2006-01-02") + " · Yesterday's VO2 · 60 min",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("revision message lacks %q:\n%s", want, msg)
+		}
+	}
+	if !strings.Contains(req.SystemContext, "dates "+day(0)+" to "+day(4)+" only") ||
+		!strings.Contains(req.SystemContext, day(0)+" to "+day(4)+", today included.") {
+		t.Errorf("revision brief should cover today through the week's last day, in place of the start-tomorrow default:\n%s", req.SystemContext)
+	}
+	if plan.WindowStart != day(0) || plan.WindowEnd != day(4) {
+		t.Errorf("revised window = %s..%s, want %s..%s", plan.WindowStart, plan.WindowEnd, day(0), day(4))
+	}
+	ws, err := planWorkouts(&plan)
+	if err != nil || len(ws) != 2 || ws[0].PlannedDate.Format("2006-01-02") != day(0) {
+		t.Fatalf("revised week = %+v (err %v), want today's session kept and the long ride moved", ws, err)
+	}
+	if !strings.HasPrefix(plan.ReviewMD, prev.ReviewMD) || !strings.HasSuffix(plan.ReviewMD, "Moved the long ride to the weekend.") {
+		t.Errorf("revised review = %q, want the earlier review with the change note under it", plan.ReviewMD)
+	}
+}
+
+// A revision of a week that is already over plans a new week: the full brief
+// and a full review, not a change note on a review of the past week.
+func TestGenerateWeeklyPlan_RevisionOfAFinishedWeekPlansAfresh(t *testing.T) {
+	h := coachFixture(t)
+	now := time.Now().In(h.db.AthleteLocation())
+	prev := models.WeeklyPlan{
+		ID: "old", Status: models.WeeklyPlanReady, Trigger: models.WeeklyPlanManual,
+		WindowStart: now.AddDate(0, 0, -9).Format("2006-01-02"), WindowEnd: now.AddDate(0, 0, -3).Format("2006-01-02"),
+		Request: "Plan my week.", ReviewMD: "Old review.",
+	}
+	fakeCoach.turn = proposingWeek("## How the last week went\nNew review.", "Done.")
+	plan, err := h.generateWeeklyPlan(context.Background(),
+		weeklyPlanRun{trigger: models.WeeklyPlanManual, notes: "lighter please", revise: &prev}, discardEvents)
+	if err != nil {
+		t.Fatalf("revision: %v", err)
+	}
+	if ctx := fakeCoach.requests()[0].SystemContext; !strings.Contains(ctx, "Weekly plan request") || strings.Contains(ctx, "Weekly plan revision") {
+		t.Errorf("a finished week should get the full brief:\n%s", ctx)
+	}
+	if strings.Contains(plan.ReviewMD, "Old review.") || !strings.Contains(plan.ReviewMD, "New review.") {
+		t.Errorf("review = %q, want the new full review only", plan.ReviewMD)
+	}
+	if plan.WindowStart != firstPlanDay().Format("2006-01-02") {
+		t.Errorf("window start = %s, want tomorrow", plan.WindowStart)
+	}
+}
+
+// A revision made on a later day replays the sessions still ahead, with what
+// propose_schedule needs to send each one back unchanged, and then lists the
+// week's earlier sessions apart, as context: past, not to be proposed again,
+// but counted in the weekly total and for key sessions on consecutive days.
+func TestProposedWeekText_ListsEarlierSessionsApart(t *testing.T) {
+	start := time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC)
+	now := start.Add(9 * time.Hour)
+	tss, ifactor := 55.0, 0.72
+	hard, easy := 115, 50
+	vo2 := []models.PlannedInterval{{Repeat: 5, Steps: []models.PlannedInterval{
+		{Kind: "work", DurationSecs: 240, TargetPctFTP: &hard}, {Kind: "recovery", DurationSecs: 240, TargetPctFTP: &easy}}}}
+	wk := planWeek{
+		ahead: []models.PlannedWorkout{
+			{PlannedDate: start, Title: "Endurance Z2", Sport: "cycling", DurationSecs: 5400, TSS: &tss, IntensityFactor: &ifactor,
+				Description: `Keep it "conversational".`,
+				Intervals:   []models.PlannedInterval{{Kind: "endurance", DurationSecs: 5400, TargetZone: "Z2"}}},
+			{PlannedDate: start.AddDate(0, 0, 2), Title: "Easy run", Sport: "running", DurationSecs: 1830},
+		},
+		earlier: []models.PlannedWorkout{
+			{PlannedDate: start.AddDate(0, 0, -1), Title: "Yesterday's VO2", Sport: "cycling", DurationSecs: 2400,
+				Description: "Not replayed.", Intervals: vo2},
+		},
+	}
+	got := proposedWeekText(wk, now)
+	const header = "Earlier in the week, now past and not part of this plan. Don't propose them again"
+	for _, want := range []string{
+		"- Tue 2026-11-10 (today) · Endurance Z2 · 90 min · ~55 TSS · IF 0.72 · endurance 90:00 @ Z2\n" +
+			`  description: "Keep it \"conversational\"."`,
+		"- Thu 2026-11-12 · Easy run · running · 30 min 30 s",
+		header,
+		"count them in the weekly total and when checking for key sessions on consecutive days",
+		"- Mon 2026-11-09 · Yesterday's VO2 · 40 min · 5×(work 4:00 @ 115% + recovery 4:00 @ 50%)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("proposed week lacks %q:\n%s", want, got)
+		}
+	}
+	if i := strings.Index(got, header); i < 0 || strings.Index(got, "Yesterday's VO2") < i || strings.Index(got, "Easy run") > i {
+		t.Errorf("earlier sessions should follow the sessions ahead, under their own header:\n%s", got)
+	}
+	if strings.Contains(got, "Not replayed.") {
+		t.Errorf("an earlier session's description was replayed, as if to be sent back:\n%s", got)
+	}
+
+	onlyEarlier := proposedWeekText(planWeek{earlier: wk.earlier}, now)
+	if !strings.HasPrefix(onlyEarlier, "(no sessions left in it)\n\n"+header) {
+		t.Errorf("only earlier sessions: got\n%s", onlyEarlier)
+	}
+	if got := proposedWeekText(planWeek{}, now); got != "(no sessions left in it)" {
+		t.Errorf("empty week: got %q", got)
+	}
+}
+
+// readPlanWeek splits the revised plan at the window, and keeps the earlier
+// sessions a revision of its own carried: a second later-day revision of the
+// same week still sees, and counts, the week's first days.
+func TestReadPlanWeek_KeepsEarlierSessionsAcrossRevisions(t *testing.T) {
+	js, err := json.Marshal(weeklyPlanPayload{
+		Workouts: []plannedRequest{
+			{Date: "2026-11-11", Title: "Tempo", DurationSecs: 3600},
+			{Date: "2026-11-10", Title: "VO2", DurationSecs: 2700},
+			{Date: "2026-11-13", Title: "Long ride", DurationSecs: 10800},
+		},
+		Earlier: []plannedRequest{{Date: "2026-11-09", Title: "Endurance", DurationSecs: 5400}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &models.WeeklyPlan{WorkoutsJSON: string(js)}
+	start := time.Date(2026, 11, 11, 0, 0, 0, 0, time.UTC)
+	wk, err := readPlanWeek(p, start, start.AddDate(0, 0, 4))
+	if err != nil {
+		t.Fatal(err)
+	}
+	titles := func(ws []models.PlannedWorkout) string {
+		var out []string
+		for _, w := range ws {
+			out = append(out, w.Title)
+		}
+		return strings.Join(out, ", ")
+	}
+	if got := titles(wk.ahead); got != "Tempo, Long ride" {
+		t.Errorf("ahead = %s, want Tempo, Long ride", got)
+	}
+	if got := titles(wk.earlier); got != "Endurance, VO2" {
+		t.Errorf("earlier = %s, want Endurance, VO2 (oldest first)", got)
+	}
+	if len(wk.carry) != 2 || wk.earlierSecs() != 5400+2700 {
+		t.Errorf("carry = %+v, earlierSecs = %d; want both earlier sessions, 8100 s", wk.carry, wk.earlierSecs())
+	}
+	// What the calendar shows and accepting adds is the proposed week only.
+	if ws, err := planWorkouts(p); err != nil || len(ws) != 3 {
+		t.Errorf("planWorkouts = %d workouts (err %v), want the 3 proposed, not the carried one", len(ws), err)
 	}
 }
 
@@ -413,6 +700,101 @@ func TestPlanAvailabilityCheck(t *testing.T) {
 	if err := a.check([]models.PlannedWorkout{{Title: "Z2", PlannedDate: thu, DurationSecs: 9 * 3600}}); err == nil || !strings.Contains(err.Error(), "budget") {
 		t.Errorf("9h on an 8h budget: err = %v, want a budget rejection", err)
 	}
+
+	// A revision made on a later day proposes only the days left; the budget
+	// is the week's, so the earlier sessions' time counts.
+	revising := &planAvailability{prefs: a.prefs, earlierSecs: 6 * 3600}
+	if err := revising.check([]models.PlannedWorkout{{Title: "Z2", PlannedDate: thu, DurationSecs: 2 * 3600}}); err != nil {
+		t.Errorf("a week exactly on budget, earlier sessions included, rejected: %v", err)
+	}
+	err = revising.check([]models.PlannedWorkout{{Title: "Z2", PlannedDate: thu, DurationSecs: 3 * 3600}})
+	if err == nil || !strings.Contains(err.Error(), "the week comes to 9.0 h") || !strings.Contains(err.Error(), "budget is 8 h") {
+		t.Errorf("3h left in a week with 6h behind it, on an 8h budget: err = %v, want a rejection counting the week", err)
+	}
+	spent := &planAvailability{prefs: a.prefs, earlierSecs: 9 * 3600}
+	err = spent.check([]models.PlannedWorkout{{Title: "Z2", PlannedDate: thu, DurationSecs: 1800}})
+	if err == nil || !strings.Contains(err.Error(), "no session fits") {
+		t.Errorf("earlier sessions over the budget: err = %v, want a rejection that says trimming can't fit", err)
+	}
+	noBudget := &planAvailability{prefs: models.WeeklyPlanPrefs{Days: models.WeekdayKeys}, earlierSecs: 9 * 3600}
+	if err := noBudget.check([]models.PlannedWorkout{{Title: "Z2", PlannedDate: thu, DurationSecs: 3600}}); err != nil {
+		t.Errorf("no budget set: err = %v, want none", err)
+	}
+}
+
+// End to end, the reviewer's case: a 3 h week whose first day held a 2 h
+// ride, revised later in the week to add 90 minutes. The days left came to
+// 2.5 h, which fit the whole budget on their own, so the stored week was
+// 4.5 h. propose_schedule now counts the earlier session, the prompt says
+// what it leaves, the message lists it, and the revised plan keeps it for
+// the next revision.
+func TestGenerateWeeklyPlan_RevisionCountsTheWeeksEarlierSessions(t *testing.T) {
+	h := coachFixture(t)
+	three := 3.0
+	if err := h.db.SaveWeeklyPlanPrefs(models.WeeklyPlanPrefs{Days: append([]string(nil), models.WeekdayKeys...), WeeklyHours: &three}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().In(h.db.AthleteLocation())
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	day := func(offset int) string { return today.AddDate(0, 0, offset).Format("2006-01-02") }
+	week, err := json.Marshal(draftPayload{Workouts: []plannedRequest{
+		{Date: day(-2), Title: "Long ride", DurationSecs: 7200},
+		{Date: day(0), Title: "Spin", DurationSecs: 1800},
+		{Date: day(2), Title: "Spin", DurationSecs: 1800},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prev := models.WeeklyPlan{
+		ID: "prev", Status: models.WeeklyPlanReady, Trigger: models.WeeklyPlanManual,
+		WindowStart: day(-2), WindowEnd: day(4),
+		Request: "Plan my week.", ReviewMD: "Review.", WorkoutsJSON: string(week),
+	}
+
+	propose := func(sessions string) *aicoach.ChatTurnOutput {
+		return &aicoach.ChatTurnOutput{Calls: []aicoach.ToolExchange{{ID: "p", Name: aicoach.ToolProposeSchedule,
+			Input: json.RawMessage(`{"workouts":[` + sessions + `]}`)}}}
+	}
+	spin := func(offset int) string {
+		return `{"date":"` + day(offset) + `","title":"Spin","duration_secs":1800}`
+	}
+	var firstResult string
+	fakeCoach.turn = func(in aicoach.ChatTurnInput) (*aicoach.ChatTurnOutput, error) {
+		switch len(in.Rounds) {
+		case 0: // the days left as asked: 2.5 h, under 3 h on their own
+			return propose(spin(0) + `,{"date":"` + day(1) + `","title":"Added ride","duration_secs":5400},` + spin(2)), nil
+		case 1:
+			firstResult = in.Rounds[0].Exchanges[0].Result
+			return propose(spin(0) + `,{"date":"` + day(1) + `","title":"Added ride","duration_secs":2700}`), nil
+		default:
+			return &aicoach.ChatTurnOutput{Text: "Added 45 minutes tomorrow and dropped the second spin: 3.25 h for the week."}, nil
+		}
+	}
+	plan, err := h.generateWeeklyPlan(context.Background(),
+		weeklyPlanRun{trigger: models.WeeklyPlanManual, notes: "add a 90 min ride tomorrow", revise: &prev}, discardEvents)
+	if err != nil {
+		t.Fatalf("revision: %v", err)
+	}
+
+	if !strings.Contains(firstResult, "the week comes to 4.5 h") || !strings.Contains(firstResult, "budget is 3 h") {
+		t.Errorf("the 4.5 h week passed propose_schedule; first result = %s", firstResult)
+	}
+	req := fakeCoach.requests()[0]
+	if !strings.Contains(req.SystemContext, "earlier sessions take 2 h") || !strings.Contains(req.SystemContext, "up to 1.3 h for these days") {
+		t.Errorf("the availability should say what the earlier session leaves of the budget:\n%s", req.SystemContext)
+	}
+	if msg := req.History[2].Content; !strings.Contains(msg, "- "+today.AddDate(0, 0, -2).Format("Mon 2006-01-02")+" · Long ride · 120 min") {
+		t.Errorf("the revision message should list the earlier session with its time:\n%s", msg)
+	}
+	ws, err := planWorkouts(&plan)
+	if err != nil || len(ws) != 2 || ws[1].DurationSecs != 2700 {
+		t.Fatalf("revised week = %+v (err %v), want the trimmed proposal", ws, err)
+	}
+	// The next revision of this plan still counts the long ride.
+	next, err := readPlanWeek(&plan, today.AddDate(0, 0, 1), today.AddDate(0, 0, 4))
+	if err != nil || next.earlierSecs() != 7200+1800 || len(next.ahead) != 1 {
+		t.Errorf("a revision tomorrow sees earlier %+v (%d s, err %v), want the long ride and today's spin", next.earlier, next.earlierSecs(), err)
+	}
 }
 
 // End to end: the model books a day the rider unchecked, propose_schedule
@@ -467,6 +849,92 @@ func TestGenerateWeeklyPlan_EnforcesTrainingDays(t *testing.T) {
 	}
 }
 
+// ── Proposal dates ───────────────────────────────────────────────────────────
+
+// proposeOne is propose_schedule's input for a single one-hour ride on day.
+func proposeOne(day time.Time) json.RawMessage {
+	return json.RawMessage(`{"workouts":[{"date":"` + day.Format("2006-01-02") + `","title":"Z2","duration_secs":3600}]}`)
+}
+
+// Accepting a proposal deletes coach entries on every proposed date, so a
+// past date would erase the plan a finished ride is graded against.
+func TestToolProposeSchedule_RejectsPastDates(t *testing.T) {
+	h := coachFixture(t)
+	now := time.Now().In(h.db.AthleteLocation())
+	captured := 0
+	ev := toolEvents{Capture: func([]plannedRequest) string { captured++; return "x" }}
+
+	_, err := h.toolProposeSchedule(proposeOne(now.AddDate(0, 0, -1)), ev)
+	if err == nil || !strings.Contains(err.Error(), "before today") || !strings.Contains(err.Error(), now.Format("2006-01-02")) {
+		t.Errorf("yesterday: err = %v, want a before-today rejection naming today", err)
+	}
+	if captured != 0 {
+		t.Errorf("a rejected proposal was captured %d time(s)", captured)
+	}
+	if _, err := h.toolProposeSchedule(proposeOne(now), ev); err != nil {
+		t.Errorf("today rejected: %v", err)
+	}
+	if _, err := h.toolProposeSchedule(proposeOne(now.AddDate(0, 0, 1)), ev); err != nil {
+		t.Errorf("tomorrow rejected: %v", err)
+	}
+	if captured != 2 {
+		t.Errorf("captured = %d, want 2 (today and tomorrow)", captured)
+	}
+}
+
+func TestToolProposeSchedule_EnforcesPlanWindow(t *testing.T) {
+	h := coachFixture(t)
+	now := time.Now().In(h.db.AthleteLocation())
+	start, end := aicoach.WeeklyPlanWindow(now)
+	ev := toolEvents{
+		Capture: func([]plannedRequest) string { return "x" },
+		Window:  &planWindow{Start: start.Format("2006-01-02"), End: end.Format("2006-01-02")},
+	}
+
+	_, err := h.toolProposeSchedule(proposeOne(end.AddDate(0, 0, 1)), ev)
+	if err == nil || !strings.Contains(err.Error(), "outside the plan window") ||
+		!strings.Contains(err.Error(), ev.Window.Start) || !strings.Contains(err.Error(), ev.Window.End) {
+		t.Errorf("day after the window: err = %v, want a window rejection naming both ends", err)
+	}
+	if _, err := h.toolProposeSchedule(proposeOne(start), ev); err != nil {
+		t.Errorf("first day of the window rejected: %v", err)
+	}
+}
+
+// End to end: a weekly run that proposes a day past its window gets the
+// reason back, re-plans, and stores only the in-window day.
+func TestGenerateWeeklyPlan_EnforcesWindow(t *testing.T) {
+	h := coachFixture(t)
+	start, end := aicoach.WeeklyPlanWindow(time.Now().In(h.db.AthleteLocation()))
+	propose := func(day time.Time) *aicoach.ChatTurnOutput {
+		return &aicoach.ChatTurnOutput{Calls: []aicoach.ToolExchange{{ID: "p", Name: aicoach.ToolProposeSchedule, Input: proposeOne(day)}}}
+	}
+	var firstResult string
+	fakeCoach.turn = func(in aicoach.ChatTurnInput) (*aicoach.ChatTurnOutput, error) {
+		switch len(in.Rounds) {
+		case 0:
+			return propose(end.AddDate(0, 0, 1)), nil
+		case 1:
+			firstResult = in.Rounds[0].Exchanges[0].Result
+			return propose(start), nil
+		default:
+			return &aicoach.ChatTurnOutput{Text: "Fixed the dates."}, nil
+		}
+	}
+
+	plan, err := h.generateWeeklyPlan(context.Background(), weeklyPlanRun{trigger: models.WeeklyPlanManual}, discardEvents)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if !strings.Contains(firstResult, "outside the plan window") {
+		t.Errorf("first proposal's tool result = %s, want a window error for the model", firstResult)
+	}
+	ws, err := planWorkouts(&plan)
+	if err != nil || len(ws) != 1 || ws[0].PlannedDate.Format("2006-01-02") != start.Format("2006-01-02") {
+		t.Errorf("stored week = %+v (err %v), want one workout on %s", ws, err, start.Format("2006-01-02"))
+	}
+}
+
 func TestWeeklyPlanSetPreferences(t *testing.T) {
 	h := coachFixture(t)
 	put := func(body string) (int, models.WeeklyPlanPrefs) {
@@ -501,5 +969,16 @@ func TestWeeklyPlanPrefsDefaultToEveryDay(t *testing.T) {
 	p, err := h.db.GetWeeklyPlanPrefs()
 	if err != nil || len(p.Days) != 7 || p.WeeklyHours != nil {
 		t.Errorf("defaults = %+v (err %v), want all 7 days and no budget", p, err)
+	}
+}
+
+// A revision run that only called propose_schedule writes no change note: the
+// stored review stays the previous one instead of gaining an empty heading.
+func TestRevisedReview_EmptyNoteAddsNoHeading(t *testing.T) {
+	if got := revisedReview("## Review\n\nBody.\n", "  "); got != "## Review\n\nBody." {
+		t.Errorf("empty note: got %q", got)
+	}
+	if got := revisedReview("## Review", "Moved the long ride to Sunday."); got != "## Review\n\n**Revised:** Moved the long ride to Sunday." {
+		t.Errorf("with a note: got %q", got)
 	}
 }

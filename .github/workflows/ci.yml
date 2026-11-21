@@ -3,8 +3,9 @@ name: CI
 on:
   push:
     branches: [main]
+  # Every PR, not just those into main: a stacked PR targets the branch
+  # below it and would otherwise get no checks until it lands there.
   pull_request:
-    branches: [main]
 
 permissions:
   contents: read

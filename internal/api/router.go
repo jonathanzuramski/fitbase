@@ -30,6 +30,8 @@ func NewRouter(h *Handler, dropbox *DropboxHandler, intervalsH *IntervalsHandler
 			r.Get("/download", h.DownloadFIT)
 			r.Get("/route", h.GetWorkoutRoute)
 			r.Get("/achievements", h.GetWorkoutAchievements)
+			r.Get("/feedback", h.GetWorkoutFeedback)
+			r.Put("/feedback", h.SetWorkoutFeedback)
 			r.Delete("/", h.DeleteWorkout)
 		})
 
@@ -39,6 +41,9 @@ func NewRouter(h *Handler, dropbox *DropboxHandler, intervalsH *IntervalsHandler
 			r.Get("/zones", h.GetAthleteZones)
 			r.Get("/power-curve", h.GetPowerCurve)
 			r.Get("/readiness", h.GetReadiness)
+			r.Put("/ftp", h.SetFTP)
+			r.Get("/ftp-check", h.GetFTPCheck)
+			r.Post("/ftp-check/dismiss", h.DismissFTPCheck)
 		})
 
 		r.Get("/fitness", h.GetFitness)

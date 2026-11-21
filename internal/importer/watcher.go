@@ -165,6 +165,7 @@ func (imp *Importer) Import(path string) (string, error) {
 			imp.removeWatchFile(path)
 			return "", nil
 		}
+		ftp := imp.scoreAgainstRideFTP(&result.Workout, athlete.FTPWatts)
 
 		// Archive before inserting: a workout must never exist in the DB without
 		// its archived FIT file (the source of truth for rebuilds). On failure
@@ -183,9 +184,9 @@ func (imp *Importer) Import(path string) (string, error) {
 		{
 			var pz []models.PowerZone
 			ssLow, ssHigh := 0, 0
-			if athlete.FTPWatts > 0 {
-				pz = fitness.PowerZones(athlete.FTPWatts)[:7]
-				ssLow, ssHigh = fitness.SweetSpotBand(athlete.FTPWatts)
+			if ftp > 0 {
+				pz = fitness.PowerZones(ftp)[:7]
+				ssLow, ssHigh = fitness.SweetSpotBand(ftp)
 			}
 			// Not gated on ThresholdHR: a rider can configure custom HR zone
 			// bounds without ever setting an LTHR, and every display path
@@ -319,6 +320,25 @@ func (imp *Importer) AllImportedFilenames() (map[string]struct{}, error) {
 	return imp.db.AllImportedFilenames()
 }
 
+// scoreAgainstRideFTP rescores a parsed ride's IF and power TSS against the
+// FTP it was trained against, and returns that FTP for its zone times.
+// fitparser scores against the profile FTP, before the ride's date and indoor
+// flag are known; the TSS recompute and the coach use GetFTPForRide (the FTP
+// in effect on the ride's date, the indoor line for an indoor ride), so a new
+// indoor ride's TSS disagreed with its %FTP until a manual FTP sync.
+func (imp *Importer) scoreAgainstRideFTP(w *models.Workout, profileFTP int) int {
+	ftp := imp.db.GetFTPForRide(w.RecordedAt, w.IsIndoor)
+	if ftp <= 0 {
+		ftp = profileFTP
+	}
+	if w.NormalizedPower != nil && ftp > 0 && ftp != profileFTP {
+		np, f := *w.NormalizedPower, float64(ftp)
+		ifactor, tss := fitness.IntensityFactor(np, f), fitness.PowerTSS(w.DurationSecs, np, f)
+		w.IntensityFactor, w.TSS = &ifactor, &tss
+	}
+	return ftp
+}
+
 // ImportBytes parses and stores a FIT file from raw bytes.
 func (imp *Importer) ImportBytes(data []byte, filename string) (string, error) {
 	sum := sha256.Sum256(data)
@@ -371,6 +391,7 @@ func (imp *Importer) ImportBytes(data []byte, filename string) (string, error) {
 			_ = imp.db.MarkImported(hash, filename)
 			return "", nil
 		}
+		ftp := imp.scoreAgainstRideFTP(&result.Workout, athlete.FTPWatts)
 
 		// Archive before inserting so a workout never lands in the DB without its
 		// archived FIT file (the source of truth for rebuilds). See Import.
@@ -388,9 +409,9 @@ func (imp *Importer) ImportBytes(data []byte, filename string) (string, error) {
 		{
 			var pz []models.PowerZone
 			ssLow, ssHigh := 0, 0
-			if athlete.FTPWatts > 0 {
-				pz = fitness.PowerZones(athlete.FTPWatts)[:7]
-				ssLow, ssHigh = fitness.SweetSpotBand(athlete.FTPWatts)
+			if ftp > 0 {
+				pz = fitness.PowerZones(ftp)[:7]
+				ssLow, ssHigh = fitness.SweetSpotBand(ftp)
 			}
 			// Not gated on ThresholdHR: a rider can configure custom HR zone
 			// bounds without ever setting an LTHR, and every display path
@@ -524,7 +545,7 @@ func (imp *Importer) BackfillSweetSpotZone() {
 		if err != nil || w == nil {
 			continue
 		}
-		ftp := imp.db.GetFTPAtDate(w.RecordedAt)
+		ftp := imp.db.GetFTPForRide(w.RecordedAt, w.IsIndoor)
 		ssLow, ssHigh := fitness.SweetSpotBand(ftp)
 		if ssLow == 0 || ssHigh == 0 {
 			// No FTP at workout time — store 0 so we don't keep retrying.

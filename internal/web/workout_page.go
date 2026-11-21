@@ -1,6 +1,7 @@
 package web
 
 import (
+	"math"
 	"net/http"
 
 	"github.com/fitbase/fitbase/internal/fitness"
@@ -16,14 +17,18 @@ type workoutView struct {
 	Calories    float64
 	EFTP        float64
 	EFTPRounded int
+	// ShowEFTP: the ride's eFTP (95% of its best 20 minutes) only says
+	// something about FTP when the ride was hard; from an easy ride it is
+	// just a low number next to the real FTP.
+	ShowEFTP    bool
 	MaxCadence  *int
 	MaxPower1s  *int
 	VI          float64
 	EF          float64
 	Fitness     models.FitnessPoint
 	FTP         int
+	FTPIndoor   bool // FTP came from the indoor line (it differs from the general one)
 	ThresholdHR int
-	WeightKG    float64
 
 	AllTimeCurve map[int]models.AllTimeBest
 	WorkoutCurve map[int]int
@@ -35,6 +40,12 @@ type workoutView struct {
 	RouteBestTimeID  string
 	RouteBestPowerID string
 	Achievements     []models.Achievement
+
+	// Ride is what the ride was: kind, headline, intervals, planned workout.
+	Ride rideSummary
+	// Feedback is how the rider says it felt; RPEScale renders the 1–10 picker.
+	Feedback models.WorkoutFeedback
+	RPEScale []rpeOption
 
 	PowerZoneSecs   *[7]int
 	HRZoneSecs      *[5]int
@@ -99,7 +110,7 @@ func (th *templateHandler) workout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// FTP at ride time — used for zone coloring and metric display.
-	ftpAtTime := th.db.GetFTPAtDate(workout.RecordedAt)
+	ftpAtTime := th.db.GetFTPForRide(workout.RecordedAt, workout.IsIndoor)
 
 	// Zone times — fetched from DB (computed at import); fall back to on-the-fly.
 	powerZoneSecs, hrZoneSecs, _, _ := th.db.GetZoneTimes(workout.ID)
@@ -113,10 +124,12 @@ func (th *templateHandler) workout(w http.ResponseWriter, r *http.Request) {
 
 	hrZones := fitness.ResolveHRZones(athlete)
 
-	// FTP detection: flag if eFTP from this workout exceeds current FTP.
+	// FTP detection: flag a ride whose eFTP clearly beats the current FTP,
+	// on the same bar as the dashboard's FTP check (a watt or two over is
+	// noise, not a new FTP).
 	var ftpDetected bool
 	var ftpOld int
-	if eftpF > 0 && int(eftpF) > athlete.FTPWatts {
+	if fitness.EstimateRaisesFTP(eftpF, athlete.FTPWatts) {
 		ftpDetected = true
 		ftpOld = athlete.FTPWatts
 	}
@@ -145,6 +158,11 @@ func (th *templateHandler) workout(w http.ResponseWriter, r *http.Request) {
 
 	achievements, _ := th.db.GetWorkoutAchievements(workout.ID)
 
+	// Non-fatal: without them the page just has no header line or table.
+	day := trainingDate(workout)
+	planned, _ := th.db.ListPlannedWorkoutsBetween(day, day)
+	feedback, _, _ := th.db.GetWorkoutFeedback(workout.ID)
+
 	renderTemplate(w, th.templates().workout, "base", workoutView{
 		Workout:     workout,
 		Streams:     streams,
@@ -152,15 +170,16 @@ func (th *templateHandler) workout(w http.ResponseWriter, r *http.Request) {
 		WorkKJ:      sm.WorkKJ,
 		Calories:    sm.Calories,
 		EFTP:        eftpF,
-		EFTPRounded: int(eftpF),
+		EFTPRounded: int(math.Round(eftpF)),
+		ShowEFTP:    eftpF > 0 && eftpF >= 0.95*float64(athlete.FTPWatts),
 		MaxCadence:  sm.MaxCadence,
 		MaxPower1s:  sm.MaxPower1s,
 		VI:          viF,
 		EF:          efF,
 		Fitness:     fitnessOnDay,
 		FTP:         ftpAtTime,
+		FTPIndoor:   workout.IsIndoor && ftpAtTime != th.db.GetFTPAtDate(workout.RecordedAt),
 		ThresholdHR: athlete.ThresholdHR,
-		WeightKG:    athlete.WeightKG,
 
 		AllTimeCurve: allTimeCurve,
 		WorkoutCurve: workoutCurve,
@@ -173,9 +192,38 @@ func (th *templateHandler) workout(w http.ResponseWriter, r *http.Request) {
 		RouteBestPowerID: routeBestPowerID,
 		Achievements:     achievements,
 
+		Ride:     th.rideSummaryFor(workout, planned),
+		Feedback: feedback,
+		RPEScale: rpeScale(feedback.RPE),
+
 		PowerZoneSecs:   powerZoneSecs,
 		HRZoneSecs:      hrZoneSecs,
 		PowerZoneRanges: fitness.PowerZoneRangeLabels(ftpAtTime),
 		HRZoneRanges:    fitness.HRZoneRangeLabels(hrZones, athlete.ThresholdHR),
 	})
+}
+
+// rpeOption is one button of the 1–10 "how did it feel?" scale.
+type rpeOption struct {
+	N        int
+	Label    string // very easy … max effort
+	Band     string // easy, moderate, hard, max: the button's color when picked
+	Selected bool
+}
+
+func rpeScale(current *int) []rpeOption {
+	opts := make([]rpeOption, 0, models.MaxRPE)
+	for n := models.MinRPE; n <= models.MaxRPE; n++ {
+		band := "easy"
+		switch {
+		case n >= 9:
+			band = "max"
+		case n >= 7:
+			band = "hard"
+		case n >= 5:
+			band = "moderate"
+		}
+		opts = append(opts, rpeOption{N: n, Label: models.RPELabel(n), Band: band, Selected: current != nil && *current == n})
+	}
+	return opts
 }

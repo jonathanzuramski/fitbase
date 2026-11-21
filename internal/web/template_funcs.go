@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/fitbase/fitbase/internal/models"
 )
@@ -34,6 +35,9 @@ var FuncMap = template.FuncMap{
 	"add1":            func(i int) int { return i + 1 },
 	"goalDisplayDist": goalDisplayDist,
 	"tsbClass":        tsbClass,
+	"dayLabel":        dayLabel,
+	"rpeLabel":        rpeLabel,
+	"hours":           hours,
 	"achievementText": achievementText,
 	"achievementIcon": achievementIcon,
 }
@@ -240,6 +244,28 @@ func hasGPS(streams []models.Stream) bool {
 		}
 	}
 	return false
+}
+
+// hours renders a long total as whole hours: "231 h".
+func hours(secs int) string {
+	return strconv.Itoa(int(math.Round(float64(secs)/3600))) + " h"
+}
+
+// rpeLabel names an RPE rating in words ("" when unrated).
+func rpeLabel(rpe *int) string {
+	if rpe == nil {
+		return ""
+	}
+	return models.RPELabel(*rpe)
+}
+
+// dayLabel formats a YYYY-MM-DD day as "Sep 26"; anything else passes through.
+func dayLabel(day string) string {
+	t, err := time.Parse("2006-01-02", day)
+	if err != nil {
+		return day
+	}
+	return t.Format("Jan 2")
 }
 
 func tsbClass(tsb float64) string {

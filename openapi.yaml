@@ -262,8 +262,9 @@ paths:
     get:
       summary: Get all-time power curve
       description: |
-        Returns best power for 6 standard durations (5s, 30s, 1min, 5min, 20min, 60min)
-        with watts/kg and % of FTP. Durations with no recorded effort are omitted.
+        Returns best cycling power for 6 standard durations (5s, 30s, 1min, 5min, 20min, 60min)
+        with watts/kg and % of FTP. Durations with no recorded effort are omitted. Power from
+        other sports (e.g. running power) is not counted.
       responses:
         "200":
           content:
@@ -289,6 +290,117 @@ paths:
                 properties:
                   data:  { $ref: "#/components/schemas/ReadinessReport" }
                   error: { type: string, nullable: true }
+
+  /api/workouts/{id}/feedback:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      summary: Get the rider's feedback on a workout
+      description: How hard the ride felt (RPE 1–10) and the rider's note. Only workout_id when there is none.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:  { $ref: "#/components/schemas/WorkoutFeedback" }
+                  error: { type: string, nullable: true }
+        "404": { description: No such workout }
+    put:
+      summary: Set the rider's feedback on a workout
+      description: |
+        Replaces the RPE and note. A null rpe with an empty note removes the feedback.
+        Feedback survives an archive rebuild (workouts are re-created under the same id)
+        and is removed when the workout is deleted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rpe:  { type: integer, minimum: 1, maximum: 10, nullable: true, example: 7 }
+                note: { type: string, maxLength: 2000, example: "Legs heavy after a short night; cut the last rep." }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:  { $ref: "#/components/schemas/WorkoutFeedback" }
+                  error: { type: string, nullable: true }
+        "400": { description: rpe outside 1–10, note over 2000 characters, or invalid JSON }
+        "404": { description: No such workout }
+
+  /api/athlete/ftp:
+    put:
+      summary: Set the FTP
+      description: |
+        Changes the FTP alone, effective now; the rest of the profile is untouched
+        (unlike PUT /api/athlete, which replaces the whole profile). Past workouts keep
+        the FTP that was active on their date. Logs an FTP history entry only when the
+        value changes (or there is no history yet). Returns the FTP check against the new
+        value.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ftp_watts]
+              properties:
+                ftp_watts: { type: integer, minimum: 1, maximum: 600, example: 215 }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:  { $ref: "#/components/schemas/FTPCheck" }
+                  error: { type: string, nullable: true }
+        "400": { description: ftp_watts missing or outside 1–600 }
+
+  /api/athlete/ftp-check:
+    get:
+      summary: Check the FTP against recent best efforts
+      description: |
+        Estimates FTP from the best cycling efforts of the last 90 days — the higher of 95% of the
+        best 20-minute power and the best 60-minute power — and compares it with the set
+        FTP. Every power-derived number (zones, IF, TSS, fitness) scales with FTP.
+        Statuses: `raise` (estimate above 103% of FTP: the rider produced the power, so FTP
+        is low), `ok` (95–103%), `lower` (85–95%: FTP may be set high), `unverified`
+        (below 85%, or no 20/60-minute effort: more likely no hard riding than a real loss,
+        so no number is suggested). An indoor ride of a rider with a separate indoor FTP
+        line is scored against that line, so its effort is compared in general-line terms
+        (`equivalent_watts` on the basis).
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:  { $ref: "#/components/schemas/FTPCheck" }
+                  error: { type: string, nullable: true }
+
+  /api/athlete/ftp-check/dismiss:
+    post:
+      summary: Keep the current FTP despite the check
+      description: |
+        Hides the raise/lower prompt for 30 days, or until the FTP or the verdict changes.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:  { $ref: "#/components/schemas/FTPCheck" }
+                  error: { type: string, nullable: true }
+        "409": { description: The check is ok or unverified — nothing to dismiss }
 
   /api/training/weekly:
     get:
@@ -586,11 +698,17 @@ paths:
         The coach reviews recent training — grading key sessions rep by rep —
         and proposes the 7 days starting tomorrow (athlete timezone). With
         `revise_id`, it revises that plan per `notes`, replaying the earlier
-        constraints. The run is detached: closing the stream doesn't cancel it;
+        constraints and its proposed week. The revised plan covers what is left of
+        that plan's week (from today when revised on a later day, through its last
+        day); the coach changes only what `notes` asks, and `review_md` keeps the
+        earlier review with the coach's change note added under it. Revising a plan
+        whose week is over plans the 7 days starting tomorrow, with a new review.
+        The run is detached: closing the stream doesn't cancel it;
         re-attach via `/api/coach/weekly-plan/runs/{id}/events`. The result is
         stored as a plan the rider accepts onto the calendar; nothing is added
         automatically.
-        SSE events: `job` (`{"id"}`), `tool`, `chunk` (review text),
+        SSE events: `job` (`{"id"}`), `tool`, `chunk` (review text; on a
+        revision, the change note),
         `done` (`{"plan_id"}`), `error`.
       requestBody:
         content:
@@ -684,7 +802,9 @@ paths:
         The rider's standing availability, used by every plan run including the
         Sunday auto-plan. Proposals are enforced against it: a workout on a day
         not listed, or a week more than 10% over `weekly_hours`, is rejected
-        back to the coach, which re-plans.
+        back to the coach, which re-plans. A revision made later in the week
+        plans only the days left, and its week still counts the sessions the
+        plan had on the days before.
       requestBody:
         required: true
         content:
@@ -859,6 +979,25 @@ paths:
               schema: { type: string }
         "401":
           $ref: "#/components/responses/Unauthorized"
+
+  /api/integrations/intervals/ftp-sync:
+    get:
+      summary: Rebuild the FTP history from intervals.icu
+      description: |
+        Replaces the FTP history with the change points in the FTP intervals.icu recorded
+        on each ride (other sports' FTPs are ignored), on two lines: the general FTP and,
+        for riders with a separate indoor FTP, an indoor line. Sets the profile FTP to the
+        latest general FTP, also when the newest change is an indoor one that no outdoor
+        ride has confirmed yet (indoor rides use it from the indoor line). Then recomputes
+        TSS and IF for every power-based workout.
+        Streams progress as Server-Sent Events (`ftpchanges`, `recompute`, then `done`
+        with `{"updated": n}` or `error`).
+      responses:
+        "200":
+          description: SSE progress stream
+          content:
+            text/event-stream:
+              schema: { type: string }
 
   /api/integrations/intervals/fetch/{id}:
     get:
@@ -1147,7 +1286,7 @@ components:
         window_end:   { type: string, format: date }
         status:       { type: string, enum: [ready, accepted, discarded, failed] }
         request:      { type: string, description: "The rider's request, including every constraint and revision so far" }
-        review_md:    { type: string, description: "The coach's review and plan summary (Markdown)" }
+        review_md:    { type: string, description: "The coach's review and plan summary (Markdown); a revision keeps the review it revises and adds a \"Revised:\" change note under it" }
         error:        { type: string, nullable: true }
 
     WeeklyPlanPreferences:
@@ -1356,6 +1495,45 @@ components:
         ramp_rate:              { type: number, description: "Change in CTL (fitness) over the last 28 days" }
         recommendation:         { type: string, example: "Go Ride" }
         recommendation_detail:  { type: string }
+        recommendation_tone:    { type: string, enum: [go, train, ease, rest], description: "Groups the recommendation for display" }
+
+    WorkoutFeedback:
+      type: object
+      properties:
+        workout_id: { type: string }
+        rpe:        { type: integer, minimum: 1, maximum: 10, description: How hard the ride felt; omitted when not rated }
+        note:       { type: string }
+        updated_at: { type: string, format: date-time, description: Omitted when there is no feedback }
+
+    FTPEffort:
+      type: object
+      properties:
+        duration_secs: { type: integer, enum: [1200, 3600] }
+        watts:         { type: integer, example: 226 }
+        workout_id:    { type: string }
+        day:           { type: string, format: date, description: The ride's training day }
+        indoor:        { type: boolean, description: The effort was on an indoor ride }
+        indoor_ftp_watts:
+          type: integer
+          example: 230
+          description: The indoor FTP line the ride was scored against; omitted when the ride had no separate indoor line
+        equivalent_watts:
+          type: integer
+          example: 259
+          description: |
+            The effort against the general FTP line (watts × general FTP ÷ indoor FTP at the ride),
+            which is what the check compares; omitted with indoor_ftp_watts
+
+    FTPCheck:
+      type: object
+      properties:
+        status:         { type: string, enum: [ok, raise, lower, unverified] }
+        ftp_watts:      { type: integer, example: 245 }
+        window_days:    { type: integer, example: 90 }
+        estimate_watts: { type: integer, example: 215, description: FTP implied by the best effort; omitted when none qualifies }
+        pct_of_ftp:     { type: number, example: 87.6, description: The estimate as a percentage of FTP }
+        basis:          { $ref: "#/components/schemas/FTPEffort" }
+        dismissed:      { type: boolean, description: The rider chose to keep this FTP; the prompt is hidden for now }
 
     OkResponse:
       type: object
