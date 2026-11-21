@@ -21,6 +21,7 @@ Garmin, Wahoo, and TrainingPeaks lock your workouts behind their clouds and char
 - **Power analytics** — NP, IF, TSS, Variability Index, eFTP, and an all-time power curve overlaid on every ride
 - **Heart rate analytics** — hrTSS for non-power activities, HR zones, Efficiency Factor
 - **Training load** — Fitness/Fatigue/Form chart, accurate from day one thanks to a 180-day EMA warmup; today is drawn as a projection until a ride with TSS is logged for it, so form never reads as a day off you haven't taken
+- **Analytics** — compare any week, month, year or range of days with the one before, a year earlier or any period you pick, and see year over year; follow FTP against what your rides imply, EF and heart rate at matched power (indoors and outdoors kept apart), decoupling, best efforts by month, load against plan, intensity split, consistency and RPE over time
 - **AI coach** — bring your own API key (Anthropic, OpenAI, or Gemini): streamed training insights, plus a chat coach that answers questions from your real data via tool calls and drafts training schedules you approve onto the calendar (chat requires a tool-capable provider — currently Claude)
 - **Calendar & planned workouts** — schedule structured future workouts (intervals, target %FTP/zones) by hand or from a coach proposal
 - **Zone-colored charts + GPS route map** — power and HR colored by zone, route on a dark Leaflet map
@@ -151,6 +152,8 @@ GET    /api/workouts/{id}/analysis    zones, variability, 90-day comparison
 GET    /api/athlete/readiness         today's form, ramp rate, recommendation
 GET    /api/athlete/power-curve       all-time best power at each duration
 GET    /api/fitness?days=90           Fitness/Fatigue/Form history
+GET    /api/analytics/compare         one period against another, every metric with its change
+GET    /api/analytics/trends          every performance marker over 3 months to all time
 POST   /api/upload                    upload a .fit file
 POST   /api/coach/insights            generate an AI training review (SSE)
 POST   /api/coach/chat                tool-augmented AI coach chat (SSE)
