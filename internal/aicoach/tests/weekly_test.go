@@ -1,6 +1,7 @@
 package aicoach_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -295,7 +296,7 @@ func TestWeeklyPlanAvailability_RevisionCountsTheWeeksEarlierSessions(t *testing
 	everyDay := func(time.Weekday) bool { return true }
 
 	got := aicoach.WeeklyPlanAvailability(start, end, everyDay, 3, 2)
-	for _, want := range []string{"about 3 hours of training for the week", "earlier sessions take 2 h", "Plan up to 1 h for these days", "earlier sessions included"} {
+	for _, want := range []string{"about 3 hours of training for the week", "earlier sessions take 2 h", "up to 1.3 h for these days", "keep the ones the rider didn't ask to change", "earlier sessions included"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("revision availability lacks %q:\n%s", want, got)
 		}
@@ -304,10 +305,49 @@ func TestWeeklyPlanAvailability_RevisionCountsTheWeeksEarlierSessions(t *testing
 		t.Errorf("the days left are offered the whole week's budget:\n%s", got)
 	}
 
-	if spent := aicoach.WeeklyPlanAvailability(start, end, everyDay, 3, 3.25); !strings.Contains(spent, "no time for these days") {
-		t.Errorf("earlier sessions over the budget should leave nothing:\n%s", spent)
+	// At or past the limit propose_schedule enforces (3 h × the slack),
+	// nothing fits — the same line the check draws.
+	if spent := aicoach.WeeklyPlanAvailability(start, end, everyDay, 3, 3.3); !strings.Contains(spent, "no time for these days") {
+		t.Errorf("earlier sessions at the limit should leave nothing:\n%s", spent)
 	}
-	if open := aicoach.WeeklyPlanAvailability(start, end, everyDay, 0, 1.5); !strings.Contains(open, "earlier sessions take 1.5 h; count them") {
-		t.Errorf("without a budget the weekly total should still count the earlier sessions:\n%s", open)
+	if open := aicoach.WeeklyPlanAvailability(start, end, everyDay, 0, 1.5); !strings.Contains(open, "earlier sessions take 1.5 h, so count them") || strings.Contains(open, "choose the volume") {
+		t.Errorf("without a budget a revision should keep the plan's volume and count the earlier sessions:\n%s", open)
+	}
+}
+
+// propose_schedule accepted the week being revised at up to the budget times
+// WeeklyBudgetSlack. A later-day revision used to tell the days left only
+// budget − earlier, with no slack, so a week accepted at 3.25 of 3 h
+// (2 h earlier, 1.25 h ahead) was told its untouched sessions didn't fit —
+// pushing the model to trim them, or with less left, to propose nothing and
+// lose today's session. Whatever the check accepted must fit the text.
+func TestWeeklyPlanAvailability_RevisionFitsTheWeekTheCheckAccepted(t *testing.T) {
+	start := time.Date(2026, 11, 11, 0, 0, 0, 0, time.UTC)
+	end := start.AddDate(0, 0, 4)
+	everyDay := func(time.Weekday) bool { return true }
+
+	for _, tc := range []struct{ budget, earlier, ahead float64 }{
+		{3, 2, 1.25},
+		{3, 3, 0.25},  // used to say "no time for these days"
+		{8, 5.5, 3.3}, // used to offer 2.5 h
+	} {
+		if tc.earlier+tc.ahead > tc.budget*aicoach.WeeklyBudgetSlack {
+			t.Fatalf("case %+v is over the limit the check enforces", tc)
+		}
+		got := aicoach.WeeklyPlanAvailability(start, end, everyDay, tc.budget, tc.earlier)
+		if strings.Contains(got, "no time for these days") {
+			t.Errorf("%+v: the accepted week's %.2f h ahead is told nothing fits:\n%s", tc, tc.ahead, got)
+			continue
+		}
+		var left float64
+		if _, err := fmt.Sscanf(got[strings.Index(got, "up to ")+len("up to "):], "%g h", &left); err != nil {
+			t.Fatalf("%+v: no 'up to N h' in:\n%s", tc, got)
+		}
+		if left < tc.ahead-0.1 {
+			t.Errorf("%+v: offers %.1f h for days that already hold %.2f h:\n%s", tc, left, tc.ahead, got)
+		}
+		if left > tc.budget*aicoach.WeeklyBudgetSlack-tc.earlier {
+			t.Errorf("%+v: offers %.1f h, more than the check accepts:\n%s", tc, left, got)
+		}
 	}
 }

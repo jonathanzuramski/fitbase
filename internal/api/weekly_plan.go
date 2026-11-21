@@ -280,9 +280,14 @@ func revisionWindow(p *models.WeeklyPlan, now time.Time) (start, end time.Time, 
 
 // revisedReview is the stored review of a revised plan: the review it
 // revises, which the calendar shows and the next revision replays, with the
-// revision's change note under it.
+// revision's change note under it. A run that only called propose_schedule
+// writes no note, and gets no dangling "Revised:" heading.
 func revisedReview(previous, note string) string {
-	return strings.TrimSpace(previous) + "\n\n**Revised:** " + strings.TrimSpace(note)
+	previous, note = strings.TrimSpace(previous), strings.TrimSpace(note)
+	if note == "" {
+		return previous
+	}
+	return previous + "\n\n**Revised:** " + note
 }
 
 // planWeek is the week a revision changes, read back from the plan it

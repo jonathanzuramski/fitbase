@@ -780,7 +780,7 @@ func TestGenerateWeeklyPlan_RevisionCountsTheWeeksEarlierSessions(t *testing.T) 
 		t.Errorf("the 4.5 h week passed propose_schedule; first result = %s", firstResult)
 	}
 	req := fakeCoach.requests()[0]
-	if !strings.Contains(req.SystemContext, "earlier sessions take 2 h") || !strings.Contains(req.SystemContext, "Plan up to 1 h for these days") {
+	if !strings.Contains(req.SystemContext, "earlier sessions take 2 h") || !strings.Contains(req.SystemContext, "up to 1.3 h for these days") {
 		t.Errorf("the availability should say what the earlier session leaves of the budget:\n%s", req.SystemContext)
 	}
 	if msg := req.History[2].Content; !strings.Contains(msg, "- "+today.AddDate(0, 0, -2).Format("Mon 2006-01-02")+" · Long ride · 120 min") {
@@ -969,5 +969,16 @@ func TestWeeklyPlanPrefsDefaultToEveryDay(t *testing.T) {
 	p, err := h.db.GetWeeklyPlanPrefs()
 	if err != nil || len(p.Days) != 7 || p.WeeklyHours != nil {
 		t.Errorf("defaults = %+v (err %v), want all 7 days and no budget", p, err)
+	}
+}
+
+// A revision run that only called propose_schedule writes no change note: the
+// stored review stays the previous one instead of gaining an empty heading.
+func TestRevisedReview_EmptyNoteAddsNoHeading(t *testing.T) {
+	if got := revisedReview("## Review\n\nBody.\n", "  "); got != "## Review\n\nBody." {
+		t.Errorf("empty note: got %q", got)
+	}
+	if got := revisedReview("## Review", "Moved the long ride to Sunday."); got != "## Review\n\n**Revised:** Moved the long ride to Sunday." {
+		t.Errorf("with a note: got %q", got)
 	}
 }

@@ -132,6 +132,11 @@ func StandingAvailability(allowed func(time.Weekday) bool, weeklyHours float64) 
 	return s + ". Plan within it unless the rider says otherwise in this conversation."
 }
 
+// WeeklyBudgetSlack is how far over the rider's weekly hours budget a
+// proposed week may run before propose_schedule rejects it: a 10-minute-longer
+// warmup shouldn't bounce a plan.
+const WeeklyBudgetSlack = 1.10
+
 // WeeklyPlanAvailability renders the rider's standing availability for the
 // plan window, appended after WeeklyPlanBrief. Days are listed as dates, not
 // weekday names, so the model never has to map "Wednesday" onto the window.
@@ -162,21 +167,28 @@ func WeeklyPlanAvailability(start, end time.Time, allowed func(time.Weekday) boo
 	earlier := math.Round(earlierHours*10) / 10
 	switch {
 	case weeklyHours > 0 && earlier > 0:
-		left := math.Round((weeklyHours-earlier)*10) / 10
+		// The days left get what the week's limit leaves — the limit
+		// propose_schedule enforces, slack included. The week being revised
+		// was accepted against that limit, so its sessions for these days
+		// always fit, and keeping the ones the rider didn't ask to change
+		// never means trimming them. Rounded down, so the text never offers
+		// more than the check accepts.
+		left := math.Floor((weeklyHours*WeeklyBudgetSlack-earlierHours)*10) / 10
 		fmt.Fprintf(&b, "- Weekly time: about %s hours of training for the week, and its earlier sessions take %s h of it. ", hours(weeklyHours), hours(earlier))
 		if left <= 0 {
 			b.WriteString("That leaves no time for these days: propose nothing more, and tell the rider, who can raise the budget on the calendar page.")
 		} else {
-			fmt.Fprintf(&b, "Plan up to %s h for these days, not over it — a lighter week is right when form or a comeback calls for it. Mention the week's total, earlier sessions included.", hours(left))
+			fmt.Fprintf(&b, "That leaves up to %s h for these days, and the sessions already planned for them fit it: keep the ones the rider didn't ask to change, and fit the change into what's left. Mention the week's total, earlier sessions included.", hours(left))
 		}
 	case weeklyHours > 0:
 		fmt.Fprintf(&b, "- Weekly time: about %s hours of training in total. Plan up to that, not over it — a lighter week is right when form or a comeback calls for it. Mention the total you planned.",
 			hours(weeklyHours))
+	case earlier > 0:
+		// A later-day revision without a budget: the week's volume was
+		// chosen when it was planned, so don't invite choosing it again.
+		fmt.Fprintf(&b, "- Weekly time: not set. Keep the volume the plan already has; the week's earlier sessions take %s h, so count them when you state the week's total.", hours(earlier))
 	default:
 		b.WriteString("- Weekly time: not set — choose the volume from their recent weeks and current form, and state the total hours you planned.")
-		if earlier > 0 {
-			fmt.Fprintf(&b, " The week's earlier sessions take %s h; count them in that total.", hours(earlier))
-		}
 	}
 	return b.String()
 }

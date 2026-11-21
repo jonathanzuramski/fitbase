@@ -132,8 +132,10 @@ type planAvailability struct {
 }
 
 // budgetSlack is how far over the weekly hours budget a proposal may run
-// before it is rejected: a 10-minute-longer warmup shouldn't bounce a plan.
-const budgetSlack = 1.10
+// before it is rejected. It is the same constant WeeklyPlanAvailability uses
+// to tell a later-day revision what the days left may hold, so the guidance
+// and the guard can't drift apart.
+const budgetSlack = aicoach.WeeklyBudgetSlack
 
 func (a *planAvailability) check(ws []models.PlannedWorkout) error {
 	var total int
