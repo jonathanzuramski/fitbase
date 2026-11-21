@@ -132,3 +132,33 @@ func between(s, from, to string) string {
 	}
 	return s[i : i+j]
 }
+
+// "How did it feel?": the ride page shows the saved rating and note; Today
+// shows the rating, or asks for one.
+func TestRideFeedback_Pages(t *testing.T) {
+	d, h := ftpFixture(t)
+	if err := d.SetFTP(250); err != nil {
+		t.Fatal(err)
+	}
+	w := steadyRide(t, d, "today", 0, 200)
+	body := get(t, h, "/workouts/"+w.ID)
+	if !strings.Contains(body, `id="feel" data-workout="today"`) || strings.Contains(body, "rpe-btn rpe-hard selected") {
+		t.Error("an unrated ride should show the scale with nothing picked")
+	}
+	if !strings.Contains(get(t, h, "/"), `href="/workouts/today#feel">How did it feel? Rate it →</a>`) {
+		t.Error("Today should ask how an unrated ride felt")
+	}
+
+	rpe := 7
+	if err := d.SaveWorkoutFeedback(w.ID, &rpe, "windy"); err != nil {
+		t.Fatal(err)
+	}
+	body = get(t, h, "/workouts/"+w.ID)
+	if !strings.Contains(body, `class="rpe-btn rpe-hard selected" data-rpe="7" role="radio" aria-checked="true"`) ||
+		!strings.Contains(body, ">windy</textarea>") {
+		t.Error("the ride page should show the saved rating and note")
+	}
+	if !strings.Contains(get(t, h, "/"), "felt <strong>7/10</strong> · hard · “windy”") {
+		t.Error("Today should show how the ride felt")
+	}
+}

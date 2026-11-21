@@ -387,6 +387,10 @@ func (db *DB) DeleteWorkout(id string) error {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return sql.ErrNoRows
 	}
+	// Feedback has no cascade (it must survive rebuilds; see feedback.go).
+	if _, err := tx.Exec("DELETE FROM workout_feedback WHERE workout_id = ?", id); err != nil {
+		return fmt.Errorf("delete feedback: %w", err)
+	}
 	return tx.Commit()
 }
 
@@ -403,6 +407,7 @@ func (db *DB) DeleteAllWorkouts() error {
 		"workout_power_curve",
 		"workout_zone_times",
 		"workouts",
+		"workout_feedback",
 		"imported_files",
 	} {
 		if _, err := tx.Exec("DELETE FROM " + table); err != nil {
@@ -416,8 +421,9 @@ func (db *DB) DeleteAllWorkouts() error {
 // — workouts, streams, power curves, zone times, routes, and the imported-file
 // ledger — so it can be rebuilt from scratch by re-importing the archive. The
 // athlete profile, FTP history, integration tokens/credentials, mileage goals,
-// AI settings, and planned workouts are all preserved, because the reimport
-// reproduces correct derived metrics from them.
+// AI settings, planned workouts and the rider's ride feedback are all
+// preserved: the reimport reproduces correct derived metrics from them, and
+// re-creates each workout under the same ID, so feedback still matches.
 func (db *DB) ResetDerivedData() error {
 	tx, err := db.Begin()
 	if err != nil {
@@ -565,46 +571,45 @@ func (db *DB) GetWorkoutPowerCurve(workoutID string) (map[int]int, error) {
 	return result, rows.Err()
 }
 
-// GetAllTimePowerCurve returns the best watts and source workout per duration across all workouts.
-// Returns a map of duration_secs → AllTimeBest.
+// Power curves are cycling only. A run with a power meter (Stryd, Garmin
+// running power) gets a curve too, but running watts aren't cycling watts:
+// one in the mix put a run's best 20 minutes into the FTP check and the
+// coach's power bests.
+
+// Which rides cyclingPowerCurve reads.
+const (
+	anyRides     = -1
+	outdoorRides = 0
+	indoorRides  = 1
+)
+
+// GetAllTimePowerCurve returns the best watts and source workout per duration
+// across all cycling workouts. Returns a map of duration_secs → AllTimeBest.
 func (db *DB) GetAllTimePowerCurve() (map[int]models.AllTimeBest, error) {
-	rows, err := db.Query(`
-		SELECT wpc.duration_secs, wpc.watts, wpc.workout_id
-		FROM workout_power_curve wpc
-		INNER JOIN (
-			SELECT duration_secs, MAX(watts) AS max_watts
-			FROM workout_power_curve
-			GROUP BY duration_secs
-		) best ON wpc.duration_secs = best.duration_secs AND wpc.watts = best.max_watts
-		GROUP BY wpc.duration_secs`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close() //nolint:errcheck
-	result := map[int]models.AllTimeBest{}
-	for rows.Next() {
-		var dur int
-		var b models.AllTimeBest
-		if err := rows.Scan(&dur, &b.Watts, &b.WorkoutID); err != nil {
-			return nil, err
-		}
-		result[dur] = b
-	}
-	return result, rows.Err()
+	return db.cyclingPowerCurve(time.Time{}, time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC), anyRides)
 }
 
 // GetPowerCurveSince returns the best watts per standard duration across
-// workouts recorded on or after `since` — the recent-form counterpart to
-// GetAllTimePowerCurve, used by the coach to compare current ability against
-// all-time bests.
+// cycling workouts recorded on or after `since` — the recent-form counterpart
+// to GetAllTimePowerCurve, used by the coach to compare current ability
+// against all-time bests.
 func (db *DB) GetPowerCurveSince(since time.Time) (map[int]models.AllTimeBest, error) {
 	return db.GetPowerCurveBetween(since, time.Now().AddDate(1, 0, 0))
 }
 
 // GetPowerCurveBetween returns the best watts per standard duration across
-// workouts recorded in [from, to). The Progress page walks it back through
-// time to chart what the rides said FTP was.
+// cycling workouts recorded in [from, to). The Progress page walks it back
+// through time to chart what the rides said FTP was.
 func (db *DB) GetPowerCurveBetween(from, to time.Time) (map[int]models.AllTimeBest, error) {
+	return db.cyclingPowerCurve(from, to, anyRides)
+}
+
+// cyclingPowerCurve returns the best watts per duration across the cycling
+// workouts recorded in [from, to): every ride, or only outdoor or only indoor
+// ones (rides: anyRides, outdoorRides, indoorRides). The filters sit in the
+// MAX subquery as well as the outer join: on the outer join alone, a
+// filtered-out workout's higher best would drop the duration altogether.
+func (db *DB) cyclingPowerCurve(from, to time.Time, rides int) (map[int]models.AllTimeBest, error) {
 	f, t := from.UTC().Format(time.RFC3339), to.UTC().Format(time.RFC3339)
 	rows, err := db.Query(`
 		SELECT wpc.duration_secs, wpc.watts, wpc.workout_id
@@ -613,12 +618,15 @@ func (db *DB) GetPowerCurveBetween(from, to time.Time) (map[int]models.AllTimeBe
 			SELECT wpc2.duration_secs, MAX(wpc2.watts) AS max_watts
 			FROM workout_power_curve wpc2
 			INNER JOIN workouts w2 ON w2.id = wpc2.workout_id
-			WHERE w2.recorded_at >= ? AND w2.recorded_at < ?
+			WHERE w2.recorded_at >= ?1 AND w2.recorded_at < ?2 AND w2.sport = 'cycling'
+				AND (?3 < 0 OR w2.is_indoor = ?3)
 			GROUP BY wpc2.duration_secs
 		) best ON wpc.duration_secs = best.duration_secs AND wpc.watts = best.max_watts
-		INNER JOIN workouts w ON w.id = wpc.workout_id AND w.recorded_at >= ? AND w.recorded_at < ?
+		INNER JOIN workouts w ON w.id = wpc.workout_id
+			AND w.recorded_at >= ?1 AND w.recorded_at < ?2 AND w.sport = 'cycling'
+			AND (?3 < 0 OR w.is_indoor = ?3)
 		GROUP BY wpc.duration_secs`,
-		f, t, f, t)
+		f, t, rides)
 	if err != nil {
 		return nil, err
 	}
@@ -864,10 +872,17 @@ func (db *DB) UpdateAthlete(a *models.Athlete) error {
 	return db.logFTPIfChanged(previousFTP, a.FTPWatts)
 }
 
-// logFTPIfChanged logs an FTP history entry, effective now, when the FTP
-// changed, or when there is no history yet (so the seeded default stops
-// counting as unset). Saving the profile used to log one on every save,
+// logFTPIfChanged logs an FTP history entry, effective now, when the rider
+// changed the FTP, or when there is no history yet (so the seeded default
+// stops counting as unset). Saving the profile used to log one on every save,
 // burying real changes among identical rows.
+//
+// The settings form re-submits the FTP with every save (a weight-only edit
+// too), so an unchanged FTP is never a change. It is the general FTP in
+// effect now: every history write that can move that FTP (a dated entry, so
+// the intervals.icu sync too, and deleting one) sets the profile to it
+// (syncProfileFTP). Logging it anyway, when the two disagreed, ended whatever
+// the history had made current, such as a synced indoor line.
 func (db *DB) logFTPIfChanged(previous, ftp int) error {
 	if ftp <= 0 {
 		return nil
@@ -880,6 +895,23 @@ func (db *DB) logFTPIfChanged(previous, ftp int) error {
 		return db.LogFTPChange(ftp)
 	}
 	return nil
+}
+
+// syncProfileFTP sets the profile FTP to the general FTP in effect now, so
+// the profile (the settings form, the FTP check, the coach's rider profile)
+// says what new rides are scored against. It writes no history. With no
+// general entry in effect now the profile stays as it is: GetFTPAtDate falls
+// back to it then. Indoor rides keep their indoor line (GetFTPForRide).
+// LogFTPChangeAtFor and DeleteFTPHistoryEntry call it.
+func (db *DB) syncProfileFTP() error {
+	ftp, err := db.generalFTPAt(time.Now())
+	if err != nil || ftp <= 0 {
+		return err
+	}
+	_, err = db.Exec(
+		"UPDATE athlete SET ftp_watts=?, updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id=1 AND ftp_watts != ?",
+		ftp, ftp)
+	return err
 }
 
 // SaveWelcomeProfile saves the first-run profile and marks setup as complete.
@@ -940,30 +972,48 @@ func (db *DB) HasFTPHistory() (bool, error) {
 // (outdoor) line. Falls back to current athlete FTP if no history entry
 // predates t. Rides should use GetFTPForRide, which knows indoor FTP.
 func (db *DB) GetFTPAtDate(t time.Time) int {
-	var ftp int
-	err := db.QueryRow(`
-		SELECT ftp_watts FROM ftp_history
-		WHERE indoor = 0 AND effective_from <= ?
-		ORDER BY effective_from DESC
-		LIMIT 1`, t.UTC().Format(time.RFC3339)).Scan(&ftp)
+	ftp, err := db.generalFTPAt(t)
 	if err != nil || ftp <= 0 {
 		_ = db.QueryRow("SELECT ftp_watts FROM athlete WHERE id=1").Scan(&ftp)
 	}
 	return ftp
 }
 
+// generalFTPAt returns the latest general-line entry on or before t, or 0
+// when there is none.
+func (db *DB) generalFTPAt(t time.Time) (int, error) {
+	var ftp int
+	err := db.QueryRow(`
+		SELECT ftp_watts FROM ftp_history
+		WHERE indoor = 0 AND effective_from <= ?
+		ORDER BY effective_from DESC, id DESC
+		LIMIT 1`, t.UTC().Format(time.RFC3339)).Scan(&ftp)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return ftp, err
+}
+
 // GetFTPForRide returns the FTP a ride at t was trained against. An indoor
-// ride uses the latest indoor entry on or before t when there is one
-// (intervals.icu keeps a separate indoor FTP, usually a little lower);
-// everything else, and indoor rides before any indoor entry, use the
-// general line (GetFTPAtDate).
+// ride uses the latest indoor entry on or before t (intervals.icu keeps a
+// separate indoor FTP, usually a little lower) unless a general entry is
+// newer; everything else uses the general line (GetFTPAtDate).
+//
+// A newer general entry wins because fitbase's own FTP changes (the profile,
+// the FTP check) write the general line only: an older indoor entry used to
+// outrank every later change, leaving indoor rides on a stale FTP. The
+// intervals.icu sync logs a separate indoor FTP again after each general
+// change, so it stays the newer of the two.
 func (db *DB) GetFTPForRide(t time.Time, indoor bool) int {
 	if indoor {
 		var ftp int
 		err := db.QueryRow(`
 			SELECT ftp_watts FROM ftp_history
-			WHERE indoor = 1 AND effective_from <= ?
-			ORDER BY effective_from DESC
+			WHERE indoor = 1 AND effective_from <= ?1
+				AND effective_from >= COALESCE((
+					SELECT MAX(effective_from) FROM ftp_history
+					WHERE indoor = 0 AND effective_from <= ?1), '')
+			ORDER BY effective_from DESC, id DESC
 			LIMIT 1`, t.UTC().Format(time.RFC3339)).Scan(&ftp)
 		if err == nil && ftp > 0 {
 			return ftp
@@ -978,13 +1028,20 @@ func (db *DB) LogFTPChangeAt(ftp int, at time.Time) error {
 }
 
 // LogFTPChangeAtFor records an FTP value with an explicit effective date on
-// the indoor line (indoor rides only) or the general line.
+// the indoor line (indoor rides only) or the general line. A general entry
+// that is now the one in effect (a backdated change added on the settings
+// page) becomes the profile FTP too (syncProfileFTP).
 func (db *DB) LogFTPChangeAtFor(ftp int, at time.Time, indoor bool) error {
-	_, err := db.Exec(
+	if _, err := db.Exec(
 		"INSERT INTO ftp_history (ftp_watts, effective_from, indoor) VALUES (?, ?, ?)",
 		ftp, at.UTC().Format(time.RFC3339), indoor,
-	)
-	return err
+	); err != nil {
+		return err
+	}
+	if indoor {
+		return nil
+	}
+	return db.syncProfileFTP()
 }
 
 // ClearFTPHistory deletes all rows from the FTP history table.
@@ -1024,10 +1081,14 @@ func (db *DB) AllFTPHistory() ([]FTPHistoryEntry, error) {
 	return out, rows.Err()
 }
 
-// DeleteFTPHistoryEntry removes a single FTP history row by id.
+// DeleteFTPHistoryEntry removes a single FTP history row by id and sets the
+// profile FTP to the general FTP now in effect: deleting the newest entry
+// makes the one before it current.
 func (db *DB) DeleteFTPHistoryEntry(id int64) error {
-	_, err := db.Exec("DELETE FROM ftp_history WHERE id = ?", id)
-	return err
+	if _, err := db.Exec("DELETE FROM ftp_history WHERE id = ?", id); err != nil {
+		return err
+	}
+	return db.syncProfileFTP()
 }
 
 // RecomputePowerLoad recomputes TSS and intensity factor for every workout that

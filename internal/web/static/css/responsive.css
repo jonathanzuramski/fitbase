@@ -201,7 +201,8 @@
   /* Header extras follow the title (which takes order 1 above). */
   .card-header-row .week-totals,
   .card-header-row .ride-readout,
-  .card-header-row .pc-view-toggle {
+  .card-header-row .pc-view-toggle,
+  .card-header-row .ride-feel-status {
     order: 2;
   }
   .filter-tab {
@@ -899,5 +900,38 @@
   }
   .vol-tss {
     font-size: 9px;
+  }
+}
+
+/* ── Phone tables: dates on one line ─────────────────────────────────── */
+@media (max-width: 640px) {
+  /* Recent rides: date, what it was, duration. */
+  #activities-list .workout-table th:nth-child(4),
+  #activities-list .workout-table td:nth-child(4) {
+    display: none;
+  }
+  #activities-list .workout-table td.date {
+    white-space: nowrap;
+  }
+  .date-year-long {
+    display: none;
+  }
+  .date-year-short {
+    display: inline;
+  }
+  /* Route history: date, duration, power (or HR). */
+  .route-history-table-wrap .workout-table th:nth-child(n + 4),
+  .route-history-table-wrap .workout-table td:nth-child(n + 4) {
+    display: none;
+  }
+  .route-history-table-wrap .workout-table td {
+    white-space: nowrap;
+  }
+}
+
+/* Small phones: a pace like "11:12/mi" is wider than a third of the card. */
+@media (max-width: 400px) {
+  .ride-stats .metric-value {
+    font-size: 19px;
   }
 }

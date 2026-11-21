@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -62,6 +64,29 @@ type weeklyPlanRun struct {
 func (h *CoachHandler) generateWeeklyPlan(ctx context.Context, run weeklyPlanRun, emit func(event string, data any)) (models.WeeklyPlan, error) {
 	now := time.Now().In(h.db.AthleteLocation())
 	start, end := aicoach.WeeklyPlanWindow(now)
+
+	// A revision changes the week it revises: what is left of that window,
+	// from today when it comes on a later day, so today's session stays in
+	// the plan as today's. It gets the revision brief, and its text is a
+	// change note added under the review the plan already has. A week that
+	// is over (or can't be read back) is planned afresh instead, with the
+	// full brief and a full review.
+	//
+	// The week's sessions before a later-day window are past and no longer
+	// the plan's to change, but they are still the week's: they use part of
+	// its time budget, and the rule against key sessions on consecutive days
+	// needs yesterday's. The revision lists them and counts them (wk.earlier).
+	var wk planWeek
+	revising := false
+	if run.revise != nil {
+		if s, e, ok := revisionWindow(run.revise, now); ok {
+			if w, err := readPlanWeek(run.revise, s, e); err != nil {
+				slog.Warn("weekly plan: could not replay the proposed week", "plan", run.revise.ID, "err", err)
+			} else {
+				start, end, revising, wk = s, e, true, w
+			}
+		}
+	}
 	plan := models.WeeklyPlan{
 		Trigger:     run.trigger,
 		WindowStart: start.Format("2006-01-02"),
@@ -71,14 +96,24 @@ func (h *CoachHandler) generateWeeklyPlan(ctx context.Context, run weeklyPlanRun
 	// The request the coach answers. A revision replays the plan it revises —
 	// the rider's earlier constraints and the coach's review — then asks for
 	// the change, and the new plan's Request carries every constraint so far.
+	//
+	// The review never lists the workouts and an unaccepted plan isn't on the
+	// calendar, so the change message carries the proposed week itself:
+	// without it "move the long ride to Sunday" rebuilt the week from scratch.
+	// It stays out of Request, which would otherwise accumulate every week.
 	history := []aicoach.ChatMessage{{Role: aicoach.ChatRoleUser}}
 	switch {
 	case run.revise != nil:
 		change := "Change the plan: " + run.notes
+		msg := change
+		if revising {
+			msg += "\n\nThe week you proposed, " + start.Format("Mon 2006-01-02") + " to " + end.Format("Mon 2006-01-02") + ":\n" +
+				proposedWeekText(wk, now)
+		}
 		history = []aicoach.ChatMessage{
 			{Role: aicoach.ChatRoleUser, Content: run.revise.Request},
 			{Role: aicoach.ChatRoleAssistant, Content: run.revise.ReviewMD},
-			{Role: aicoach.ChatRoleUser, Content: change},
+			{Role: aicoach.ChatRoleUser, Content: msg},
 		}
 		plan.Request = run.revise.Request + "\n\n" + change
 	case run.notes != "":
@@ -111,7 +146,8 @@ func (h *CoachHandler) generateWeeklyPlan(ctx context.Context, run weeklyPlanRun
 	}
 
 	// The rider's standing availability (calendar page): stated in the prompt
-	// as dates, and enforced on propose_schedule.
+	// as dates, and enforced on propose_schedule. The time budget is the
+	// week's, so both count the time the week's earlier sessions already use.
 	prefs, err := h.db.GetWeeklyPlanPrefs()
 	if err != nil {
 		return fail(fmt.Errorf("load weekly plan preferences: %w", err))
@@ -120,8 +156,13 @@ func (h *CoachHandler) generateWeeklyPlan(ctx context.Context, run weeklyPlanRun
 	if prefs.WeeklyHours != nil {
 		budget = *prefs.WeeklyHours
 	}
-	systemContext := h.chatSystemContext(now) + "\n\n" + aicoach.WeeklyPlanBrief(start, end) +
-		"\n\n" + aicoach.WeeklyPlanAvailability(start, end, prefs.Allows, budget)
+	earlierSecs := wk.earlierSecs()
+	brief := aicoach.WeeklyPlanBrief(start, end)
+	if revising {
+		brief = aicoach.WeeklyPlanRevisionBrief(start, end, now)
+	}
+	systemContext := h.chatSystemContext(now) + "\n\n" + brief +
+		"\n\n" + aicoach.WeeklyPlanAvailability(start, end, prefs.Allows, budget, float64(earlierSecs)/3600)
 
 	// propose_schedule is captured into the plan rather than written to the
 	// single-slot draft table (see toolEvents.Capture).
@@ -131,7 +172,8 @@ func (h *CoachHandler) generateWeeklyPlan(ctx context.Context, run weeklyPlanRun
 			proposed = ws
 			return "weekly-plan"
 		},
-		Availability: &planAvailability{prefs: prefs},
+		Availability: &planAvailability{prefs: prefs, earlierSecs: earlierSecs},
+		Window:       &planWindow{Start: plan.WindowStart, End: plan.WindowEnd},
 	}
 	exec := func(ctx context.Context, name string, input json.RawMessage) (string, error) {
 		return h.execTool(ctx, name, input, ev)
@@ -164,8 +206,16 @@ func (h *CoachHandler) generateWeeklyPlan(ctx context.Context, run weeklyPlanRun
 
 	plan.Status = models.WeeklyPlanReady
 	plan.ReviewMD = review
-	if len(proposed) > 0 {
-		js, err := json.Marshal(draftPayload{Workouts: proposed})
+	if revising {
+		plan.ReviewMD = revisedReview(run.revise.ReviewMD, review)
+	}
+	// The week's earlier sessions stay with the revised plan, so a revision
+	// of it on a later day still counts them.
+	if len(proposed) > 0 || len(wk.carry) > 0 {
+		if proposed == nil {
+			proposed = []plannedRequest{}
+		}
+		js, err := json.Marshal(weeklyPlanPayload{Workouts: proposed, Earlier: wk.carry})
 		if err != nil {
 			return fail(fmt.Errorf("encode proposed week: %w", err))
 		}
@@ -178,13 +228,26 @@ func (h *CoachHandler) generateWeeklyPlan(ctx context.Context, run weeklyPlanRun
 	return saved, nil
 }
 
-// planWorkouts decodes a plan's proposed week into PlannedWorkout shape.
+// weeklyPlanPayload is a weekly plan's stored week (WorkoutsJSON). Workouts
+// are the proposed sessions, in draftPayload's shape: what the calendar shows
+// and accepting adds. Earlier, on a plan revised on a later day, holds the
+// week's sessions from before its window. They are past, so they are never
+// shown or added, but a later revision of the same week counts them too
+// (readPlanWeek): without them a second mid-week revision would forget the
+// first days of the week and their time.
+type weeklyPlanPayload struct {
+	Workouts []plannedRequest `json:"workouts"`
+	Earlier  []plannedRequest `json:"earlier,omitempty"`
+}
+
+// planWorkouts decodes a plan's proposed week into PlannedWorkout shape: the
+// sessions it proposes, not the earlier ones a revision keeps.
 func planWorkouts(p *models.WeeklyPlan) ([]models.PlannedWorkout, error) {
 	out := []models.PlannedWorkout{}
 	if p.WorkoutsJSON == "" {
 		return out, nil
 	}
-	var d draftPayload
+	var d weeklyPlanPayload
 	if err := json.Unmarshal([]byte(p.WorkoutsJSON), &d); err != nil {
 		return nil, fmt.Errorf("proposed week is corrupt: %w", err)
 	}
@@ -196,6 +259,143 @@ func planWorkouts(p *models.WeeklyPlan) ([]models.PlannedWorkout, error) {
 		out = append(out, w)
 	}
 	return out, nil
+}
+
+// revisionWindow returns what is left of a plan's window at now: from its
+// first day, or from today once that has passed (a session dated today is
+// still to be ridden), to its last day. ok is false once the week is over.
+func revisionWindow(p *models.WeeklyPlan, now time.Time) (start, end time.Time, ok bool) {
+	loc := now.Location()
+	start, err1 := time.ParseInLocation("2006-01-02", p.WindowStart, loc)
+	end, err2 := time.ParseInLocation("2006-01-02", p.WindowEnd, loc)
+	if err1 != nil || err2 != nil {
+		return start, end, false
+	}
+	y, m, d := now.Date()
+	if today := time.Date(y, m, d, 0, 0, 0, 0, loc); today.After(start) {
+		start = today
+	}
+	return start, end, !start.After(end)
+}
+
+// revisedReview is the stored review of a revised plan: the review it
+// revises, which the calendar shows and the next revision replays, with the
+// revision's change note under it. A run that only called propose_schedule
+// writes no note, and gets no dangling "Revised:" heading.
+func revisedReview(previous, note string) string {
+	previous, note = strings.TrimSpace(previous), strings.TrimSpace(note)
+	if note == "" {
+		return previous
+	}
+	return previous + "\n\n**Revised:** " + note
+}
+
+// planWeek is the week a revision changes, read back from the plan it
+// revises.
+type planWeek struct {
+	ahead   []models.PlannedWorkout // in the revision window, in the plan's order: kept or changed
+	earlier []models.PlannedWorkout // before it, oldest first: past, so listed and counted only
+	carry   []plannedRequest        // earlier, as stored, for the revised plan to keep
+}
+
+// readPlanWeek reads a stored plan's week for a revision of [start, end]:
+// the plan's sessions split at start, plus the earlier ones it keeps from a
+// revision of its own (weeklyPlanPayload.Earlier).
+func readPlanWeek(p *models.WeeklyPlan, start, end time.Time) (planWeek, error) {
+	var wk planWeek
+	if p.WorkoutsJSON == "" {
+		return wk, nil
+	}
+	var d weeklyPlanPayload
+	if err := json.Unmarshal([]byte(p.WorkoutsJSON), &d); err != nil {
+		return wk, fmt.Errorf("proposed week is corrupt: %w", err)
+	}
+	from, to := start.Format("2006-01-02"), end.Format("2006-01-02")
+	all := append(append([]plannedRequest(nil), d.Earlier...), d.Workouts...)
+	for i, req := range all {
+		w, err := req.toModel("coach")
+		if err != nil {
+			return planWeek{}, fmt.Errorf("proposed workout %d: %w", i, err)
+		}
+		switch day := w.PlannedDate.Format("2006-01-02"); {
+		case day < from:
+			wk.earlier = append(wk.earlier, w)
+			wk.carry = append(wk.carry, req)
+		case day <= to:
+			wk.ahead = append(wk.ahead, w)
+		}
+	}
+	sort.SliceStable(wk.earlier, func(i, j int) bool { return wk.earlier[i].PlannedDate.Before(wk.earlier[j].PlannedDate) })
+	return wk, nil
+}
+
+// earlierSecs is the time the week's earlier sessions take out of its
+// budget.
+func (wk planWeek) earlierSecs() int {
+	total := 0
+	for _, w := range wk.earlier {
+		total += w.DurationSecs
+	}
+	return total
+}
+
+// proposedWeekText renders the week a revision changes for the coach: one
+// line per session in the window with everything propose_schedule needs to
+// send it again unchanged (sessionLine, then the description on a line of
+// its own, quoted), or a note that none is left. Then the week's earlier
+// sessions, without descriptions: past and not to be proposed again, but
+// part of the weekly total, and the rule against key sessions on
+// consecutive days needs the last of them.
+func proposedWeekText(wk planWeek, now time.Time) string {
+	today := now.Format("2006-01-02")
+	var lines []string
+	for _, w := range wk.ahead {
+		line := sessionLine(w, today)
+		if w.Description != "" {
+			line += "\n  description: " + strconv.Quote(w.Description)
+		}
+		lines = append(lines, line)
+	}
+	if len(lines) == 0 {
+		lines = append(lines, "(no sessions left in it)")
+	}
+	if len(wk.earlier) > 0 {
+		lines = append(lines, "\nEarlier in the week, now past and not part of this plan. Don't propose them again, "+
+			"but count them in the weekly total and when checking for key sessions on consecutive days:")
+		for _, w := range wk.earlier {
+			lines = append(lines, sessionLine(w, today))
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// sessionLine is one session as the coach sees a proposed week: date
+// (marked when it is today), title, sport (when not cycling), duration, TSS
+// and IF when set, and the interval structure.
+func sessionLine(w models.PlannedWorkout, today string) string {
+	line := "- " + w.PlannedDate.Format("Mon 2006-01-02")
+	if w.PlannedDate.Format("2006-01-02") == today {
+		line += " (today)"
+	}
+	line += " · " + w.Title
+	if w.Sport != "cycling" {
+		line += " · " + w.Sport
+	}
+	if w.DurationSecs%60 == 0 {
+		line += fmt.Sprintf(" · %d min", w.DurationSecs/60)
+	} else {
+		line += fmt.Sprintf(" · %d min %d s", w.DurationSecs/60, w.DurationSecs%60)
+	}
+	if w.TSS != nil {
+		line += fmt.Sprintf(" · ~%.0f TSS", *w.TSS)
+	}
+	if w.IntensityFactor != nil {
+		line += fmt.Sprintf(" · IF %.2f", *w.IntensityFactor)
+	}
+	if s := models.PlannedStructure(w.Intervals); s != "" {
+		line += " · " + s
+	}
+	return line
 }
 
 // ── Schedule ──────────────────────────────────────────────────────────────────
