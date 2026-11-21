@@ -4,6 +4,7 @@ import (
 	"database/sql"
 
 	"github.com/fitbase/fitbase/internal/fitness"
+	"github.com/fitbase/fitbase/internal/models"
 )
 
 // Per-workout aerobic-decoupling cache (workout_decoupling, created by
@@ -57,4 +58,42 @@ func (db *DB) AerobicDecoupling(workoutID string) (float64, bool) {
 	}
 	_ = db.SaveWorkoutDecoupling(workoutID, cached) // best-effort
 	return dec, ok
+}
+
+// DecouplingMinSecs is the shortest ride whose decoupling is cached ahead of
+// time: shorter rides tell little about drift. Analytics reads only rides of
+// 90 minutes or more, the coach an hour or more.
+const DecouplingMinSecs = 60 * 60
+
+// DecouplingCandidate reports whether a ride's decoupling is worth caching
+// ahead of time: it has power and heart rate and is long enough to drift.
+func DecouplingCandidate(w *models.Workout) bool {
+	return w.AvgPowerWatts != nil && w.AvgHeartRate != nil && w.DurationSecs >= DecouplingMinSecs
+}
+
+// WorkoutIDsWithoutDecoupling returns the rides that are decoupling
+// candidates (DecouplingCandidate) but have nothing cached yet, for the boot
+// backfill. Aggregate views read decoupling only from the cache, never from
+// streams, so this is what fills it for rides imported before it was cached
+// at import.
+func (db *DB) WorkoutIDsWithoutDecoupling() ([]string, error) {
+	rows, err := db.Query(`
+		SELECT w.id FROM workouts w
+		WHERE w.avg_power_watts IS NOT NULL AND w.avg_heart_rate IS NOT NULL
+		  AND w.duration_secs >= ?
+		  AND NOT EXISTS (SELECT 1 FROM workout_decoupling d WHERE d.workout_id = w.id)
+		ORDER BY w.recorded_at DESC`, DecouplingMinSecs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close() //nolint:errcheck
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }

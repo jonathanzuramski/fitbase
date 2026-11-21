@@ -181,6 +181,7 @@ func (imp *Importer) Import(path string) (string, error) {
 				slog.Warn("power curve insert failed", "id", result.ID, "err", err)
 			}
 		}
+		imp.cacheDecoupling(&result.Workout, result.Streams)
 		{
 			var pz []models.PowerZone
 			ssLow, ssHigh := 0, 0
@@ -406,6 +407,7 @@ func (imp *Importer) ImportBytes(data []byte, filename string) (string, error) {
 				slog.Warn("power curve insert failed", "id", result.ID, "err", err)
 			}
 		}
+		imp.cacheDecoupling(&result.Workout, result.Streams)
 		{
 			var pz []models.PowerZone
 			ssLow, ssHigh := 0, 0
@@ -569,6 +571,43 @@ func (imp *Importer) BackfillSweetSpotZone() {
 	if done > 0 {
 		slog.Info("sweet spot zone backfill complete", "backfilled", done)
 	}
+}
+
+// cacheDecoupling stores a new ride's Pw:HR decoupling while its streams are
+// in memory. Aggregate views (Analytics, the coach's trends) read decoupling
+// only from the cache, so they never fetch a ride's streams for it.
+func (imp *Importer) cacheDecoupling(w *models.Workout, streams []models.Stream) {
+	if !db.DecouplingCandidate(w) {
+		return
+	}
+	var cached *float64
+	if dec, ok := fitness.AerobicDecoupling(streams); ok {
+		cached = &dec
+	}
+	if err := imp.db.SaveWorkoutDecoupling(w.ID, cached); err != nil {
+		slog.Warn("decoupling cache failed", "id", w.ID, "err", err)
+	}
+}
+
+// BackfillDecoupling caches decoupling for rides imported before it was
+// cached at import (see cacheDecoupling), newest first so recent analytics
+// fill in first. Each ride's streams are read once; a ride that can't
+// produce a value is cached as such, so the backfill converges. Safe to call
+// repeatedly.
+func (imp *Importer) BackfillDecoupling() {
+	ids, err := imp.db.WorkoutIDsWithoutDecoupling()
+	if err != nil {
+		slog.Error("backfill: query workouts without decoupling", "err", err)
+		return
+	}
+	if len(ids) == 0 {
+		return
+	}
+	slog.Info("backfilling decoupling", "count", len(ids))
+	for _, id := range ids {
+		imp.db.AerobicDecoupling(id) // computes from the streams and caches
+	}
+	slog.Info("decoupling backfill complete", "rides", len(ids))
 }
 
 // BackfillPowerCurves computes and stores power curves for workouts that
@@ -879,6 +918,7 @@ func (watcher *Watcher) Start() {
 	go watcher.importer.BackfillPowerCurves()
 	go watcher.importer.BackfillRoutes()
 	go watcher.importer.BackfillSweetSpotZone()
+	go watcher.importer.BackfillDecoupling()
 
 	go func() {
 		// Wait 2s after the last write event before importing — devices often
