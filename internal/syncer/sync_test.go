@@ -573,10 +573,11 @@ func TestSyncFTPHistory_PopulatesFTPHistory(t *testing.T) {
 		t.Fatalf("SyncFTPHistory: %v", err)
 	}
 
-	// FTP before first change should fall back to athlete default (250).
+	// FTP before first change falls back to the profile FTP, which the sync
+	// sets to the latest general FTP (270).
 	before := d.GetFTPAtDate(time.Date(2022, 12, 31, 0, 0, 0, 0, time.UTC))
-	if before != 250 {
-		t.Errorf("FTP before first change: got %d, want 250", before)
+	if before != 270 {
+		t.Errorf("FTP before first change: got %d, want the profile's 270", before)
 	}
 
 	// FTP after first change but before second.
@@ -808,5 +809,182 @@ func TestSyncFTPHistory_NoIndoorLineWhenSame(t *testing.T) {
 	hist, _ := d.AllFTPHistory()
 	if len(hist) != 1 || hist[0].Indoor {
 		t.Errorf("history = %+v, want a single general entry", hist)
+	}
+}
+
+// syncFTP runs SyncFTPHistory against a server serving acts and returns the
+// resulting history, oldest first.
+func syncFTP(t *testing.T, d *db.DB, acts []intervals.Activity) []db.FTPHistoryEntry {
+	t.Helper()
+	src := NewIntervalsSource(d, importer.NewImporter(d, t.TempDir()))
+	srv := intervalsActivitiesServer(t, acts)
+	t.Cleanup(srv.Close)
+	if err := d.SetIntegrationCredentials("intervals", "i1", "key"); err != nil {
+		t.Fatal(err)
+	}
+	src.overrideBase(srv.URL)
+	if _, err := src.SyncFTPHistory(context.Background(), nil); err != nil {
+		t.Fatalf("SyncFTPHistory: %v", err)
+	}
+	hist, err := d.AllFTPHistory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, j := 0, len(hist)-1; i < j; i, j = i+1, j-1 {
+		hist[i], hist[j] = hist[j], hist[i]
+	}
+	return hist
+}
+
+// historyString renders entries as "242 235i 250" (i: the indoor line).
+func historyString(hist []db.FTPHistoryEntry) string {
+	s := ""
+	for i, e := range hist {
+		if i > 0 {
+			s += " "
+		}
+		s += fmt.Sprint(e.FTPWatts)
+		if e.Indoor {
+			s += "i"
+		}
+	}
+	return s
+}
+
+func ftpAct(id, start, typ string, trainer bool, ftp int) intervals.Activity {
+	return intervals.Activity{ID: id, StartDate: start, Type: typ, Trainer: trainer, IcuFTP: &ftp}
+}
+
+// A run's icu_ftp is its running FTP (Stryd, Garmin running power). It used
+// to land on the ride lines: 250, 320, 250 on the general line, or an indoor
+// line from a treadmill run.
+func TestSyncFTPHistory_SkipsNonRides(t *testing.T) {
+	d := newSyncTestDB(t)
+	hist := syncFTP(t, d, []intervals.Activity{
+		ftpAct("1", "2025-01-01T10:00:00Z", "Ride", false, 250),
+		ftpAct("2", "2025-01-02T10:00:00Z", "Run", true, 320), // treadmill
+		ftpAct("3", "2025-01-03T10:00:00Z", "Run", false, 320),
+		ftpAct("4", "2025-01-04T10:00:00Z", "Ride", false, 250),
+	})
+	if got := historyString(hist); got != "250" {
+		t.Errorf("history = %q, want a single general 250", got)
+	}
+}
+
+// A ride fitbase already has keeps its own sport: a workout imported as a run
+// doesn't count even if intervals.icu calls it something else.
+func TestSyncFTPHistory_LocalSportWins(t *testing.T) {
+	d := newSyncTestDB(t)
+	run := &models.Workout{ID: "localrun0000001", Filename: "intervals-2.fit", Sport: "running",
+		RecordedAt: time.Date(2025, 1, 2, 10, 0, 0, 0, time.UTC), DurationSecs: 1800, CreatedAt: time.Now().UTC()}
+	if err := d.InsertWorkout(run, nil); err != nil {
+		t.Fatal(err)
+	}
+	hist := syncFTP(t, d, []intervals.Activity{
+		ftpAct("1", "2025-01-01T10:00:00Z", "Ride", false, 250),
+		ftpAct("2", "2025-01-02T10:00:00Z", "Ride", false, 320),
+	})
+	if got := historyString(hist); got != "250" {
+		t.Errorf("history = %q, want a single general 250", got)
+	}
+}
+
+// A rider who only rides indoors has one FTP, not an indoor line: it used to
+// put their whole history on the indoor line.
+func TestSyncFTPHistory_IndoorOnlyRiderHasNoIndoorLine(t *testing.T) {
+	d := newSyncTestDB(t)
+	hist := syncFTP(t, d, []intervals.Activity{
+		ftpAct("1", "2025-01-01T10:00:00Z", "VirtualRide", false, 230),
+		ftpAct("2", "2025-02-01T10:00:00Z", "VirtualRide", false, 250),
+	})
+	if got := historyString(hist); got != "230 250" {
+		t.Errorf("history = %q, want general 230 then 250", got)
+	}
+	if a, _ := d.GetAthlete(); a.FTPWatts != 250 {
+		t.Errorf("profile FTP = %d, want the synced 250", a.FTPWatts)
+	}
+}
+
+// A change often shows up on an indoor ride first (an FTP test on the
+// trainer). When the next outdoor ride confirms it, it was a general change,
+// not an indoor line; and a later change made in fitbase reaches indoor rides.
+func TestSyncFTPHistory_IndoorFirstChange(t *testing.T) {
+	d := newSyncTestDB(t)
+	hist := syncFTP(t, d, []intervals.Activity{
+		ftpAct("1", "2025-01-01T10:00:00Z", "Ride", false, 240),
+		ftpAct("2", "2025-02-01T10:00:00Z", "VirtualRide", false, 250),
+		ftpAct("3", "2025-03-01T10:00:00Z", "Ride", false, 250),
+		ftpAct("4", "2025-03-02T10:00:00Z", "VirtualRide", false, 250),
+	})
+	if got := historyString(hist); got != "240 250" {
+		t.Fatalf("history = %q, want general 240 then 250", got)
+	}
+	if want := time.Date(2025, 2, 1, 10, 0, 0, 0, time.UTC); !hist[1].EffectiveFrom.Equal(want) {
+		t.Errorf("250 effective from %s, want the indoor ride that first showed it (%s)", hist[1].EffectiveFrom, want)
+	}
+	if err := d.SetFTP(265); err != nil {
+		t.Fatal(err)
+	}
+	if got := d.GetFTPForRide(time.Now().Add(time.Hour), true); got != 265 {
+		t.Errorf("indoor ride after SetFTP(265) = %d, want 265", got)
+	}
+}
+
+// A separate indoor FTP survives a general change: the first indoor ride after
+// it logs the indoor value again, so it stays newer than the general entry.
+func TestSyncFTPHistory_IndoorLineAfterGeneralChange(t *testing.T) {
+	d := newSyncTestDB(t)
+	hist := syncFTP(t, d, []intervals.Activity{
+		ftpAct("1", "2025-01-01T10:00:00Z", "Ride", false, 242),
+		ftpAct("2", "2025-01-02T10:00:00Z", "VirtualRide", false, 235),
+		ftpAct("3", "2025-01-03T10:00:00Z", "Ride", false, 242),
+		ftpAct("4", "2025-02-01T10:00:00Z", "Ride", false, 250),
+		ftpAct("5", "2025-02-02T10:00:00Z", "VirtualRide", false, 235),
+		ftpAct("6", "2025-02-03T10:00:00Z", "Ride", false, 250),
+	})
+	if got := historyString(hist); got != "242 235i 250 235i" {
+		t.Fatalf("history = %q, want 242 235i 250 235i", got)
+	}
+	day := time.Date(2025, 2, 10, 0, 0, 0, 0, time.UTC)
+	if got := d.GetFTPForRide(day, true); got != 235 {
+		t.Errorf("indoor ride = %d, want 235", got)
+	}
+	if got := d.GetFTPForRide(day, false); got != 250 {
+		t.Errorf("outdoor ride = %d, want 250", got)
+	}
+	if a, _ := d.GetAthlete(); a.FTPWatts != 250 {
+		t.Errorf("profile FTP = %d, want the general line's 250", a.FTPWatts)
+	}
+}
+
+// The profile FTP follows the synced history, so the rider profile, the FTP
+// check and the coach agree with what rides are scored against. Not when the
+// newest change is an indoor one nothing has confirmed yet, for a rider
+// without a separate indoor FTP: it may be a new FTP or a new indoor one.
+func TestSyncFTPHistory_ProfileFollowsHistory(t *testing.T) {
+	d := newSyncTestDB(t)
+	if err := d.UpdateAthlete(&models.Athlete{FTPWatts: 240, WeightKG: 75}); err != nil {
+		t.Fatal(err)
+	}
+	syncFTP(t, d, []intervals.Activity{ftpAct("1", "2025-01-01T10:00:00Z", "Ride", false, 250)})
+	if a, _ := d.GetAthlete(); a.FTPWatts != 250 {
+		t.Errorf("profile FTP = %d, want the synced 250", a.FTPWatts)
+	}
+	if got := d.GetFTPAtDate(time.Now()); got != 250 {
+		t.Errorf("effective FTP = %d, want 250", got)
+	}
+
+	if err := d.UpdateAthlete(&models.Athlete{FTPWatts: 255, WeightKG: 75}); err != nil {
+		t.Fatal(err)
+	}
+	hist := syncFTP(t, d, []intervals.Activity{
+		ftpAct("1", "2025-01-01T10:00:00Z", "Ride", false, 250),
+		ftpAct("2", "2025-02-01T10:00:00Z", "VirtualRide", false, 262),
+	})
+	if got := historyString(hist); got != "250 262i" {
+		t.Fatalf("history = %q, want 250 262i", got)
+	}
+	if a, _ := d.GetAthlete(); a.FTPWatts != 255 {
+		t.Errorf("profile FTP = %d, want the rider's 255 left alone", a.FTPWatts)
 	}
 }

@@ -126,23 +126,30 @@ func (db *DB) SetFTP(ftp int) error {
 	return db.logFTPIfChanged(current, ftp)
 }
 
-// IndoorByFilename maps the filename of every workout whose filename starts
-// with prefix to its indoor flag (e.g. "intervals-" for rides synced from
-// intervals.icu, named intervals-<activity id>.fit).
-func (db *DB) IndoorByFilename(prefix string) (map[string]bool, error) {
-	rows, err := db.Query(`SELECT filename, is_indoor FROM workouts WHERE filename LIKE ? || '%'`, prefix)
+// LocalActivity is what fitbase knows about a workout it has: its sport and
+// whether it was indoors.
+type LocalActivity struct {
+	Sport  string
+	Indoor bool
+}
+
+// ActivitiesByFilename maps the filename of every workout whose filename
+// starts with prefix to its sport and indoor flag (e.g. "intervals-" for
+// rides synced from intervals.icu, named intervals-<activity id>.fit).
+func (db *DB) ActivitiesByFilename(prefix string) (map[string]LocalActivity, error) {
+	rows, err := db.Query(`SELECT filename, sport, is_indoor FROM workouts WHERE filename LIKE ? || '%'`, prefix)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close() //nolint:errcheck
-	out := map[string]bool{}
+	out := map[string]LocalActivity{}
 	for rows.Next() {
 		var name string
-		var indoor bool
-		if err := rows.Scan(&name, &indoor); err != nil {
+		var a LocalActivity
+		if err := rows.Scan(&name, &a.Sport, &a.Indoor); err != nil {
 			return nil, err
 		}
-		out[name] = indoor
+		out[name] = a
 	}
 	return out, rows.Err()
 }

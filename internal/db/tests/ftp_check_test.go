@@ -251,7 +251,8 @@ func TestGetFTPForRide_IndoorLine(t *testing.T) {
 	}{
 		{242, day(9, 1), false},
 		{235, day(11, 1), true},
-		{250, day(12, 1), false}, // a general change doesn't move the indoor line
+		{250, day(12, 1), false}, // a newer general change moves indoor rides too
+		{245, day(12, 10), true}, // until the indoor line is set again
 	} {
 		if err := d.LogFTPChangeAtFor(e.ftp, e.at, e.indoor); err != nil {
 			t.Fatal(err)
@@ -265,7 +266,8 @@ func TestGetFTPForRide_IndoorLine(t *testing.T) {
 		{day(10, 1), true, 242},  // indoor ride before any indoor entry: general line
 		{day(11, 15), true, 235}, // indoor line
 		{day(11, 15), false, 242},
-		{day(12, 15), true, 235},
+		{day(12, 5), true, 250},
+		{day(12, 15), true, 245},
 		{day(12, 15), false, 250},
 	}
 	for _, c := range cases {
@@ -275,6 +277,67 @@ func TestGetFTPForRide_IndoorLine(t *testing.T) {
 	}
 	if got := d.GetFTPAtDate(day(11, 15)); got != 242 {
 		t.Errorf("GetFTPAtDate ignores the indoor line: got %d, want 242", got)
+	}
+}
+
+// SetFTP, the settings form and the FTP check's apply write the general line
+// only. An older indoor entry used to outrank every later general change, so
+// indoor rides stayed on a stale FTP indefinitely.
+func TestGetFTPForRide_SetFTPReachesIndoorRides(t *testing.T) {
+	d := newTestDB(t)
+	now := time.Now().UTC()
+	if err := d.LogFTPChangeAtFor(230, now.AddDate(0, 0, -200), true); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.LogFTPChangeAtFor(250, now.AddDate(0, 0, -100), true); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.SetFTP(270); err != nil {
+		t.Fatal(err)
+	}
+	later := now.Add(time.Hour)
+	if got := d.GetFTPForRide(later, true); got != 270 {
+		t.Errorf("indoor ride after SetFTP(270) = %d, want 270", got)
+	}
+	if got := d.GetFTPForRide(now.AddDate(0, 0, -50), true); got != 250 {
+		t.Errorf("indoor ride before the change = %d, want 250", got)
+	}
+}
+
+// Saving the profile with the FTP it shows makes that FTP the effective one,
+// even when it equals the stored profile value: a history synced from
+// intervals.icu (or the newest entry deleted) can say otherwise.
+func TestUpdateAthlete_SaveReconcilesWithHistory(t *testing.T) {
+	d := newTestDB(t)
+	a := &models.Athlete{FTPWatts: 240, WeightKG: 80}
+	if err := d.UpdateAthlete(a); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.ClearFTPHistory(); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.LogFTPChangeAt(250, time.Now().AddDate(0, -1, 0)); err != nil {
+		t.Fatal(err)
+	}
+	soon := time.Now().Add(2 * time.Second)
+	if got := d.GetFTPAtDate(soon); got != 250 {
+		t.Fatalf("setup: effective FTP = %d, want the history's 250", got)
+	}
+	if err := d.UpdateAthlete(a); err != nil {
+		t.Fatal(err)
+	}
+	if got := d.GetFTPAtDate(soon); got != 240 {
+		t.Errorf("effective FTP after saving the profile's 240 = %d, want 240", got)
+	}
+	if h, _ := d.AllFTPHistory(); len(h) != 2 {
+		t.Errorf("history = %d entries, want 2", len(h))
+	}
+	// A second identical save is not a change.
+	if err := d.SetFTP(240); err != nil {
+		t.Fatal(err)
+	}
+	if h, _ := d.AllFTPHistory(); len(h) != 2 {
+		t.Errorf("history after an unchanged save = %d entries, want 2", len(h))
 	}
 }
 

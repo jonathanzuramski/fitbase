@@ -217,55 +217,35 @@ func (s *IntervalsSource) SyncFTPHistory(ctx context.Context, onProgress func(ev
 		return activities[i].StartDateLocal < activities[j].StartDateLocal
 	})
 
-	// A ride fitbase already has keeps fitbase's own indoor flag, so this sync
-	// and the TSS recompute agree on which FTP line a ride belongs to; others
-	// fall back to intervals.icu's trainer / virtual-ride flags.
-	localIndoor, err := s.db.IndoorByFilename("intervals-")
+	// A ride fitbase already has keeps fitbase's own sport and indoor flag, so
+	// this sync and the TSS recompute agree on which rides count and which FTP
+	// line each belongs to; others fall back to intervals.icu's type and
+	// trainer / virtual-ride flags.
+	local, err := s.db.ActivitiesByFilename("intervals-")
 	if err != nil {
-		return 0, fmt.Errorf("read indoor flags: %w", err)
+		return 0, fmt.Errorf("read local activities: %w", err)
 	}
 	loc := s.db.AthleteLocation()
 
-	// Build FTP change points on two lines. intervals.icu keeps a separate
-	// indoor FTP, so with one line every switch between indoor and outdoor
-	// rides logged a "change" (235, 242, 235, 242, ...). An indoor point is
-	// recorded only when indoor differs from the general line (or overrides an
-	// earlier indoor value), so athletes without a separate indoor FTP get no
-	// indoor line at all.
-	type changePoint struct {
-		at     time.Time
-		ftp    int
-		indoor bool
-	}
-	var changes []changePoint
-	var lastGeneral, lastIndoor int
+	lines := ftpLines{pending: -1}
 	for _, act := range activities {
 		if act.IcuFTP == nil || *act.IcuFTP <= 0 {
 			continue
 		}
-		ftp := *act.IcuFTP
-		indoor, known := localIndoor[fmt.Sprintf("intervals-%s.fit", act.ID)]
-		if !known {
-			indoor = act.Indoor()
+		ride, indoor := act.IsRide(), act.Indoor()
+		if l, ok := local[fmt.Sprintf("intervals-%s.fit", act.ID)]; ok {
+			ride, indoor = l.Sport == "cycling", l.Indoor
 		}
-		if indoor {
-			if ftp == lastIndoor || (lastIndoor == 0 && ftp == lastGeneral) {
-				continue
-			}
-		} else if ftp == lastGeneral {
-			continue
+		if !ride {
+			continue // a run's icu_ftp is its running FTP
 		}
 		at, ok := act.StartTime(loc)
 		if !ok {
 			continue
 		}
-		changes = append(changes, changePoint{at: at, ftp: ftp, indoor: indoor})
-		if indoor {
-			lastIndoor = ftp
-		} else {
-			lastGeneral = ftp
-		}
+		lines.add(at, *act.IcuFTP, indoor)
 	}
+	changes := lines.changes
 
 	if onProgress != nil {
 		onProgress("ftpchanges", map[string]any{"count": len(changes)})
@@ -281,6 +261,17 @@ func (s *IntervalsSource) SyncFTPHistory(ctx context.Context, onProgress func(ev
 		}
 	}
 
+	// The profile FTP follows the history just written, so the rider profile,
+	// the FTP check and the coach agree with what rides are scored against.
+	// Not while the newest change is an indoor one that no outdoor ride has
+	// confirmed or contradicted, for a rider who has never shown a separate
+	// indoor FTP: it may be a new FTP or a new indoor one.
+	if lines.general > 0 && (lines.pending < 0 || lines.separateIndoor) {
+		if err := s.db.SetProfileFTP(lines.general); err != nil {
+			slog.Warn("intervals ftp sync: set profile ftp", "ftp", lines.general, "err", err)
+		}
+	}
+
 	// Recompute TSS/IF for every power-based workout using the now-accurate history.
 	return s.db.RecomputePowerLoad(func(done, total int) {
 		if onProgress == nil {
@@ -290,6 +281,74 @@ func (s *IntervalsSource) SyncFTPHistory(ctx context.Context, onProgress func(ev
 			onProgress("recompute", map[string]any{"total": total})
 		}
 	})
+}
+
+// ftpLines builds FTP change points on two lines from the rides' FTPs, fed in
+// time order. intervals.icu keeps a separate indoor FTP, so with one line
+// every switch between indoor and outdoor rides logged a "change" (235, 242,
+// 235, 242, ...).
+//
+//   - An indoor point is logged only when an indoor ride's FTP differs from
+//     the general line (or from the earlier indoor value), so riders without a
+//     separate indoor FTP get no indoor line.
+//   - Until the first outdoor ride, indoor rides set the general line: a rider
+//     who only rides indoors has one FTP, not an indoor line.
+//   - A general change ends the indoor line; the next indoor ride logs a
+//     separate indoor FTP again. GetFTPForRide takes the newer of the two
+//     lines, which is how a change made in fitbase reaches indoor rides.
+//   - A change often shows up on an indoor ride first (an FTP test on the
+//     trainer). When the next outdoor ride carries the same FTP, that indoor
+//     point was a general change and moves to the general line; when it
+//     carries another, the indoor FTP is a separate one.
+type ftpLines struct {
+	changes []ftpChangePoint
+	// general and indoor are the latest FTP on each line; indoor is 0 when
+	// nothing has been logged on it since the last general change.
+	general, indoor int
+	sawOutdoor      bool
+	// pending is the index of the indoor point logged since the last outdoor
+	// ride, or -1: no outdoor ride has confirmed or contradicted it yet.
+	pending int
+	// separateIndoor records that an outdoor ride has shown the rider's
+	// indoor FTP to be a separate one.
+	separateIndoor bool
+}
+
+type ftpChangePoint struct {
+	at     time.Time
+	ftp    int
+	indoor bool
+}
+
+func (l *ftpLines) add(at time.Time, ftp int, indoor bool) {
+	if indoor && l.sawOutdoor {
+		if ftp == l.indoor || (l.indoor == 0 && ftp == l.general) {
+			return
+		}
+		l.changes = append(l.changes, ftpChangePoint{at: at, ftp: ftp, indoor: true})
+		l.indoor, l.pending = ftp, len(l.changes)-1
+		return
+	}
+	if !indoor {
+		l.sawOutdoor = true
+		if p := l.pending; p >= 0 {
+			l.pending = -1
+			switch {
+			case l.changes[p].ftp != ftp:
+				l.separateIndoor = true
+			case ftp != l.general:
+				// The newest point (nothing is logged after a pending one).
+				l.changes[p].indoor = false
+				l.general, l.indoor = ftp, 0
+				return
+			}
+		}
+	}
+	if ftp == l.general {
+		return
+	}
+	l.changes = append(l.changes, ftpChangePoint{at: at, ftp: ftp})
+	l.general, l.indoor = ftp, 0
 }
 
 // downloadIntervalsFiles downloads FIT files concurrently and imports them sequentially.

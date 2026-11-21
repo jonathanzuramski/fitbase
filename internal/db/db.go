@@ -873,9 +873,11 @@ func (db *DB) UpdateAthlete(a *models.Athlete) error {
 }
 
 // logFTPIfChanged logs an FTP history entry, effective now, when the FTP
-// changed, or when there is no history yet (so the seeded default stops
-// counting as unset). Saving the profile used to log one on every save,
-// burying real changes among identical rows.
+// changed, when there is no history yet (so the seeded default stops counting
+// as unset), or when the history says another FTP is in effect now (a synced
+// history, or the newest entry deleted): saving the FTP the profile shows
+// makes it the one in effect. Saving the profile used to log one on every
+// save, burying real changes among identical rows.
 func (db *DB) logFTPIfChanged(previous, ftp int) error {
 	if ftp <= 0 {
 		return nil
@@ -884,10 +886,18 @@ func (db *DB) logFTPIfChanged(previous, ftp int) error {
 	if err != nil {
 		return err
 	}
-	if ftp != previous || !hasHistory {
+	if ftp != previous || !hasHistory || ftp != db.GetFTPAtDate(time.Now()) {
 		return db.LogFTPChange(ftp)
 	}
 	return nil
+}
+
+// SetProfileFTP sets the profile FTP without logging an FTP history entry,
+// for a sync that has just written the history it comes from.
+func (db *DB) SetProfileFTP(ftp int) error {
+	_, err := db.Exec(
+		"UPDATE athlete SET ftp_watts=?, updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id=1", ftp)
+	return err
 }
 
 // SaveWelcomeProfile saves the first-run profile and marks setup as complete.
@@ -961,17 +971,25 @@ func (db *DB) GetFTPAtDate(t time.Time) int {
 }
 
 // GetFTPForRide returns the FTP a ride at t was trained against. An indoor
-// ride uses the latest indoor entry on or before t when there is one
-// (intervals.icu keeps a separate indoor FTP, usually a little lower);
-// everything else, and indoor rides before any indoor entry, use the
-// general line (GetFTPAtDate).
+// ride uses the latest indoor entry on or before t (intervals.icu keeps a
+// separate indoor FTP, usually a little lower) unless a general entry is
+// newer; everything else uses the general line (GetFTPAtDate).
+//
+// A newer general entry wins because fitbase's own FTP changes (the profile,
+// the FTP check) write the general line only: an older indoor entry used to
+// outrank every later change, leaving indoor rides on a stale FTP. The
+// intervals.icu sync logs a separate indoor FTP again after each general
+// change, so it stays the newer of the two.
 func (db *DB) GetFTPForRide(t time.Time, indoor bool) int {
 	if indoor {
 		var ftp int
 		err := db.QueryRow(`
 			SELECT ftp_watts FROM ftp_history
-			WHERE indoor = 1 AND effective_from <= ?
-			ORDER BY effective_from DESC
+			WHERE indoor = 1 AND effective_from <= ?1
+				AND effective_from >= COALESCE((
+					SELECT MAX(effective_from) FROM ftp_history
+					WHERE indoor = 0 AND effective_from <= ?1), '')
+			ORDER BY effective_from DESC, id DESC
 			LIMIT 1`, t.UTC().Format(time.RFC3339)).Scan(&ftp)
 		if err == nil && ftp > 0 {
 			return ftp

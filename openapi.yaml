@@ -341,7 +341,8 @@ paths:
         Changes the FTP alone, effective now; the rest of the profile is untouched
         (unlike PUT /api/athlete, which replaces the whole profile). Past workouts keep
         the FTP that was active on their date. Logs an FTP history entry when the value
-        changes. Returns the FTP check against the new value.
+        changes, or when the history has another FTP in effect now (so the FTP set is the
+        one in effect). Returns the FTP check against the new value.
       requestBody:
         required: true
         content:
@@ -970,6 +971,24 @@ paths:
               schema: { type: string }
         "401":
           $ref: "#/components/responses/Unauthorized"
+
+  /api/integrations/intervals/ftp-sync:
+    get:
+      summary: Rebuild the FTP history from intervals.icu
+      description: |
+        Replaces the FTP history with the change points in the FTP intervals.icu recorded
+        on each ride (other sports' FTPs are ignored), on two lines: the general FTP and,
+        for riders with a separate indoor FTP, an indoor line. Sets the profile FTP to the
+        latest general FTP, unless the newest change is an indoor one that no outdoor ride
+        has confirmed yet. Then recomputes TSS and IF for every power-based workout.
+        Streams progress as Server-Sent Events (`ftpchanges`, `recompute`, then `done`
+        with `{"updated": n}` or `error`).
+      responses:
+        "200":
+          description: SSE progress stream
+          content:
+            text/event-stream:
+              schema: { type: string }
 
   /api/integrations/intervals/fetch/{id}:
     get:
