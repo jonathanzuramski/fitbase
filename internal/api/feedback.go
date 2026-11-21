@@ -11,7 +11,7 @@ import (
 )
 
 // GET /api/workouts/{id}/feedback — the rider's RPE and note on a ride
-// (an empty object when there is none).
+// (only its workout_id when there is none).
 func (h *Handler) GetWorkoutFeedback(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if !h.workoutExists(w, id) {

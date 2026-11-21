@@ -296,7 +296,7 @@ paths:
       - { name: id, in: path, required: true, schema: { type: string } }
     get:
       summary: Get the rider's feedback on a workout
-      description: How hard the ride felt (RPE 1–10) and the rider's note. Empty when there is none.
+      description: How hard the ride felt (RPE 1–10) and the rider's note. Only workout_id when there is none.
       responses:
         "200":
           content:
@@ -1494,7 +1494,7 @@ components:
         workout_id: { type: string }
         rpe:        { type: integer, minimum: 1, maximum: 10, description: How hard the ride felt; omitted when not rated }
         note:       { type: string }
-        updated_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time, description: Omitted when there is no feedback }
 
     FTPEffort:
       type: object
