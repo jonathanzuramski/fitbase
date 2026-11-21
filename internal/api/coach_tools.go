@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fitbase/fitbase/internal/aicoach"
+	"github.com/fitbase/fitbase/internal/db"
 	"github.com/fitbase/fitbase/internal/fitness"
 	"github.com/fitbase/fitbase/internal/models"
 	"github.com/fitbase/fitbase/internal/timeutil"
@@ -583,10 +584,36 @@ func (h *CoachHandler) toolListPlannedWorkouts(input json.RawMessage) (string, e
 	})
 }
 
+// ftpHistoryWithDeltas returns the FTP history oldest first, with each entry's
+// change from the previous entry on its own line (nil for the first on a
+// line). The history mixes the general and the indoor FTP line: diffed as one
+// list, general 242 → indoor 235 → general 250 reads as a 7 W drop and a 15 W
+// gain, when the general FTP rose 8 W.
+func ftpHistoryWithDeltas(database *db.DB) ([]db.FTPHistoryEntry, []*int, error) {
+	newestFirst, err := database.AllFTPHistory()
+	if err != nil {
+		return nil, nil, err
+	}
+	entries := make([]db.FTPHistoryEntry, 0, len(newestFirst))
+	for i := len(newestFirst) - 1; i >= 0; i-- {
+		entries = append(entries, newestFirst[i])
+	}
+	deltas := make([]*int, len(entries))
+	previous := map[bool]int{} // per line: indoor entries compare with indoor
+	for i, e := range entries {
+		if p, ok := previous[e.Indoor]; ok {
+			d := e.FTPWatts - p
+			deltas[i] = &d
+		}
+		previous[e.Indoor] = e.FTPWatts
+	}
+	return entries, deltas, nil
+}
+
 // toolFTPHistory returns every recorded FTP change oldest-first with the delta
 // from the previous setting, so the progression reads chronologically.
 func (h *CoachHandler) toolFTPHistory() (string, error) {
-	entries, err := h.db.AllFTPHistory() // newest first
+	entries, deltas, err := ftpHistoryWithDeltas(h.db)
 	if err != nil {
 		return "", err
 	}
@@ -598,21 +625,14 @@ func (h *CoachHandler) toolFTPHistory() (string, error) {
 	}
 	loc := h.db.AthleteLocation()
 	out := make([]ftpChange, 0, len(entries))
-	previous := map[bool]int{} // per line: indoor entries compare with indoor
-	for i := len(entries) - 1; i >= 0; i-- {
-		e := entries[i]
-		c := ftpChange{Date: e.EffectiveFrom.In(loc).Format("2006-01-02"), FTPWatts: e.FTPWatts, Indoor: e.Indoor}
-		if p, ok := previous[e.Indoor]; ok {
-			d := e.FTPWatts - p
-			c.DeltaWatts = &d
-		}
-		previous[e.Indoor] = e.FTPWatts
-		out = append(out, c)
+	for i, e := range entries {
+		out = append(out, ftpChange{Date: e.EffectiveFrom.In(loc).Format("2006-01-02"), FTPWatts: e.FTPWatts,
+			Indoor: e.Indoor, DeltaWatts: deltas[i]})
 	}
 	return jsonResult(map[string]any{
 		"count":   len(out),
 		"changes": out,
-		"note":    "Oldest first. delta_watts is the change from the previous setting on the same line. Entries marked indoor are a separate, usually lower, FTP used for indoor rides only. Workouts' %FTP/TSS were computed against the FTP in effect on their date (indoor rides against the indoor line when there is one).",
+		"note":    "Oldest first. delta_watts is the change from the previous setting on the same line. Entries marked indoor are a separate, usually lower, FTP used for indoor rides only, from their date until the next unmarked change. Workouts' %FTP/TSS were computed against the FTP in effect on their date (indoor rides against the indoor line when there is one).",
 	})
 }
 
@@ -701,19 +721,23 @@ func (h *CoachHandler) toolPerformanceTrend(input json.RawMessage) (string, erro
 	}
 
 	type ftpChange struct {
-		Date     string `json:"date"`
-		FTPWatts int    `json:"ftp_watts"`
-		Indoor   bool   `json:"indoor,omitempty"`
+		Date       string `json:"date"`
+		FTPWatts   int    `json:"ftp_watts"`
+		Indoor     bool   `json:"indoor,omitempty"`
+		DeltaWatts *int   `json:"delta_watts,omitempty"`
 	}
 	ftpChanges := []ftpChange{}
-	if hist, err := h.db.AllFTPHistory(); err == nil {
+	// Deltas come from the whole history, so the first change in the window
+	// still says how far it moved.
+	if hist, deltas, err := ftpHistoryWithDeltas(h.db); err == nil {
 		loc := h.db.AthleteLocation()
-		for i := len(hist) - 1; i >= 0; i-- {
-			if hist[i].EffectiveFrom.After(since) {
+		for i, e := range hist {
+			if e.EffectiveFrom.After(since) {
 				ftpChanges = append(ftpChanges, ftpChange{
-					Date:     hist[i].EffectiveFrom.In(loc).Format("2006-01-02"),
-					FTPWatts: hist[i].FTPWatts,
-					Indoor:   hist[i].Indoor,
+					Date:       e.EffectiveFrom.In(loc).Format("2006-01-02"),
+					FTPWatts:   e.FTPWatts,
+					Indoor:     e.Indoor,
+					DeltaWatts: deltas[i],
 				})
 			}
 		}
@@ -723,7 +747,8 @@ func (h *CoachHandler) toolPerformanceTrend(input json.RawMessage) (string, erro
 		"window_days":           days,
 		"weeks":                 out,
 		"ftp_changes_in_window": ftpChanges,
-		"note":                  "EF = normalized power ÷ avg HR. Compare EF only across weeks with similar avg_if — rising EF at matched IF is real aerobic gain. Decoupling under 5% on long rides indicates durability.",
+		"note": "EF = normalized power ÷ avg HR. Compare EF only across weeks with similar avg_if — rising EF at matched IF is real aerobic gain. Decoupling under 5% on long rides indicates durability. " +
+			"ftp_changes_in_window entries marked indoor are the separate, usually lower indoor FTP line; delta_watts is the change from the previous entry on the same line. Never compare an indoor entry with an unmarked one.",
 	})
 }
 

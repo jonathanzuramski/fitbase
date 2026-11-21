@@ -533,17 +533,19 @@ func (h *CoachHandler) collectCoachingData() (*aicoach.CoachingData, error) {
 
 	// FTP history, oldest-first, capped to the last 12 changes so the payload
 	// stays small. This is what lets the model separate "trained more" from
-	// "got faster" in the performance section.
+	// "got faster" in the performance section. Deltas are per line, from the
+	// whole history.
 	var ftpHistory []aicoach.FTPPoint
-	if hist, err := h.db.AllFTPHistory(); err == nil { // newest first
-		if len(hist) > 12 {
-			hist = hist[:12]
+	if hist, deltas, err := ftpHistoryWithDeltas(h.db); err == nil {
+		if n := len(hist) - 12; n > 0 {
+			hist, deltas = hist[n:], deltas[n:]
 		}
-		for i := len(hist) - 1; i >= 0; i-- {
+		for i, e := range hist {
 			ftpHistory = append(ftpHistory, aicoach.FTPPoint{
-				Date:     hist[i].EffectiveFrom.In(h.db.AthleteLocation()).Format("2006-01-02"),
-				FTPWatts: hist[i].FTPWatts,
-				Indoor:   hist[i].Indoor,
+				Date:       e.EffectiveFrom.In(h.db.AthleteLocation()).Format("2006-01-02"),
+				FTPWatts:   e.FTPWatts,
+				Indoor:     e.Indoor,
+				DeltaWatts: deltas[i],
 			})
 		}
 	}

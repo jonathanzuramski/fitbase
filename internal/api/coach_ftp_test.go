@@ -1,10 +1,12 @@
 package api
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/fitbase/fitbase/internal/aicoach"
 	"github.com/fitbase/fitbase/internal/fitness"
 	"github.com/fitbase/fitbase/internal/models"
 )
@@ -81,4 +83,85 @@ func TestCoachTools_RiderFeedback(t *testing.T) {
 	if err != nil || !strings.Contains(detail, `"rider_feedback":{"note":"felt flat, short night","rpe":9,"rpe_label":"max effort"}`) {
 		t.Errorf("get_workout_detail lacks the feedback (%v):\n%s", err, detail)
 	}
+}
+
+// The FTP history the coach reads mixes two lines: the general FTP and, for a
+// rider with a separate indoor FTP, the indoor one. Read as one list, general
+// 242 → indoor 235 → general 250 says "FTP fell 7 W" and then "rose 15 W";
+// the real general-line gain is 8 W. Each entry carries its change from the
+// previous entry on its own line, and the model is told to stay within a line.
+func TestCoachFTPHistory_ComparesWithinALine(t *testing.T) {
+	h := coachFixture(t)
+	if err := h.db.ClearFTPHistory(); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for _, e := range []struct {
+		ftp     int
+		daysAgo int
+		indoor  bool
+	}{{242, 80, false}, {235, 78, true}, {250, 20, false}} {
+		if err := h.db.LogFTPChangeAtFor(e.ftp, now.AddDate(0, 0, -e.daysAgo), e.indoor); err != nil {
+			t.Fatal(err)
+		}
+	}
+	type point struct {
+		FTPWatts   int  `json:"ftp_watts"`
+		Indoor     bool `json:"indoor"`
+		DeltaWatts *int `json:"delta_watts"`
+	}
+	check := func(source string, got []point) {
+		t.Helper()
+		if len(got) != 3 {
+			t.Fatalf("%s: %d entries, want 3: %+v", source, len(got), got)
+		}
+		if got[0].DeltaWatts != nil || !got[1].Indoor || got[1].DeltaWatts != nil {
+			t.Errorf("%s: the first entry on each line has no delta: %+v %+v", source, got[0], got[1])
+		}
+		if got[2].DeltaWatts == nil || *got[2].DeltaWatts != 8 {
+			t.Errorf("%s: 250 W delta = %v, want +8 (from 242 on the general line)", source, got[2].DeltaWatts)
+		}
+	}
+
+	data, err := h.collectCoachingData()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(data.FTPHistory)
+	var insights []point
+	if err := json.Unmarshal(raw, &insights); err != nil {
+		t.Fatal(err)
+	}
+	check("insights ftp_history", insights)
+	if !strings.Contains(aicoach.SystemPrompt, "Entries in ftp_history marked indoor") {
+		t.Error("the insights prompt doesn't say how to read indoor entries")
+	}
+
+	out, err := h.toolPerformanceTrend([]byte(`{"days":90}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var trend struct {
+		Changes []point `json:"ftp_changes_in_window"`
+		Note    string  `json:"note"`
+	}
+	if err := json.Unmarshal([]byte(out), &trend); err != nil {
+		t.Fatal(err)
+	}
+	check("get_performance_trend", trend.Changes)
+	if !strings.Contains(trend.Note, "marked indoor") {
+		t.Errorf("get_performance_trend note doesn't explain indoor entries: %s", trend.Note)
+	}
+
+	out, err = h.toolFTPHistory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var history struct {
+		Changes []point `json:"changes"`
+	}
+	if err := json.Unmarshal([]byte(out), &history); err != nil {
+		t.Fatal(err)
+	}
+	check("get_ftp_history", history.Changes)
 }
