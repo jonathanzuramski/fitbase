@@ -420,28 +420,7 @@
   }
 }
 
-/* The shared nav is wider than a 375px phone on every page (the restored
-   pre-1.2 nav overflows by about 30px). On this page its links scroll
-   sideways inside the nav instead of the whole page scrolling; how the nav
-   looks is left alone. Scoped with :has() so no other page changes. */
 @media (max-width: 640px) {
-  body:has(.an-compare) .nav-links {
-    min-width: 0;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  body:has(.an-compare) .nav-links::-webkit-scrollbar {
-    display: none;
-  }
-  body:has(.an-compare) .nav-brand {
-    flex-shrink: 0;
-  }
-}
-
-@media (max-width: 640px) {
-  body:has(.an-compare) .nav-links {
-    margin-left: 14px;
-  }
   /* Titles first, their toggles under them. */
   #years .card-header-row > :not(.card-title),
   #trends-grid .card-header-row > :not(.card-title) {
