@@ -1,7 +1,7 @@
 // Analytics page: a period against another, the years against each other,
 // and every marker over time. Charts use uPlot on the shared theme from
 // charts.js (baseOpts, containerWidth, chartHeight, watchResize, COLORS,
-// POWER_ZONE_COLORS, HR_ZONE_COLORS, IMPERIAL, renderFitnessChart).
+// POWER_ZONE_COLORS, HR_ZONE_COLORS, TSB_ZONES, IMPERIAL).
 //
 // The page arrives with its first data inline (initAnalytics). Changing a
 // period, scope or range fetches /api/analytics/* and redraws in place; the
@@ -108,12 +108,29 @@ const curveTick = (durations, i, k) => (isMobile() && k % 2 ? "" : durLabel(dura
 
 // ── Chart plumbing ───────────────────────────────────────────────────────────
 
-// fresh empties a chart container and returns a new element to draw into.
-// Each redraw gets its own element, so the resize observer of the chart it
-// replaces watches a detached node and stops.
+// The charts on the page, by the element each was drawn into. uPlot holds
+// every chart it makes (in its cursor set, with a window listener) until
+// destroy(), so removing a chart's element is not enough: anything that
+// redraws or empties a container destroys the charts in it first.
+const liveCharts = new Map(); // host element → uPlot
+
+// dispose destroys every chart drawn in el or inside it.
+function dispose(el) {
+  for (const [host, u] of liveCharts) {
+    if (el === host || el.contains(host)) {
+      u.destroy();
+      liveCharts.delete(host);
+    }
+  }
+}
+
+// fresh empties a chart container, destroying what was drawn there, and
+// returns a new element to draw into. Each redraw gets its own element, so
+// the resize observer of the chart it replaces watches a detached node.
 function fresh(id) {
   const el = document.getElementById(id);
   if (!el) return null;
+  dispose(el);
   el.textContent = "";
   el.classList.remove("an-empty");
   const host = document.createElement("div");
@@ -124,6 +141,7 @@ function fresh(id) {
 function empty(id, text) {
   const el = document.getElementById(id);
   if (!el) return;
+  dispose(el);
   el.textContent = text;
   el.classList.add("an-empty");
 }
@@ -189,8 +207,30 @@ function series(d) {
       break;
     default:
       s.points = d.markers ? { show: true, size: 5, fill: d.color } : { show: false };
+      if (d.fill) s.fill = d.fill;
+      if (d.spline) s.paths = uPlot.paths.spline();
   }
   return s;
+}
+
+// bandsHook shades horizontal bands behind the series: the form zones of
+// the fitness chart (TSB_ZONES in charts.js, as the dashboard draws them).
+function bandsHook(bands) {
+  return (u) => {
+    const { ctx } = u;
+    const { left, top, width, height } = u.bbox;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(left, top, width, height);
+    ctx.clip();
+    for (const [lo, hi, fill] of bands) {
+      const yHi = u.valToPos(hi, "y", true);
+      const yLo = u.valToPos(lo, "y", true);
+      ctx.fillStyle = fill;
+      ctx.fillRect(left, Math.min(yHi, yLo), width, Math.abs(yLo - yHi));
+    }
+    ctx.restore();
+  };
 }
 
 // refLines draws dashed horizontal reference lines (5% decoupling, +8 ramp,
@@ -218,9 +258,10 @@ function refLinesHook(refs) {
   };
 }
 
-// chart draws a uPlot chart of defs (each with its column in data) into host.
+// chart draws a uPlot chart of defs (each with its column in data) into host
+// and keeps it in liveCharts until its container is redrawn or emptied.
 // opts: height, time (x is time; default true), y (scale overrides), yFmt
-// (axis labels), xAxis (axis overrides), refs, xValue (legend x value).
+// (axis labels), xAxis (axis overrides), bands, refs, xValue (legend x value).
 function chart(host, xs, defs, opts = {}) {
   const height = opts.height || 220;
   const base = baseOpts(containerWidth(host), chartHeight(height));
@@ -228,17 +269,21 @@ function chart(host, xs, defs, opts = {}) {
   base.padding = [8, 18, 0, 0];
   const yAxis = { ...base.axes[1] };
   if (opts.yFmt) yAxis.values = (_u, splits) => splits.map(opts.yFmt);
+  const behind = [];
+  if (opts.bands) behind.push(bandsHook(opts.bands));
+  if (opts.refs) behind.push(refLinesHook(opts.refs));
   const u = new uPlot(
     {
       ...base,
       series: [{ value: opts.xValue }, ...defs.map(series)],
       scales: { x: { time: opts.time !== false, ...(opts.x || {}) }, y: { auto: true, ...(opts.y || {}) } },
       axes: [{ ...base.axes[0], ...(opts.xAxis || {}) }, yAxis],
-      hooks: opts.refs ? { drawAxes: [refLinesHook(opts.refs)] } : {},
+      hooks: behind.length ? { drawAxes: behind } : {},
     },
     [xs, ...defs.map((d) => d.data)],
     host,
   );
+  liveCharts.set(host, u);
   watchResize(host, u, height);
   legendFor(host, defs);
   return u;
@@ -308,6 +353,9 @@ async function fetchData(path, params) {
   return body.data;
 }
 
+// Each refresh takes a sequence number, and anything it does after an await
+// first checks it is still the latest: a slow response (or a slow failure)
+// must never draw over, or put in the URL, what a later click asked for.
 let compareSeq = 0;
 async function refreshCompare() {
   const params = formParams();
@@ -315,34 +363,49 @@ async function refreshCompare() {
   const body = document.getElementById("cmp-body");
   body.classList.add("an-loading");
   try {
-    const scopeChanged = state.compare && params.get("scope") !== state.compare.scope;
     const c = await fetchData("/api/analytics/compare", params);
-    if (seq !== compareSeq) return; // a newer request is on its way
+    if (seq !== compareSeq) return;
     state.compare = c;
     renderCompare(c);
-    if (scopeChanged || (state.years && state.years.scope !== c.scope)) {
-      state.years = await fetchData("/api/analytics/years", new URLSearchParams({ scope: c.scope }));
-      renderYears();
-    }
     syncURL();
   } catch (err) {
+    if (seq !== compareSeq) return;
+    dispose(body);
     body.innerHTML = `<p class="an-error">Couldn't compare those periods: ${esc(err.message)}</p>`;
+    return;
   } finally {
     if (seq === compareSeq) body.classList.remove("an-loading");
   }
+  // Year over year counts the same sport as the comparison.
+  if (state.years && state.years.scope === state.compare.scope) return;
+  try {
+    const y = await fetchData("/api/analytics/years", new URLSearchParams({ scope: state.compare.scope }));
+    if (seq !== compareSeq) return;
+    state.years = y;
+    renderYears();
+  } catch (err) {
+    if (seq === compareSeq) empty("an-yoy", `Couldn't load the years: ${err.message}`);
+  }
 }
 
+let trendsSeq = 0;
 async function refreshTrends(range) {
   const grid = document.getElementById("trends-grid");
+  const seq = ++trendsSeq;
   grid.classList.add("an-loading");
   try {
-    state.trends = await fetchData("/api/analytics/trends", new URLSearchParams({ range }));
+    const t = await fetchData("/api/analytics/trends", new URLSearchParams({ range }));
+    if (seq !== trendsSeq) return;
+    state.trends = t;
     renderTrends(false);
     syncURL();
   } catch (err) {
+    if (seq !== trendsSeq) return;
+    // Put the tabs back on the range still shown.
+    document.querySelectorAll("[data-range]").forEach((b) => b.classList.toggle("active", b.dataset.range === state.trends.range));
     alert("Couldn't load the trends: " + err.message);
   } finally {
-    grid.classList.remove("an-loading");
+    if (seq === trendsSeq) grid.classList.remove("an-loading");
   }
 }
 
@@ -476,6 +539,7 @@ function renderCompare(c) {
       <div class="an-period"><i class="an-key an-key-line" style="border-color:${AN.b};border-top-style:dashed"></i><strong>${esc(c.b.label)}</strong>
         <span class="muted">${c.b.days} day${c.b.days === 1 ? "" : "s"}</span></div>
     </div>`;
+  dispose(body); // the last comparison's curve and RPE charts
   if (c.a.activities === 0 && c.b.activities === 0) {
     body.innerHTML = periods + `<p class="an-empty">No ${c.scope === "all" ? "activities" : esc(c.scope)} in either period.</p>`;
     return;
@@ -796,26 +860,29 @@ function renderCurve() {
   );
 }
 
-let fitnessSeq = 0;
+// renderFitness draws fitness, fatigue and form in the dashboard's colours
+// and form bands (COLORS, TSB_ZONES in charts.js). It doesn't call the
+// dashboard's renderFitnessChart, which keeps its chart to itself, so this
+// page could never destroy it on a redraw.
 function renderFitness() {
   const data = state.trends.fitness;
-  const el = document.getElementById("an-fitness");
-  el.textContent = "";
-  el.classList.remove("an-empty");
   if (!data.length || !data.some((p) => p.fitness > 0.05)) {
     empty("an-fitness", "No training load in this range yet.");
     return;
   }
-  // renderFitnessChart draws into an element by id; a fresh one per redraw.
-  const host = document.createElement("div");
-  host.id = `an-fitness-chart-${++fitnessSeq}`;
-  el.appendChild(host);
-  renderFitnessChart(host.id, data);
-  legendFor(host, [
-    { label: "fitness", color: COLORS.ctl },
-    { label: "fatigue", color: COLORS.atl },
-    { label: "form", color: COLORS.tsb },
-  ]);
+  const xs = data.map((p) => dayTs(p.date));
+  const col = (f) => data.map((p) => Math.round(p[f] * 10) / 10);
+  const fmt = (v) => num(v, 1);
+  chart(
+    fresh("an-fitness"),
+    xs,
+    [
+      { label: "fitness", data: col("fitness"), color: COLORS.ctl, width: 1.5, fill: COLORS.ctl + "22", spline: true, fmt },
+      { label: "fatigue", data: col("fatigue"), color: COLORS.atl, width: 1.5, spline: true, fmt },
+      { label: "form", data: col("form"), color: COLORS.tsb, width: 1.5, spline: true, fmt },
+    ],
+    { height: 300, bands: TSB_ZONES, refs: [{ y: 0, color: "rgba(148,163,184,0.25)" }] },
+  );
 }
 
 function renderRamp() {
@@ -868,6 +935,7 @@ function renderBestEfforts() {
   const t = state.trends;
   const be = t.best_efforts;
   const el = document.getElementById("an-best");
+  dispose(el);
   el.textContent = "";
   el.classList.remove("an-empty");
   if (!be.months.some((m) => m.watts.some((w) => w != null))) {
@@ -952,6 +1020,7 @@ function renderMatched() {
       return;
     }
     const el = document.getElementById(id);
+    dispose(el);
     el.textContent = "";
     el.classList.remove("an-empty");
     const head = document.createElement("h3");
