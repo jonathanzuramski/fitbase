@@ -1,0 +1,199 @@
+{{ define "title" }}analytics — fitbase{{ end }}
+
+{{ define "content" }}
+<div class="page-header">
+	<div>
+		<h1>analytics</h1>
+		<div class="page-subtitle">Compare any two periods, and see what is changing and why.</div>
+	</div>
+</div>
+
+{{/* ── Compare: one period against another ─────────────────────────────── */}}
+<section class="card an-compare" id="compare">
+	<h2 class="card-title">compare <span class="muted" id="cmp-subtitle"></span></h2>
+	<form class="an-controls" id="cmp-form" autocomplete="off">
+		<div class="filter-tabs an-period-tabs" role="group" aria-label="period">
+			<button type="button" class="filter-tab{{ if eq .State.Period "week" }} active{{ end }}" data-period="week">week</button>
+			<button type="button" class="filter-tab{{ if eq .State.Period "month" }} active{{ end }}" data-period="month">month</button>
+			<button type="button" class="filter-tab{{ if eq .State.Period "year" }} active{{ end }}" data-period="year">year</button>
+			<button type="button" class="filter-tab{{ if eq .State.Period "custom" }} active{{ end }}" data-period="custom">custom</button>
+		</div>
+		<input type="hidden" name="period" value="{{ .State.Period }}">
+		<div class="an-control" data-show="calendar">
+			<button type="button" class="an-step" data-step="-1" aria-label="previous period">‹</button>
+			<input type="date" name="date" value="{{ .State.Date }}" max="{{ .State.Today }}" aria-label="a day in the period">
+			<button type="button" class="an-step" data-step="1" aria-label="next period">›</button>
+		</div>
+		<div class="an-control" data-show="custom">
+			<input type="date" name="from" value="{{ .State.From }}" aria-label="first day">
+			<span class="muted">to</span>
+			<input type="date" name="to" value="{{ .State.To }}" aria-label="last day">
+		</div>
+		<label class="an-control">
+			<span class="muted">against</span>
+			<select name="against">
+				<option value="previous"{{ if eq .State.Against "previous" }} selected{{ end }}>the {{ if eq .State.Period "custom" }}days{{ else }}{{ .State.Period }}{{ end }} before</option>
+				<option value="year"{{ if eq .State.Against "year" }} selected{{ end }}>a year earlier</option>
+				<option value="custom"{{ if eq .State.Against "custom" }} selected{{ end }}>days I pick</option>
+			</select>
+		</label>
+		<div class="an-control" data-show="against-custom">
+			<input type="date" name="against_from" value="{{ .State.AgainstFrom }}" aria-label="comparison first day">
+			<span class="muted">to</span>
+			<input type="date" name="against_to" value="{{ .State.AgainstTo }}" aria-label="comparison last day">
+		</div>
+		<label class="an-control">
+			<span class="muted">sport</span>
+			<select name="scope">
+				<option value="all"{{ if eq .State.Scope "all" }} selected{{ end }}>all sports</option>
+				{{ range .ScopeOptions }}<option value="{{ . }}"{{ if eq . $.State.Scope }} selected{{ end }}>{{ . }}</option>{{ end }}
+			</select>
+		</label>
+	</form>
+	<div id="cmp-body" class="an-body" aria-live="polite"></div>
+</section>
+
+{{/* ── Year over year ───────────────────────────────────────────────────── */}}
+<section class="card" id="years">
+	<div class="card-header-row">
+		<h2 class="card-title">year over year <span class="muted" id="yoy-subtitle"></span></h2>
+		<div class="pc-view-toggle" role="group" aria-label="year over year metric">
+			<button type="button" class="pc-view-btn active" data-yoy="distance_meters">distance</button>
+			<button type="button" class="pc-view-btn" data-yoy="duration_secs">time</button>
+			<button type="button" class="pc-view-btn" data-yoy="tss">TSS</button>
+			<button type="button" class="pc-view-btn" data-yoy="elevation_gain_meters">climbing</button>
+		</div>
+	</div>
+	<div id="an-yoy" class="an-chart"></div>
+	<p class="an-note muted">Each year adds up from January 1, so the lines can be read against each other on any date.</p>
+</section>
+
+{{/* ── Trends ───────────────────────────────────────────────────────────── */}}
+<div class="an-trends-head" id="trends">
+	<h2 class="an-trends-title">trends <span class="muted" id="trends-subtitle"></span></h2>
+	<div class="filter-tabs" role="group" aria-label="range">
+		{{ range .Ranges }}
+			<button type="button" class="filter-tab{{ if eq .Value $.State.Range }} active{{ end }}" data-range="{{ .Value }}">{{ .Label }}</button>
+		{{ end }}
+	</div>
+</div>
+
+<div class="an-grid" id="trends-grid">
+	<section class="card">
+		<h2 class="card-title">FTP <span class="muted">set, and what your rides show</span></h2>
+		{{ template "ftp-check-note" .FTPCheck }}
+		<div id="an-ftp" class="an-chart"></div>
+		<p class="an-note muted">Each week's estimate is the higher of 95% of the best 20 minutes and the best hour in the 90 days before it; an indoor effort counts against your indoor FTP line, as the FTP check does. When the estimate runs below the FTP line for months, the FTP is probably set high.</p>
+	</section>
+
+	<section class="card">
+		<div class="card-header-row">
+			<h2 class="card-title">power curve <span class="muted">best power for each duration</span></h2>
+			<div class="pc-view-toggle">
+				<button type="button" class="pc-view-btn active" data-curve-unit="w">W</button>
+				{{ if gt .Trends.WeightKG 0.0 }}<button type="button" class="pc-view-btn" data-curve-unit="wkg">W/kg</button>{{ end }}
+			</div>
+		</div>
+		<div id="an-curve" class="an-chart"></div>
+		<p class="an-note muted">Recent curves close to the all-time one mean you're near your best; where they fall away shows which end of your fitness has slipped (short and punchy, or long and steady).</p>
+	</section>
+
+	<section class="card an-wide">
+		<h2 class="card-title">fitness <span class="muted">fitness / fatigue / form, all sports</span></h2>
+		<div id="an-fitness" class="an-chart"></div>
+		<h3 class="an-sub">ramp <span class="muted">fitness gained or lost each week</span></h3>
+		<div id="an-ramp" class="an-chart"></div>
+		<p class="an-note muted">More than about 8 points of fitness a week is a steep build that is hard to absorb; a negative ramp is fitness being lost (or a planned rest).</p>
+	</section>
+
+	<section class="card an-wide">
+		<div class="card-header-row an-head-wrap">
+			<h2 class="card-title">load <span class="muted">ridden against planned, all sports</span></h2>
+			<div class="an-toggles">
+				<div class="pc-view-toggle" role="group" aria-label="load metric">
+					<button type="button" class="pc-view-btn active" data-load-metric="tss">TSS</button>
+					<button type="button" class="pc-view-btn" data-load-metric="duration_secs">time</button>
+					<button type="button" class="pc-view-btn" data-load-metric="distance_meters">distance</button>
+				</div>
+				<div class="pc-view-toggle" role="group" aria-label="load buckets">
+					<button type="button" class="pc-view-btn active" data-load-bucket="weeks">weekly</button>
+					<button type="button" class="pc-view-btn" data-load-bucket="months">monthly</button>
+				</div>
+			</div>
+		</div>
+		<div id="an-load" class="an-chart"></div>
+	</section>
+
+	<section class="card an-wide">
+		<div class="card-header-row">
+			<h2 class="card-title">best efforts <span class="muted">by month</span></h2>
+			<div class="pc-view-toggle">
+				<button type="button" class="pc-view-btn active" data-best-unit="w">W</button>
+				{{ if gt .Trends.WeightKG 0.0 }}<button type="button" class="pc-view-btn" data-best-unit="wkg">W/kg</button>{{ end }}
+			</div>
+		</div>
+		<div id="an-best" class="an-multiples"></div>
+		<p class="an-note muted">The best power each month at five durations, against your all-time best (dashed). A month without a hard effort at a duration shows nothing rather than a low number.{{ if gt .Trends.WeightKG 0.0 }} W/kg uses today's weight for every month: fitbase keeps no weight history.{{ end }}</p>
+	</section>
+
+	<section class="card">
+		<h2 class="card-title">efficiency factor <span class="muted">steady rides</span></h2>
+		<div id="an-ef" class="an-chart"></div>
+		<p class="an-note muted">Normalized power ÷ average HR on steady rides (IF 0.55–0.80, 45 minutes or more), outdoors and indoors apart: indoors runs hotter. Rising EF at the same intensity is aerobic fitness.</p>
+	</section>
+
+	<section class="card">
+		<h2 class="card-title">heart rate and power <span class="muted">at matched effort</span></h2>
+		<div id="an-hr-at-power" class="an-chart"></div>
+		<div id="an-power-at-hr" class="an-chart"></div>
+		<p class="an-note muted">Steady rides near one power, or one heart rate. Lower heart rate at the same power, or more power at the same heart rate, is aerobic fitness; heat, fatigue and illness push the other way.</p>
+	</section>
+
+	<section class="card">
+		<h2 class="card-title">durability <span class="muted">Pw:HR decoupling, long steady rides</span></h2>
+		<div id="an-decoupling" class="an-chart"></div>
+		<p class="an-note muted">How far heart rate drifts against power from the first half of a steady ride of 90 minutes or more to the second. Under 5% (dashed) is aerobically durable.</p>
+	</section>
+
+	<section class="card">
+		<h2 class="card-title">cadence <span class="muted">average, cycling</span></h2>
+		<div id="an-cadence" class="an-chart"></div>
+	</section>
+
+	<section class="card">
+		<h2 class="card-title">intensity <span class="muted">rides by IF</span></h2>
+		<div id="an-if" class="an-chart"></div>
+		<p class="an-note muted">How hard each ride was overall: a season of mostly 0.75–0.85 rides is a lot of tempo.</p>
+	</section>
+
+	<section class="card">
+		<h2 class="card-title">intensity split <span class="muted">time in power zones</span></h2>
+		<div id="an-split" class="an-chart"></div>
+		<p class="an-note muted">A polarized plan keeps roughly 80% of the time easy and most of the rest hard; a large middle share means a lot of tempo and threshold riding.</p>
+	</section>
+
+	<section class="card">
+		<h2 class="card-title">consistency <span class="muted">days active</span></h2>
+		<div id="an-streaks" class="an-tiles"></div>
+		<div id="an-consistency" class="an-chart"></div>
+	</section>
+
+	<section class="card">
+		<h2 class="card-title">effort <span class="muted">how hard it felt against TSS</span></h2>
+		<div id="an-rpe" class="an-chart"></div>
+		<p class="an-note muted">Rides you rated on the ride page. The same TSS feeling harder lately can mean fatigue; feeling easier, fitness.</p>
+	</section>
+</div>
+{{ end }}
+
+{{ define "scripts" }}
+<script src="/static/js/analytics.js"></script>
+<script>
+	initAnalytics({
+		compare: {{ .Compare | toJSON }},
+		trends: {{ .Trends | toJSON }},
+		years: {{ .Years | toJSON }},
+		zones: {{ .ZoneLegend | toJSON }},
+	});
+</script>
+{{ end }}

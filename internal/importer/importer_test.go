@@ -731,3 +731,116 @@ func TestRebuildFromArchive_RefusesTotalGap(t *testing.T) {
 		t.Errorf("workout count = %d, want 1 (database untouched by refused rebuild)", n)
 	}
 }
+
+// ── Decoupling cache ──────────────────────────────────────────────────────────
+
+// buildDriftFIT produces an indoor ride of secs seconds at a steady watts whose
+// heart rate is hr1 for the first half and hr2 for the second: a known Pw:HR
+// decoupling of 1 - hr1/hr2.
+func buildDriftFIT(t *testing.T, start time.Time, watts, hr1, hr2, secs int) []byte {
+	t.Helper()
+	fileId := mesgdef.NewFileId(nil)
+	fileId.Type = typedef.FileActivity
+	fileId.Manufacturer = typedef.ManufacturerGarmin
+	fileId.TimeCreated = start
+
+	msgs := []proto.Message{fileId.ToMesg(nil)}
+	for i := 0; i < secs; i++ {
+		rec := mesgdef.NewRecord(nil)
+		rec.Timestamp = start.Add(time.Duration(i+1) * time.Second)
+		rec.Power = uint16(watts)
+		rec.HeartRate = uint8(hr1)
+		if i >= secs/2 {
+			rec.HeartRate = uint8(hr2)
+		}
+		msgs = append(msgs, rec.ToMesg(nil))
+	}
+	session := mesgdef.NewSession(nil)
+	session.Sport = typedef.SportCycling
+	session.SubSport = typedef.SubSportIndoorCycling
+	session.StartTime = start
+	session.Timestamp = start.Add(time.Duration(secs) * time.Second)
+	session.Event = typedef.EventSession
+	session.EventType = typedef.EventTypeStop
+	session.TotalTimerTime = uint32(secs) * 1000
+	session.AvgPower = uint16(watts)
+	session.AvgHeartRate = uint8((hr1 + hr2) / 2)
+
+	activity := mesgdef.NewActivity(nil)
+	activity.Timestamp = session.Timestamp
+	activity.NumSessions = 1
+	activity.Type = typedef.ActivityManual
+	activity.Event = typedef.EventActivity
+	activity.EventType = typedef.EventTypeStop
+	msgs = append(msgs, session.ToMesg(nil), activity.ToMesg(nil))
+
+	var buf bytes.Buffer
+	if err := encoder.New(&buf).Encode(&proto.FIT{Messages: msgs}); err != nil {
+		t.Fatalf("encode test FIT: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// A long ride with power and heart rate gets its decoupling cached at import,
+// from the streams already in memory, so Analytics never reads its streams;
+// a short one is left alone.
+func TestImport_CachesDecoupling(t *testing.T) {
+	d := newTestDB(t)
+	imp := importer.NewImporter(d, t.TempDir())
+
+	long, err := imp.ImportBytes(buildDriftFIT(t, time.Date(2024, 3, 15, 8, 0, 0, 0, time.UTC), 200, 130, 137, 2*3600), "long.fit")
+	if err != nil || long == "" {
+		t.Fatalf("import long: id=%q err=%v", long, err)
+	}
+	val, ok, found, err := d.GetWorkoutDecoupling(long)
+	if err != nil || !found || !ok {
+		t.Fatalf("long ride: decoupling found=%v ok=%v err=%v, want it cached at import", found, ok, err)
+	}
+	if want := (1 - 130.0/137.0) * 100; math.Abs(val-want) > 0.2 {
+		t.Errorf("cached decoupling = %.2f%%, want about %.2f%%", val, want)
+	}
+
+	short, err := imp.ImportBytes(buildDriftFIT(t, time.Date(2024, 3, 16, 8, 0, 0, 0, time.UTC), 200, 130, 137, 1800), "short.fit")
+	if err != nil || short == "" {
+		t.Fatalf("import short: id=%q err=%v", short, err)
+	}
+	if _, _, found, _ := d.GetWorkoutDecoupling(short); found {
+		t.Error("a half-hour ride should not be cached: it isn't a decoupling candidate")
+	}
+}
+
+// The boot backfill fills the cache for long rides imported before it was
+// cached at import, and converges: a second pass finds nothing to do.
+func TestBackfillDecoupling(t *testing.T) {
+	d := newTestDB(t)
+	start := time.Date(2024, 3, 15, 8, 0, 0, 0, time.UTC)
+	ap, hr := 200.0, 133
+	w := &models.Workout{
+		ID: "legacydecouple01", Filename: "legacy.fit", RecordedAt: start, Sport: "cycling",
+		DurationSecs: 2 * 3600, AvgPowerWatts: &ap, AvgHeartRate: &hr, CreatedAt: time.Now().UTC(),
+	}
+	var streams []models.Stream
+	for i := 0; i < 2*3600; i++ {
+		p, h := 200, 130
+		if i >= 3600 {
+			h = 137
+		}
+		streams = append(streams, models.Stream{Timestamp: start.Add(time.Duration(i) * time.Second), PowerWatts: &p, HeartRateBPM: &h})
+	}
+	if err := d.InsertWorkout(w, streams); err != nil {
+		t.Fatal(err)
+	}
+	ids, err := d.WorkoutIDsWithoutDecoupling()
+	if err != nil || len(ids) != 1 || ids[0] != w.ID {
+		t.Fatalf("WorkoutIDsWithoutDecoupling = %v, %v; want [%s]", ids, err, w.ID)
+	}
+
+	importer.NewImporter(d, t.TempDir()).BackfillDecoupling()
+
+	if _, ok, found, _ := d.GetWorkoutDecoupling(w.ID); !found || !ok {
+		t.Errorf("after backfill: found=%v ok=%v, want a cached value", found, ok)
+	}
+	if ids, _ := d.WorkoutIDsWithoutDecoupling(); len(ids) != 0 {
+		t.Errorf("backfill did not converge: %v still uncached", ids)
+	}
+}

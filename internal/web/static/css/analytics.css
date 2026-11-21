@@ -1,0 +1,440 @@
+/* analytics.css — the Analytics page only (Progress, before it grew into
+   Analytics). It builds on the dashboard's cards, card titles, filter tabs
+   and the ride page's small toggles; everything here is scoped to .an-* or
+   the intensity-split bars the page has always drawn. */
+
+/* ── Controls ────────────────────────────────────────────────────────── */
+.an-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  margin-bottom: 16px;
+}
+.an-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+.an-controls input[type="date"],
+.an-controls select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  color-scheme: dark;
+  font-family: var(--font);
+  font-size: 13px;
+  padding: 4px 8px;
+  min-height: 30px;
+}
+.an-controls input[type="date"]:focus,
+.an-controls select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.an-step {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  min-width: 30px;
+  min-height: 30px;
+}
+.an-step:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.an-step:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* ── Compare ─────────────────────────────────────────────────────────── */
+.an-body {
+  transition: opacity 0.15s;
+}
+.an-loading {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.an-periods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 24px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+.an-period {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.an-period .an-key {
+  align-self: center;
+}
+
+.an-table-wrap {
+  overflow-x: auto;
+}
+.an-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.an-table th,
+.an-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+  vertical-align: top;
+}
+.an-table th:first-child {
+  text-align: left;
+  font-weight: 400;
+  color: var(--text);
+}
+.an-table thead th {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.an-table tr.an-group th {
+  padding-top: 14px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  text-align: left;
+}
+.an-table tbody tr:not(.an-group):hover {
+  background: var(--bg-hover);
+}
+.an-n {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.an-pct {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.an-delta {
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+.an-arrow {
+  margin-right: 4px;
+  font-size: 9px;
+  vertical-align: 1px;
+}
+.an-good,
+.an-good .an-pct {
+  color: var(--green);
+}
+.an-bad,
+.an-bad .an-pct {
+  color: var(--red);
+}
+.an-table-compact {
+  margin-top: 6px;
+}
+
+/* Wide screens: the table beside the panels; narrower, the panels below it
+   two by two, then one by one. */
+.an-cmp-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  gap: 20px;
+  align-items: start;
+}
+.an-cmp-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+.an-panel {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.an-sub {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.an-sub .muted {
+  font-weight: 400;
+}
+.an-small {
+  font-size: 12px;
+}
+.an-gap {
+  margin-top: 14px;
+}
+.an-zone-group + .an-zone-group {
+  margin-top: 14px;
+}
+.an-zone-group .zsplit {
+  margin-top: 8px;
+}
+
+/* ── Charts and legends ──────────────────────────────────────────────── */
+.an-chart {
+  margin-top: 8px;
+  min-height: 40px;
+  min-width: 0;
+}
+.an-chart + .an-chart {
+  margin-top: 16px;
+}
+.an-empty {
+  padding: 12px 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.an-error {
+  padding: 12px 0;
+  font-size: 13px;
+  color: var(--red);
+}
+.an-note {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+/* uPlot's legend carries series names (and values on hover) on desktop;
+   phones hide it, so they get this one. */
+.an-legend {
+  display: none;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.an-legend-always {
+  display: flex;
+}
+.an-key {
+  display: inline-block;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+.an-key-line {
+  width: 14px;
+  height: 0;
+  border-top: 2px solid;
+}
+.an-key-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.an-key-box {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+/* ── Trends ──────────────────────────────────────────────────────────── */
+.an-trends-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  margin: 24px 0 12px;
+}
+.an-trends-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+.an-trends-title .muted {
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 400;
+}
+.an-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  transition: opacity 0.15s;
+}
+.an-grid > .card {
+  min-width: 0;
+  margin-bottom: 0;
+}
+.an-wide {
+  grid-column: 1 / -1;
+}
+.an-head-wrap {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.an-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.an-multiples {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px 16px;
+}
+.an-multiple {
+  min-width: 0;
+}
+.an-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.an-tile {
+  text-align: center;
+}
+.an-tile-val {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--text);
+}
+.an-tile-lbl {
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--text-muted);
+}
+
+/* ── Intensity split bars ────────────────────────────────────────────── */
+.zsplit-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+.zsplit-bar {
+  display: flex;
+  height: 14px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--bg);
+}
+.zseg {
+  display: block;
+  height: 100%;
+}
+.zsplit-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin-top: 4px;
+  font-size: 12px;
+}
+.zsplit-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.zsplit-legend i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 5px;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+
+/* ── Narrower screens ────────────────────────────────────────────────── */
+@media (max-width: 1200px) {
+  .an-cmp-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .an-cmp-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .an-grid,
+  .an-cmp-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .an-legend {
+    display: flex;
+  }
+  .an-controls {
+    gap: 8px 10px;
+  }
+  /* iOS zooms into inputs under 16px on focus. */
+  .an-controls input[type="date"],
+  .an-controls select {
+    font-size: 16px;
+  }
+  .an-table th,
+  .an-table td {
+    padding: 6px 4px;
+  }
+  .an-table {
+    font-size: 12px;
+  }
+  .an-table thead th {
+    font-size: 10px;
+    letter-spacing: 0.03em;
+  }
+  /* The change takes two lines: the amount, then the percentage. */
+  .an-pct {
+    display: block;
+    margin-left: 0;
+  }
+  .an-panel {
+    padding: 10px;
+  }
+  .an-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 8px;
+  }
+  .an-trends-head .filter-tabs {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 640px) {
+  /* Titles first, their toggles under them. */
+  #years .card-header-row > :not(.card-title),
+  #trends-grid .card-header-row > :not(.card-title) {
+    order: 2;
+  }
+  #years .pc-view-toggle,
+  .an-toggles {
+    flex-basis: 100%;
+  }
+  .an-trends-head .filter-tabs {
+    width: 100%;
+  }
+  .an-trends-head .filter-tab {
+    padding: 4px 6px;
+    white-space: nowrap;
+  }
+}

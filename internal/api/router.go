@@ -47,6 +47,9 @@ func NewRouter(h *Handler, dropbox *DropboxHandler, intervalsH *IntervalsHandler
 		})
 
 		r.Get("/fitness", h.GetFitness)
+		r.Get("/analytics/compare", h.GetAnalyticsCompare)
+		r.Get("/analytics/trends", h.GetAnalyticsTrends)
+		r.Get("/analytics/years", h.GetAnalyticsYears)
 		r.Get("/training/weekly", h.GetWeeklyTraining)
 		r.Get("/ftp-history/recompute", h.RecomputePowerLoad)
 		r.Get("/coach/insights", coach.GetCachedInsights)
