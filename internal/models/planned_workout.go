@@ -3,6 +3,7 @@ package models
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -86,6 +87,55 @@ func (iv PlannedInterval) TotalSecs() int {
 		return iv.reps() * sum
 	}
 	return iv.reps() * iv.DurationSecs
+}
+
+// Summary renders one interval node for the coach, e.g. "warmup 10:00 50→70%"
+// or "4×(work 8:00 @ 90% + recovery 3:00 @ 55%)". It is deterministic, so a
+// workout replayed to the model reads the same every time.
+func (iv PlannedInterval) Summary() string {
+	if iv.IsGroup() {
+		parts := make([]string, len(iv.Steps))
+		for i, s := range iv.Steps {
+			parts[i] = s.Summary()
+		}
+		inner := strings.Join(parts, " + ")
+		if iv.Repeat > 1 {
+			return fmt.Sprintf("%d×(%s)", iv.Repeat, inner)
+		}
+		return inner
+	}
+	parts := []string{fmt.Sprintf("%d:%02d", iv.DurationSecs/60, iv.DurationSecs%60)}
+	if iv.Kind != "" {
+		parts = append([]string{iv.Kind}, parts...)
+	}
+	switch {
+	case iv.TargetPctFTPStart != nil && iv.TargetPctFTPEnd != nil:
+		parts = append(parts, fmt.Sprintf("%d→%d%%", *iv.TargetPctFTPStart, *iv.TargetPctFTPEnd))
+	case iv.TargetPctFTP != nil:
+		parts = append(parts, fmt.Sprintf("@ %d%%", *iv.TargetPctFTP))
+	case iv.TargetWatts != nil:
+		parts = append(parts, fmt.Sprintf("@ %d W", *iv.TargetWatts))
+	case iv.TargetZone != "":
+		parts = append(parts, "@ "+iv.TargetZone)
+	}
+	leaf := strings.Join(parts, " ")
+	if iv.Note != "" {
+		leaf += " [" + iv.Note + "]"
+	}
+	if iv.Repeat > 1 {
+		return fmt.Sprintf("%d×(%s)", iv.Repeat, leaf)
+	}
+	return leaf
+}
+
+// PlannedStructure joins a workout's top-level intervals with " · "; "" when
+// there are none.
+func PlannedStructure(ivs []PlannedInterval) string {
+	parts := make([]string, len(ivs))
+	for i, iv := range ivs {
+		parts[i] = iv.Summary()
+	}
+	return strings.Join(parts, " · ")
 }
 
 // hasTarget reports whether any power target is set — used to reject a repeat

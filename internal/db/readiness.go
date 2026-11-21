@@ -33,7 +33,11 @@ func (db *DB) Readiness(tz *time.Location) (models.ReadinessReport, error) {
 	}
 	daysSince := 0
 	if lastDate != nil {
-		daysSince = int(today.Sub(*lastDate).Hours() / 24)
+		daysSince = calendarDaysBetween(lastDate.In(tz), today)
+	} else {
+		// No rides at all: nothing is settled, whatever the load model says
+		// for an empty history (pages hide readiness without an AsOf).
+		asOf = ""
 	}
 
 	var rampRate float64
@@ -54,4 +58,16 @@ func (db *DB) Readiness(tz *time.Location) (models.ReadinessReport, error) {
 		RecommendationDetail: detail,
 		RecommendationTone:   tone,
 	}, nil
+}
+
+// calendarDaysBetween counts the calendar days from a's date to b's (both in
+// their own location). Dividing the elapsed time by 24 hours called a ride at
+// 1 PM yesterday "today" until 1 PM.
+func calendarDaysBetween(a, b time.Time) int {
+	ay, am, ad := a.Date()
+	by, bm, bd := b.Date()
+	// UTC midnights, so a DST change can't make a day 23 or 25 hours.
+	from := time.Date(ay, am, ad, 0, 0, 0, 0, time.UTC)
+	to := time.Date(by, bm, bd, 0, 0, 0, 0, time.UTC)
+	return int(to.Sub(from).Hours() / 24)
 }

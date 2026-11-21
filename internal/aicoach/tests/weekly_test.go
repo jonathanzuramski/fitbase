@@ -1,6 +1,7 @@
 package aicoach_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -33,8 +34,9 @@ func TestWeeklyPlanWindow_CrossesMonthEnd(t *testing.T) {
 	}
 }
 
-// The brief must pin the exact dates (propose_schedule rejects nothing in the
-// future, so a wrong window would land silently) and must send the model to
+// The brief must pin the exact dates (propose_schedule rejects dates outside
+// the window, so a model that inferred the wrong week would burn rounds
+// re-planning) and must send the model to
 // get_workout_intervals — grading sessions from averages is the failure mode
 // this feature exists to avoid.
 func TestWeeklyPlanBrief_PinsWindowAndIntervalGrading(t *testing.T) {
@@ -57,20 +59,295 @@ func TestWeeklyPlanBrief_PinsWindowAndIntervalGrading(t *testing.T) {
 	}
 }
 
+// A revision changes the rest of the proposed week. Its brief pins that
+// window, which starts today when the revision comes mid-week, and asks for a
+// change note, never a second review: the server keeps the plan's review and
+// adds the note under it.
+func TestWeeklyPlanRevisionBrief(t *testing.T) {
+	start := time.Date(2026, 11, 11, 0, 0, 0, 0, time.UTC)
+	brief := aicoach.WeeklyPlanRevisionBrief(start, start.AddDate(0, 0, 4), start.Add(9*time.Hour))
+	for _, want := range []string{
+		"dates 2026-11-11 to 2026-11-15 only",
+		"(5 days)",
+		"(today)",
+		"Don't write the review again",
+		"exactly as listed: same date, title, description",
+		"Planning rules",
+		aicoach.ToolProposeSchedule,
+		// The week's earlier sessions still count: for the weekly total
+		// and for key sessions on consecutive days.
+		"an earlier session the message lists counts",
+		"the new weekly total if it changed, earlier sessions included",
+	} {
+		if !strings.Contains(brief, want) {
+			t.Errorf("revision brief is missing %q:\n%s", want, brief)
+		}
+	}
+	if strings.Contains(brief, "%!") || strings.Contains(brief, "## How the last week went") {
+		t.Errorf("revision brief is malformed or asks for the review:\n%s", brief)
+	}
+}
+
+// A revision runs under ChatSystemPrompt, whose Planning section weekly plans
+// follow too: it gathers recent rides "at minimum" and starts a plan
+// tomorrow. The revision brief must say it replaces both, or a model that
+// followed the shared gather re-read rpe and rider_note and reshaped
+// sessions the rider didn't ask to change, and the start-tomorrow default
+// argued against today's session. The brief names each line by quoting it;
+// this holds the quotes to the chat prompt, so rewording either side fails
+// here instead of silently leaving two instructions that disagree.
+func TestWeeklyPlanRevisionBrief_ReplacesPlanningGatherAndStart(t *testing.T) {
+	i := strings.Index(aicoach.ChatSystemPrompt, "Planning —")
+	if i < 0 {
+		t.Fatal("chat prompt has no planning section")
+	}
+	planning := aicoach.ChatSystemPrompt[i:]
+	start := time.Date(2026, 11, 11, 0, 0, 0, 0, time.UTC)
+	end := start.AddDate(0, 0, 4)
+	midWeek := aicoach.WeeklyPlanRevisionBrief(start, end, start.Add(9*time.Hour))
+
+	if !strings.Contains(midWeek, "A revision replaces two parts of the Planning section") {
+		t.Errorf("revision brief doesn't say it takes precedence over the Planning section:\n%s", midWeek)
+	}
+	for _, line := range []string{"Gather context first", "start tomorrow unless the rider names a start date"} {
+		if !strings.Contains(planning, line) {
+			t.Errorf("the Planning section no longer says %q, which the revision brief replaces by name", line)
+		}
+		if !strings.Contains(midWeek, `- "`+line+`": `) {
+			t.Errorf("revision brief doesn't replace the Planning section's %q:\n%s", line, midWeek)
+		}
+	}
+	for _, want := range []string{"don't gather again", "Fetch only what the change needs", "2026-11-11 to 2026-11-15, today included."} {
+		if !strings.Contains(midWeek, want) {
+			t.Errorf("revision brief lacks %q:\n%s", want, midWeek)
+		}
+	}
+
+	// Revised before the week starts, the window starts tomorrow: today isn't in it.
+	early := aicoach.WeeklyPlanRevisionBrief(start, end, start.Add(-3*time.Hour))
+	if strings.Contains(early, "today included") || !strings.Contains(early, "2026-11-11 to 2026-11-15.") {
+		t.Errorf("a revision before the week starts should cover the week, not today:\n%s", early)
+	}
+}
+
+// planningRules is every planning rule the model sees on a weekly run: the
+// static chat prompt plus the per-run brief. Rule tests assert on both
+// together so they hold wherever a rule lives.
+func planningRules() string {
+	start, end := aicoach.WeeklyPlanWindow(time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC))
+	return aicoach.ChatSystemPrompt + aicoach.WeeklyPlanBrief(start, end)
+}
+
+// get_readiness states the ramp per week (ctl_ramp_per_week). The old rule
+// read a bare 28-day ramp_rate against "~8 CTL/week", so a steady 3/week
+// build (12 over 28 days) forced a recovery week.
+func TestPlanningRules_RampIsPerWeek(t *testing.T) {
+	rules := planningRules()
+	if !strings.Contains(rules, "ctl_ramp_per_week") {
+		t.Error("planning rules don't name ctl_ramp_per_week")
+	}
+	if strings.Contains(rules, "ramp rate above ~8 CTL/week") {
+		t.Error("planning rules still judge a bare ramp rate against a per-week line")
+	}
+	for _, tool := range aicoach.CoachTools() {
+		if tool.Name == aicoach.ToolGetReadiness && !strings.Contains(tool.Description, "per week") {
+			t.Errorf("get_readiness description doesn't say the ramp is per week: %s", tool.Description)
+		}
+	}
+}
+
+// The rider's rpe and notes reach the coach; the rules must use them to
+// change the plan, not just mention them in the review.
+func TestPlanningRules_WeighRPEAndNotes(t *testing.T) {
+	rules := planningRules()
+	for _, want := range []string{"rpe 9–10", "never assume one", "illness", "rpe / rider_note"} {
+		if !strings.Contains(rules, want) {
+			t.Errorf("planning rules lack %q", want)
+		}
+	}
+	start, end := aicoach.WeeklyPlanWindow(time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC))
+	brief := aicoach.WeeklyPlanBrief(start, end)
+	if strings.Contains(brief, "%!") || strings.Contains(brief, "%%") {
+		t.Errorf("brief has a formatting error:\n%s", brief)
+	}
+}
+
+// Both coaches that read rider notes say what to do about cardiac-type
+// symptoms: the no-medical-advice rule alone left the model to keep
+// prescribing intensity.
+func TestPrompts_RedFlagSymptoms(t *testing.T) {
+	for name, prompt := range map[string]string{"chat": aicoach.ChatSystemPrompt, "insights": aicoach.SystemPrompt} {
+		if !strings.Contains(prompt, "chest pain") || !strings.Contains(prompt, "doctor") {
+			t.Errorf("%s prompt has no red-flag symptom rule", name)
+		}
+	}
+}
+
+// Every planning rule is in %FTP: an FTP no recent ride backs must change
+// how the week is built, in the weekly plan and in insights alike.
+func TestPlanningRules_FTPCheck(t *testing.T) {
+	rules := planningRules()
+	for _, want := range []string{"FTP check", "target_watts"} {
+		if !strings.Contains(rules, want) {
+			t.Errorf("planning rules lack %q", want)
+		}
+	}
+	if !strings.Contains(aicoach.SystemPrompt, "ftp_check") {
+		t.Error("the insights prompt doesn't use ftp_check")
+	}
+	start, end := aicoach.WeeklyPlanWindow(time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC))
+	if brief := aicoach.WeeklyPlanBrief(start, end); strings.Contains(brief, "%!") {
+		t.Errorf("brief has a formatting error:\n%s", brief)
+	}
+}
+
+// The rules for building a plan live in the static chat prompt, so chat plans
+// by the same rules as the weekly run and they sit in the cached prefix; the
+// per-run brief only points at them.
+func TestChatSystemPrompt_CarriesPlanningRules(t *testing.T) {
+	for _, want := range []string{"last_vs_first_rep_pct", "consecutive days", "sweet spot 88–94%", "ctl_ramp_per_week", "rpe 9–10"} {
+		if !strings.Contains(aicoach.ChatSystemPrompt, want) {
+			t.Errorf("chat prompt lacks the planning rule %q", want)
+		}
+	}
+	if strings.Contains(aicoach.ChatSystemPrompt, "%%") {
+		t.Error("chat prompt is a raw string, not a format: it must not escape %")
+	}
+	start, end := aicoach.WeeklyPlanWindow(time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC))
+	brief := aicoach.WeeklyPlanBrief(start, end)
+	if strings.Contains(brief, "consecutive days") {
+		t.Error("the weekly brief still carries the rules: they belong in the cached chat prompt")
+	}
+	if !strings.Contains(brief, "Planning rules") || strings.Contains(brief, "%!") {
+		t.Errorf("brief doesn't point at the planning rules, or is malformed:\n%s", brief)
+	}
+}
+
+// The planning rules serve chat as well as the weekly plan. Chat has no
+// review for a rule to point at, and the rules that read rpe and rider_note
+// need chat's planning gather to fetch the rides that carry them.
+func TestChatSystemPrompt_PlanningWorksInChat(t *testing.T) {
+	p := aicoach.ChatSystemPrompt
+	i := strings.Index(p, "Planning —")
+	if i < 0 {
+		t.Fatal("chat prompt has no planning section")
+	}
+	planning := p[i:]
+	if strings.Contains(planning, "in the review") {
+		t.Error("a planning rule points at a review, which chat doesn't write")
+	}
+	var gather string
+	for _, line := range strings.Split(planning, "\n") {
+		if strings.HasPrefix(line, "- Gather context first") {
+			gather = line
+		}
+	}
+	if !strings.Contains(gather, aicoach.ToolListRecentWorkouts) || !strings.Contains(gather, "at minimum") ||
+		strings.Index(gather, aicoach.ToolListRecentWorkouts) > strings.Index(gather, "at minimum") {
+		t.Errorf("chat's planning gather doesn't require %s, which carries rpe and rider_note:\n%s",
+			aicoach.ToolListRecentWorkouts, gather)
+	}
+}
+
+func TestStandingAvailability(t *testing.T) {
+	monWedSat := func(wd time.Weekday) bool {
+		return wd == time.Monday || wd == time.Wednesday || wd == time.Saturday
+	}
+	got := aicoach.StandingAvailability(monWedSat, 6)
+	for _, want := range []string{"Mon, Wed, Sat", "about 6 hours"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("availability lacks %q: %s", want, got)
+		}
+	}
+	everyDay := func(time.Weekday) bool { return true }
+	if got := aicoach.StandingAvailability(everyDay, 0); got != "" {
+		t.Errorf("defaults (every day, no budget) = %q, want empty", got)
+	}
+	if got := aicoach.StandingAvailability(everyDay, 8); !strings.Contains(got, "any day") || !strings.Contains(got, "about 8 hours") {
+		t.Errorf("every day with a budget = %q", got)
+	}
+}
+
 func TestWeeklyPlanAvailability(t *testing.T) {
 	start := time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC) // Monday
 	end := start.AddDate(0, 0, 6)
 	noWedFri := func(wd time.Weekday) bool { return wd != time.Wednesday && wd != time.Friday }
 
-	got := aicoach.WeeklyPlanAvailability(start, end, noWedFri, 8)
+	got := aicoach.WeeklyPlanAvailability(start, end, noWedFri, 8, 0)
 	for _, want := range []string{"Schedule nothing on Wed 2026-11-11, Fri 2026-11-13", "Mon 2026-11-09", "about 8 hours"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("availability text missing %q:\n%s", want, got)
 		}
 	}
 
-	open := aicoach.WeeklyPlanAvailability(start, end, func(time.Weekday) bool { return true }, 0)
+	everyDay := func(time.Weekday) bool { return true }
+	open := aicoach.WeeklyPlanAvailability(start, end, everyDay, 0, 0)
 	if !strings.Contains(open, "any day") || !strings.Contains(open, "not set") {
 		t.Errorf("open availability text:\n%s", open)
+	}
+}
+
+// A revision made on a later day plans only the days left, but the budget is
+// the week's: the text says what the earlier sessions leave for these days.
+// It used to offer the days left the whole budget.
+func TestWeeklyPlanAvailability_RevisionCountsTheWeeksEarlierSessions(t *testing.T) {
+	start := time.Date(2026, 11, 11, 0, 0, 0, 0, time.UTC)
+	end := start.AddDate(0, 0, 4)
+	everyDay := func(time.Weekday) bool { return true }
+
+	got := aicoach.WeeklyPlanAvailability(start, end, everyDay, 3, 2)
+	for _, want := range []string{"about 3 hours of training for the week", "earlier sessions take 2 h", "up to 1.3 h for these days", "keep the ones the rider didn't ask to change", "earlier sessions included"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("revision availability lacks %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Plan up to that") {
+		t.Errorf("the days left are offered the whole week's budget:\n%s", got)
+	}
+
+	// At or past the limit propose_schedule enforces (3 h × the slack),
+	// nothing fits — the same line the check draws.
+	if spent := aicoach.WeeklyPlanAvailability(start, end, everyDay, 3, 3.3); !strings.Contains(spent, "no time for these days") {
+		t.Errorf("earlier sessions at the limit should leave nothing:\n%s", spent)
+	}
+	if open := aicoach.WeeklyPlanAvailability(start, end, everyDay, 0, 1.5); !strings.Contains(open, "earlier sessions take 1.5 h, so count them") || strings.Contains(open, "choose the volume") {
+		t.Errorf("without a budget a revision should keep the plan's volume and count the earlier sessions:\n%s", open)
+	}
+}
+
+// propose_schedule accepted the week being revised at up to the budget times
+// WeeklyBudgetSlack. A later-day revision used to tell the days left only
+// budget − earlier, with no slack, so a week accepted at 3.25 of 3 h
+// (2 h earlier, 1.25 h ahead) was told its untouched sessions didn't fit —
+// pushing the model to trim them, or with less left, to propose nothing and
+// lose today's session. Whatever the check accepted must fit the text.
+func TestWeeklyPlanAvailability_RevisionFitsTheWeekTheCheckAccepted(t *testing.T) {
+	start := time.Date(2026, 11, 11, 0, 0, 0, 0, time.UTC)
+	end := start.AddDate(0, 0, 4)
+	everyDay := func(time.Weekday) bool { return true }
+
+	for _, tc := range []struct{ budget, earlier, ahead float64 }{
+		{3, 2, 1.25},
+		{3, 3, 0.25},  // used to say "no time for these days"
+		{8, 5.5, 3.3}, // used to offer 2.5 h
+	} {
+		if tc.earlier+tc.ahead > tc.budget*aicoach.WeeklyBudgetSlack {
+			t.Fatalf("case %+v is over the limit the check enforces", tc)
+		}
+		got := aicoach.WeeklyPlanAvailability(start, end, everyDay, tc.budget, tc.earlier)
+		if strings.Contains(got, "no time for these days") {
+			t.Errorf("%+v: the accepted week's %.2f h ahead is told nothing fits:\n%s", tc, tc.ahead, got)
+			continue
+		}
+		var left float64
+		if _, err := fmt.Sscanf(got[strings.Index(got, "up to ")+len("up to "):], "%g h", &left); err != nil {
+			t.Fatalf("%+v: no 'up to N h' in:\n%s", tc, got)
+		}
+		if left < tc.ahead-0.1 {
+			t.Errorf("%+v: offers %.1f h for days that already hold %.2f h:\n%s", tc, left, tc.ahead, got)
+		}
+		if left > tc.budget*aicoach.WeeklyBudgetSlack-tc.earlier {
+			t.Errorf("%+v: offers %.1f h, more than the check accepts:\n%s", tc, left, got)
+		}
 	}
 }

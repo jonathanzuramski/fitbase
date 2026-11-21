@@ -55,6 +55,20 @@ func (a Activity) Indoor() bool {
 	return a.Trainer || a.Type == "VirtualRide"
 }
 
+// rideTypes are the intervals.icu activity types that are rides.
+var rideTypes = map[string]bool{
+	"Ride": true, "VirtualRide": true, "GravelRide": true, "MountainBikeRide": true,
+	"EBikeRide": true, "EMountainBikeRide": true, "TrackRide": true,
+	"Velomobile": true, "Handcycle": true,
+}
+
+// IsRide reports whether the activity is a ride, by its intervals.icu type.
+// The API always sends one; an activity without it is taken as a ride, as
+// every activity was before types were checked.
+func (a Activity) IsRide() bool {
+	return a.Type == "" || rideTypes[a.Type]
+}
+
 // Client is an authenticated intervals.icu API client.
 type Client struct {
 	athleteID string

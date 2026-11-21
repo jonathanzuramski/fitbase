@@ -220,6 +220,12 @@ func (h *CoachHandler) chatSystemContext(now time.Time) string {
 	if athlete, err := h.db.GetAthlete(); err == nil && athlete != nil {
 		if block := buildRiderProfileBlock(athlete); block != "" {
 			ctx += "\n\n" + block
+			// Indoor rides' %FTP, IF, TSS and structure lines use the indoor
+			// line when there is one; without it the model converts their
+			// percentages to watts against the general FTP.
+			if indoor := h.indoorFTPInEffect(athlete, now); indoor > 0 {
+				ctx += fmt.Sprintf("- Indoor FTP: %d W (a separate line for indoor rides: their %%FTP, IF, TSS and structure lines use it — give indoor targets in watts from this number)\n", indoor)
+			}
 			// The FTP verdict rides with the FTP it qualifies. Non-fatal too.
 			if check, err := h.db.FTPCheck(now); err == nil {
 				ctx += ftpCheckLine(check)
@@ -227,6 +233,21 @@ func (h *CoachHandler) chatSystemContext(now time.Time) string {
 		}
 	}
 	return ctx
+}
+
+// indoorFTPInEffect returns the indoor FTP an indoor ride now is scored
+// against, or 0 when the rider has no indoor line in effect (none, or the
+// general FTP has a newer entry). Chat, the weekly plan and insights all
+// state it from here, so they agree on when there is one.
+func (h *CoachHandler) indoorFTPInEffect(athlete *models.Athlete, now time.Time) int {
+	if athlete.FTPWatts <= 0 {
+		return 0
+	}
+	indoor := h.db.GetFTPForRide(now, true)
+	if indoor <= 0 || indoor == athlete.FTPWatts || indoor == h.db.GetFTPAtDate(now) {
+		return 0
+	}
+	return indoor
 }
 
 // ftpCheckLine tells the model how well recent rides back the FTP. Every
@@ -239,24 +260,39 @@ func ftpCheckLine(c models.FTPCheck) string {
 		if b.DurationSecs == 3600 {
 			dur = "60 min"
 		}
-		evidence = fmt.Sprintf("best %s in the last %d days %d W (%s) → estimate %d W, %.0f%% of FTP",
-			dur, c.WindowDays, b.Watts, b.Day, c.EstimateWatts, c.PctOfFTP)
+		watts := fmt.Sprintf("%d W", b.Watts)
+		if b.EquivalentWatts > 0 {
+			// Says why the estimate isn't 95% of the watts held.
+			watts = fmt.Sprintf("%d W on an indoor ride, against an indoor FTP of %d W (%d W against this FTP)",
+				b.Watts, b.IndoorFTPWatts, b.EquivalentWatts)
+		}
+		evidence = fmt.Sprintf("best %s in the last %d days %s (%s) → estimate %d W, %.0f%% of FTP",
+			dur, c.WindowDays, watts, b.Day, c.EstimateWatts, c.PctOfFTP)
 	}
-	var line string
+	// A verdict that calls for a new FTP asks the coach to bring it up. A
+	// rider who chose to keep the FTP has heard that: the line drops the ask
+	// and says so, and keeps the rest, because the evidence still holds.
+	// With the ask left in beside "don't press the point", the line told
+	// the model both (aicoach.KeptFTPRule is how the prompts read it).
+	var line, ask string
 	switch c.Status {
 	case models.FTPCheckOK:
-		line = "backed by a recent effort: " + evidence + "."
+		line = "backed by a recent effort: " + evidence
 	case models.FTPCheckRaise:
 		line = "recent rides show more than this FTP: " + evidence +
-			". Zones, IF and TSS overstate effort; suggest raising FTP when it bears on the answer."
+			". Zones, IF and TSS overstate effort"
+		ask = "; suggest raising FTP when it bears on the answer"
 	case models.FTPCheckLower:
 		line = "no recent ride backs this FTP: " + evidence +
-			". Zones, IF and TSS understate effort, and %FTP targets may be beyond what the rider has recently held; anchor interval targets on recent efforts and raise the FTP question when it bears on the answer."
+			". Zones, IF and TSS understate effort, and %FTP targets may be beyond what the rider has recently held; anchor interval targets on recent efforts"
+		ask = " and raise the FTP question when it bears on the answer"
 	default:
-		line = fmt.Sprintf("unverified: no hard 20- or 60-minute effort in the last %d days to check it against; treat %%FTP targets as approximate.", c.WindowDays)
+		line = fmt.Sprintf("unverified: no hard 20- or 60-minute effort in the last %d days to check it against; treat %%FTP targets as approximate", c.WindowDays)
 	}
 	if c.Dismissed {
-		line += " The rider has chosen to keep this FTP for now; don't press the point."
+		line += ". The rider has chosen to keep this FTP for now; don't press the point."
+	} else {
+		line += ask + "."
 	}
 	return "- FTP check: " + line + "\n"
 }
@@ -349,6 +385,21 @@ func (h *CoachHandler) Chat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	systemContext := h.chatSystemContext(time.Now().In(h.db.AthleteLocation()))
+	// The training days and hours the rider saved on the calendar page, so a
+	// plan made in chat respects them like a weekly run does. Guidance only:
+	// unlike a weekly run, propose_schedule doesn't enforce it here, since
+	// the rider may override it for a week in this conversation. Added here,
+	// not in chatSystemContext, which the weekly run shares and which then
+	// states availability by date.
+	if prefs, err := h.db.GetWeeklyPlanPrefs(); err == nil {
+		var budget float64
+		if prefs.WeeklyHours != nil {
+			budget = *prefs.WeeklyHours
+		}
+		if s := aicoach.StandingAvailability(prefs.Allows, budget); s != "" {
+			systemContext += "\n\n" + s
+		}
+	}
 
 	// One chat turn at a time: the browser re-attaches to the running turn
 	// rather than racing a second one against it.
@@ -452,10 +503,12 @@ func (h *CoachHandler) collectCoachingData() (*aicoach.CoachingData, error) {
 		return nil, err
 	}
 	profile := aicoach.AthleteProfile{
-		FTPWatts:    athlete.FTPWatts,
-		WeightKG:    athlete.WeightKG,
-		ThresholdHR: athlete.ThresholdHR,
-		MaxHR:       athlete.MaxHR,
+		FTPWatts: athlete.FTPWatts,
+		// Each indoor ride's structure line below is in % of the indoor line.
+		IndoorFTPWatts: h.indoorFTPInEffect(athlete, time.Now()),
+		WeightKG:       athlete.WeightKG,
+		ThresholdHR:    athlete.ThresholdHR,
+		MaxHR:          athlete.MaxHR,
 	}
 
 	fitnessRaw, err := h.db.GetFitnessHistory(90, h.db.AthleteLocation())
@@ -527,22 +580,34 @@ func (h *CoachHandler) collectCoachingData() (*aicoach.CoachingData, error) {
 
 	// FTP history, oldest-first, capped to the last 12 changes so the payload
 	// stays small. This is what lets the model separate "trained more" from
-	// "got faster" in the performance section.
+	// "got faster" in the performance section. Deltas are per line, from the
+	// whole history. Indoor entries that repeat the indoor value go before
+	// the cap, or they fill half of it.
 	var ftpHistory []aicoach.FTPPoint
-	if hist, err := h.db.AllFTPHistory(); err == nil { // newest first
-		if len(hist) > 12 {
-			hist = hist[:12]
+	if hist, deltas, err := ftpHistoryWithDeltas(h.db); err == nil {
+		hist, deltas = withoutRepeatedIndoor(hist, deltas)
+		if n := len(hist) - 12; n > 0 {
+			hist, deltas = hist[n:], deltas[n:]
 		}
-		for i := len(hist) - 1; i >= 0; i-- {
+		for i, e := range hist {
 			ftpHistory = append(ftpHistory, aicoach.FTPPoint{
-				Date:     hist[i].EffectiveFrom.In(h.db.AthleteLocation()).Format("2006-01-02"),
-				FTPWatts: hist[i].FTPWatts,
-				Indoor:   hist[i].Indoor,
+				Date:       e.EffectiveFrom.In(h.db.AthleteLocation()).Format("2006-01-02"),
+				FTPWatts:   e.FTPWatts,
+				Indoor:     e.Indoor,
+				DeltaWatts: deltas[i],
 			})
 		}
 	}
 
-	return aicoach.BuildData(profile, fitnessPts, workouts, weekly, powerBests, zones, ftpHistory), nil
+	data := aicoach.BuildData(profile, fitnessPts, workouts, weekly, powerBests, zones, ftpHistory)
+	// The FTP verdict, in the exact words chat gets: insights is the only
+	// coach for providers without tool use, and it prescribes %FTP efforts.
+	if athlete.FTPWatts > 0 {
+		if check, err := h.db.FTPCheck(time.Now().In(h.db.AthleteLocation())); err == nil {
+			data.FTPCheck = strings.TrimSuffix(strings.TrimPrefix(ftpCheckLine(check), "- FTP check: "), "\n")
+		}
+	}
+	return data, nil
 }
 
 // round2/round1 use math.Round (not int truncation) so negative values — TSB
@@ -628,25 +693,4 @@ func hrCoverageNote(t db.ZoneTotals) string {
 	return fmt.Sprintf(
 		"Only %d of %d rides in this window recorded heart rate, so hr_zones covers less time than power_zones. Compute HR-zone percentages against the hr_zones total, never against total ride time.",
 		t.WorkoutsWithHR, t.Workouts)
-}
-
-// decouplingForWorkout returns a workout's aerobic decoupling, computing it
-// from the streams on first use and caching it (workout_decoupling) — a
-// finished ride's streams never change, so every later insights/chat call is
-// an indexed read instead of a full stream fetch + resample.
-func (h *CoachHandler) decouplingForWorkout(workoutID string) (float64, bool) {
-	if val, ok, found, err := h.db.GetWorkoutDecoupling(workoutID); err == nil && found {
-		return val, ok
-	}
-	streams, err := h.db.GetStreams(workoutID)
-	if err != nil {
-		return 0, false // transient failure: don't cache, retry next call
-	}
-	dec, ok := fitness.AerobicDecoupling(streams)
-	var cached *float64
-	if ok {
-		cached = &dec
-	}
-	_ = h.db.SaveWorkoutDecoupling(workoutID, cached) // best-effort
-	return dec, ok
 }

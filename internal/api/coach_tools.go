@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fitbase/fitbase/internal/aicoach"
+	"github.com/fitbase/fitbase/internal/db"
 	"github.com/fitbase/fitbase/internal/fitness"
 	"github.com/fitbase/fitbase/internal/models"
 	"github.com/fitbase/fitbase/internal/timeutil"
@@ -59,7 +60,7 @@ func (h *CoachHandler) briefFromWorkout(w models.Workout) aicoach.WorkoutBrief {
 		brief.VI = &r
 	}
 	if w.DurationSecs >= 3600 && w.AvgPowerWatts != nil && w.AvgHeartRate != nil {
-		if dec, ok := h.decouplingForWorkout(w.ID); ok {
+		if dec, ok := h.db.AerobicDecoupling(w.ID); ok {
 			r := round2(dec)
 			brief.DecouplingPct = &r
 		}
@@ -71,6 +72,9 @@ func (h *CoachHandler) briefFromWorkout(w models.Workout) aicoach.WorkoutBrief {
 		if shape, err := h.db.RideShape(w.ID, ftp); err == nil {
 			brief.Structure = fitness.ShapeHeadline(shape, ftp)
 		}
+	}
+	if f, found, err := h.db.GetWorkoutFeedback(w.ID); err == nil && found {
+		brief.RPE, brief.RiderNote = f.RPE, f.Note
 	}
 	return brief
 }
@@ -107,17 +111,31 @@ type toolEvents struct {
 	// The error goes back to the model, which re-plans — constraints stated
 	// only in prose are the kind models occasionally ignore.
 	Availability *planAvailability
+	// Window, when set, makes propose_schedule reject dates outside it
+	// (weekly plans). Accepting a proposal replaces coach entries on every
+	// proposed date, so an off-by-one date would overwrite a day outside the
+	// week the rider asked for.
+	Window *planWindow
 }
+
+// planWindow is the date range a proposal must stay inside.
+type planWindow struct{ Start, End string } // YYYY-MM-DD, inclusive
 
 // planAvailability is the rider's weekly-plan availability as enforced on a
 // proposal.
 type planAvailability struct {
 	prefs models.WeeklyPlanPrefs
+	// earlierSecs is the time the week's earlier sessions already take. A
+	// revision made on a later day proposes only the days left, but the
+	// budget is the week's: checked alone, the days left got all of it.
+	earlierSecs int
 }
 
 // budgetSlack is how far over the weekly hours budget a proposal may run
-// before it is rejected: a 10-minute-longer warmup shouldn't bounce a plan.
-const budgetSlack = 1.10
+// before it is rejected. It is the same constant WeeklyPlanAvailability uses
+// to tell a later-day revision what the days left may hold, so the guidance
+// and the guard can't drift apart.
+const budgetSlack = aicoach.WeeklyBudgetSlack
 
 func (a *planAvailability) check(ws []models.PlannedWorkout) error {
 	var total int
@@ -128,9 +146,25 @@ func (a *planAvailability) check(ws []models.PlannedWorkout) error {
 		}
 		total += w.DurationSecs
 	}
-	if h := a.prefs.WeeklyHours; h != nil && float64(total) > *h*3600*budgetSlack {
-		return fmt.Errorf("the plan totals %.1f h but the rider's weekly budget is %s h — trim it to fit (a lighter week is fine)",
-			float64(total)/3600, strconv.FormatFloat(*h, 'f', -1, 64))
+	h := a.prefs.WeeklyHours
+	if h == nil {
+		return nil
+	}
+	budget, limit := strconv.FormatFloat(*h, 'f', -1, 64), *h*3600*budgetSlack
+	switch {
+	case a.earlierSecs == 0:
+		if float64(total) > limit {
+			return fmt.Errorf("the plan totals %.1f h but the rider's weekly budget is %s h — trim it to fit (a lighter week is fine)",
+				float64(total)/3600, budget)
+		}
+	case float64(a.earlierSecs) >= limit:
+		// Trimming can't fix this, so say so rather than have the model
+		// shave sessions until it runs out of rounds.
+		return fmt.Errorf("the week's earlier sessions already take %.1f h of the rider's %s h weekly budget, so no session fits in the days left — don't propose again; tell the rider, who can raise the budget on the calendar page",
+			float64(a.earlierSecs)/3600, budget)
+	case float64(total+a.earlierSecs) > limit:
+		return fmt.Errorf("the plan totals %.1f h, and with the %.1f h of the week's earlier sessions the week comes to %.1f h, but the rider's weekly budget is %s h — trim it to fit (a lighter week is fine)",
+			float64(total)/3600, float64(a.earlierSecs)/3600, float64(total+a.earlierSecs)/3600, budget)
 	}
 	return nil
 }
@@ -210,14 +244,53 @@ func (h *CoachHandler) toolAthleteProfile() (string, error) {
 	})
 }
 
+// coachReadinessReport is get_readiness's shape for the model.
+// ReadinessReport's ramp_rate is a 28-day CTL delta with no unit; the
+// planning rules are per week, so the model read a steady 3 CTL/week build
+// (ramp_rate 12) as "above ~8 CTL/week" and forced a recovery week.
+type coachReadinessReport struct {
+	Date                 string  `json:"date"`
+	AsOf                 string  `json:"as_of"`
+	Fitness              float64 `json:"fitness"`
+	Fatigue              float64 `json:"fatigue"`
+	Form                 float64 `json:"form"`
+	DaysSinceLastWorkout int     `json:"days_since_last_workout"`
+	CTLChange28d         float64 `json:"ctl_change_28d"`
+	CTLRampPerWeek       float64 `json:"ctl_ramp_per_week"`
+	Recommendation       string  `json:"recommendation"`
+	RecommendationDetail string  `json:"recommendation_detail"`
+	Note                 string  `json:"note"`
+}
+
+// coachReadiness maps the shared readiness report onto the coach's shape:
+// the ramp stated both as the raw 28-day change and per week, and the
+// display-only tone dropped.
+func coachReadiness(r models.ReadinessReport) coachReadinessReport {
+	return coachReadinessReport{
+		Date:                 r.Date,
+		AsOf:                 r.AsOf,
+		Fitness:              r.Fitness,
+		Fatigue:              r.Fatigue,
+		Form:                 r.Form,
+		DaysSinceLastWorkout: r.DaysSinceLastWorkout,
+		CTLChange28d:         r.RampRate,
+		CTLRampPerWeek:       round1(r.RampRate / 4),
+		Recommendation:       r.Recommendation,
+		RecommendationDetail: r.RecommendationDetail,
+		Note: "ctl_ramp_per_week is CTL points gained per week over the last 28 days (ctl_change_28d ÷ 4): about 3–5 is a steady build, 5–8 hard, above 8 aggressive, below 0 detraining. " +
+			"recommendation is the dashboard's badge — its load warning fires on any 28-day CTL rise above 10 (2.5/week) — so judge the build pace from ctl_ramp_per_week.",
+	}
+}
+
 // toolReadiness reuses the same core as GET /api/athlete/readiness — current
-// CTL/ATL/TSB, days since last workout, 28-day ramp rate, and a recommendation.
+// CTL/ATL/TSB, days since last workout, the CTL ramp and a recommendation —
+// in the coach's shape (coachReadiness), which states the ramp per week.
 func (h *CoachHandler) toolReadiness() (string, error) {
 	report, err := h.db.Readiness(h.db.AthleteLocation())
 	if err != nil {
 		return "", err
 	}
-	return jsonResult(report)
+	return jsonResult(coachReadiness(report))
 }
 
 func (h *CoachHandler) toolFitnessTrend(input json.RawMessage) (string, error) {
@@ -286,11 +359,21 @@ func (h *CoachHandler) toolListRecentWorkouts(input json.RawMessage) (string, er
 		models.WorkoutSummary
 		Indoor    bool   `json:"indoor,omitempty"`
 		Structure string `json:"structure,omitempty"`
+		RPE       *int   `json:"rpe,omitempty"`
+		RiderNote string `json:"rider_note,omitempty"`
 	}
+	ids := make([]string, len(rows))
+	for i := range rows {
+		ids[i] = rows[i].ID
+	}
+	feedback, _ := h.db.FeedbackForWorkouts(ids) // non-fatal: rides just list without it
 	out := make([]listedWorkout, 0, len(rows))
 	for i := range rows {
 		w := rows[i]
 		lw := listedWorkout{WorkoutSummary: w.ToSummary(), Indoor: w.IsIndoor}
+		if f, ok := feedback[w.ID]; ok {
+			lw.RPE, lw.RiderNote = f.RPE, f.Note
+		}
 		if w.AvgPowerWatts != nil || w.NormalizedPower != nil {
 			ftp := h.db.GetFTPForRide(w.RecordedAt, w.IsIndoor)
 			if shape, err := h.db.RideShape(w.ID, ftp); err == nil {
@@ -336,11 +419,27 @@ func (h *CoachHandler) toolWorkoutDetail(input json.RawMessage) (string, error) 
 		"analysis": analysis,
 	}
 	if w.DurationSecs >= 3600 && w.AvgPowerWatts != nil && w.AvgHeartRate != nil {
-		if dec, ok := h.decouplingForWorkout(w.ID); ok {
+		if dec, ok := h.db.AerobicDecoupling(w.ID); ok {
 			res["aerobic_decoupling_pct"] = round2(dec)
 		}
 	}
+	if f, found, err := h.db.GetWorkoutFeedback(id); err == nil && found {
+		res["rider_feedback"] = riderFeedback(f)
+	}
 	return jsonResult(res)
+}
+
+// riderFeedback is the rider's own account of a ride for the coach.
+func riderFeedback(f models.WorkoutFeedback) map[string]any {
+	out := map[string]any{}
+	if f.RPE != nil {
+		out["rpe"] = *f.RPE
+		out["rpe_label"] = models.RPELabel(*f.RPE)
+	}
+	if f.Note != "" {
+		out["note"] = f.Note
+	}
+	return out
 }
 
 // toolWorkoutIntervals reuses the workoutShape core behind
@@ -364,6 +463,14 @@ func (h *CoachHandler) toolWorkoutIntervals(input json.RawMessage) (string, erro
 	}
 	if shape == nil {
 		return jsonResult(map[string]any{"error": "no workout with that id"})
+	}
+	// How it felt is part of grading execution: the same faded last rep
+	// reads differently at RPE 6 than at RPE 10.
+	if f, found, err := h.db.GetWorkoutFeedback(id); err == nil && found {
+		return jsonResult(struct {
+			*models.WorkoutShape
+			RiderFeedback map[string]any `json:"rider_feedback"`
+		}{shape, riderFeedback(f)})
 	}
 	return jsonResult(shape)
 }
@@ -460,6 +567,13 @@ func (h *CoachHandler) toolProposeSchedule(input json.RawMessage, ev toolEvents)
 	}
 	// Validate every item before persisting so a malformed entry doesn't leave
 	// the model with a draft id pointing at unreviewable content.
+	//
+	// Dates are checked here, not in toModel: the manual quick-add and
+	// planWorkouts (which re-decodes a stored plan at accept time) share it
+	// and must keep accepting past dates. Accepting a proposal deletes coach
+	// entries on every proposed date, so a past date would erase the plan
+	// get_workout_intervals grades that day's ride against.
+	today := time.Now().In(h.db.AthleteLocation()).Format("2006-01-02")
 	proposed := make([]models.PlannedWorkout, 0, len(args.Workouts))
 	for i, req := range args.Workouts {
 		p, err := req.toModel("coach")
@@ -470,6 +584,14 @@ func (h *CoachHandler) toolProposeSchedule(input json.RawMessage, ev toolEvents)
 		// string can still arrive; the preview card would render '(untitled)'.
 		if strings.TrimSpace(req.Title) == "" {
 			return "", fmt.Errorf("workouts[%d]: title is required — a short session label the rider sees on the card, e.g. '2x20 threshold'", i)
+		}
+		// PlannedDate is UTC midnight from time.Parse, so this round-trips.
+		day := p.PlannedDate.Format("2006-01-02")
+		if day < today {
+			return "", fmt.Errorf("workouts[%d] (%q) is dated %s, before today (%s) — schedule from today onward", i, req.Title, day, today)
+		}
+		if w := ev.Window; w != nil && (day < w.Start || day > w.End) {
+			return "", fmt.Errorf("workouts[%d] (%q) is dated %s, outside the plan window %s to %s — use only those dates", i, req.Title, day, w.Start, w.End)
 		}
 		proposed = append(proposed, p)
 	}
@@ -546,10 +668,60 @@ func (h *CoachHandler) toolListPlannedWorkouts(input json.RawMessage) (string, e
 	})
 }
 
+// ftpHistoryWithDeltas returns the FTP history oldest first, with each entry's
+// change from the previous entry on its own line (nil for the first on a
+// line). The history mixes the general and the indoor FTP line: diffed as one
+// list, general 242 → indoor 235 → general 250 reads as a 7 W drop and a 15 W
+// gain, when the general FTP rose 8 W.
+func ftpHistoryWithDeltas(database *db.DB) ([]db.FTPHistoryEntry, []*int, error) {
+	newestFirst, err := database.AllFTPHistory()
+	if err != nil {
+		return nil, nil, err
+	}
+	entries := make([]db.FTPHistoryEntry, 0, len(newestFirst))
+	for i := len(newestFirst) - 1; i >= 0; i-- {
+		entries = append(entries, newestFirst[i])
+	}
+	deltas := make([]*int, len(entries))
+	previous := map[bool]int{} // per line: indoor entries compare with indoor
+	for i, e := range entries {
+		if p, ok := previous[e.Indoor]; ok {
+			d := e.FTPWatts - p
+			deltas[i] = &d
+		}
+		previous[e.Indoor] = e.FTPWatts
+	}
+	return entries, deltas, nil
+}
+
+// withoutRepeatedIndoor drops the indoor entries that leave the indoor line's
+// value as it was (delta_watts 0), for the coach payloads that summarize FTP
+// progression (insights, get_performance_trend). The intervals.icu sync
+// re-logs the indoor FTP after every general change, because a general entry
+// ends the indoor line for GetFTPForRide, so a history reads 242, 235i, 250,
+// 235i: half of it says nothing about progression, and under the insights
+// cap it crowds out the general line. Run it before any cap or window, on
+// deltas from the whole history; a dropped entry repeats the value the next
+// one on its line is compared with, so no other delta changes.
+// get_ftp_history keeps every entry: its note explains the line rule they
+// follow.
+func withoutRepeatedIndoor(entries []db.FTPHistoryEntry, deltas []*int) ([]db.FTPHistoryEntry, []*int) {
+	keptEntries := make([]db.FTPHistoryEntry, 0, len(entries))
+	keptDeltas := make([]*int, 0, len(deltas))
+	for i, e := range entries {
+		if e.Indoor && deltas[i] != nil && *deltas[i] == 0 {
+			continue
+		}
+		keptEntries = append(keptEntries, e)
+		keptDeltas = append(keptDeltas, deltas[i])
+	}
+	return keptEntries, keptDeltas
+}
+
 // toolFTPHistory returns every recorded FTP change oldest-first with the delta
 // from the previous setting, so the progression reads chronologically.
 func (h *CoachHandler) toolFTPHistory() (string, error) {
-	entries, err := h.db.AllFTPHistory() // newest first
+	entries, deltas, err := ftpHistoryWithDeltas(h.db)
 	if err != nil {
 		return "", err
 	}
@@ -561,21 +733,14 @@ func (h *CoachHandler) toolFTPHistory() (string, error) {
 	}
 	loc := h.db.AthleteLocation()
 	out := make([]ftpChange, 0, len(entries))
-	previous := map[bool]int{} // per line: indoor entries compare with indoor
-	for i := len(entries) - 1; i >= 0; i-- {
-		e := entries[i]
-		c := ftpChange{Date: e.EffectiveFrom.In(loc).Format("2006-01-02"), FTPWatts: e.FTPWatts, Indoor: e.Indoor}
-		if p, ok := previous[e.Indoor]; ok {
-			d := e.FTPWatts - p
-			c.DeltaWatts = &d
-		}
-		previous[e.Indoor] = e.FTPWatts
-		out = append(out, c)
+	for i, e := range entries {
+		out = append(out, ftpChange{Date: e.EffectiveFrom.In(loc).Format("2006-01-02"), FTPWatts: e.FTPWatts,
+			Indoor: e.Indoor, DeltaWatts: deltas[i]})
 	}
 	return jsonResult(map[string]any{
 		"count":   len(out),
 		"changes": out,
-		"note":    "Oldest first. delta_watts is the change from the previous setting on the same line. Entries marked indoor are a separate, usually lower, FTP used for indoor rides only. Workouts' %FTP/TSS were computed against the FTP in effect on their date (indoor rides against the indoor line when there is one).",
+		"note":    "Oldest first. delta_watts is the change from the previous setting on the same line. Entries marked indoor are a separate, usually lower, FTP used for indoor rides only, from their date until the next unmarked change. Workouts' %FTP/TSS were computed against the FTP in effect on their date (indoor rides against the indoor line when there is one).",
 	})
 }
 
@@ -624,7 +789,7 @@ func (h *CoachHandler) toolPerformanceTrend(input json.RawMessage) (string, erro
 			agg.ifN++
 		}
 		if w.DurationSecs >= 3600 && w.AvgPowerWatts != nil && w.AvgHeartRate != nil {
-			if dec, ok := h.decouplingForWorkout(w.ID); ok {
+			if dec, ok := h.db.AerobicDecoupling(w.ID); ok {
 				agg.decSum += dec
 				agg.decN++
 			}
@@ -664,19 +829,24 @@ func (h *CoachHandler) toolPerformanceTrend(input json.RawMessage) (string, erro
 	}
 
 	type ftpChange struct {
-		Date     string `json:"date"`
-		FTPWatts int    `json:"ftp_watts"`
-		Indoor   bool   `json:"indoor,omitempty"`
+		Date       string `json:"date"`
+		FTPWatts   int    `json:"ftp_watts"`
+		Indoor     bool   `json:"indoor,omitempty"`
+		DeltaWatts *int   `json:"delta_watts,omitempty"`
 	}
 	ftpChanges := []ftpChange{}
-	if hist, err := h.db.AllFTPHistory(); err == nil {
+	// Deltas come from the whole history, so the first change in the window
+	// still says how far it moved.
+	if hist, deltas, err := ftpHistoryWithDeltas(h.db); err == nil {
+		hist, deltas = withoutRepeatedIndoor(hist, deltas)
 		loc := h.db.AthleteLocation()
-		for i := len(hist) - 1; i >= 0; i-- {
-			if hist[i].EffectiveFrom.After(since) {
+		for i, e := range hist {
+			if e.EffectiveFrom.After(since) {
 				ftpChanges = append(ftpChanges, ftpChange{
-					Date:     hist[i].EffectiveFrom.In(loc).Format("2006-01-02"),
-					FTPWatts: hist[i].FTPWatts,
-					Indoor:   hist[i].Indoor,
+					Date:       e.EffectiveFrom.In(loc).Format("2006-01-02"),
+					FTPWatts:   e.FTPWatts,
+					Indoor:     e.Indoor,
+					DeltaWatts: deltas[i],
 				})
 			}
 		}
@@ -686,7 +856,8 @@ func (h *CoachHandler) toolPerformanceTrend(input json.RawMessage) (string, erro
 		"window_days":           days,
 		"weeks":                 out,
 		"ftp_changes_in_window": ftpChanges,
-		"note":                  "EF = normalized power ÷ avg HR. Compare EF only across weeks with similar avg_if — rising EF at matched IF is real aerobic gain. Decoupling under 5% on long rides indicates durability.",
+		"note": "EF = normalized power ÷ avg HR. Compare EF only across weeks with similar avg_if — rising EF at matched IF is real aerobic gain. Decoupling under 5% on long rides indicates durability. " +
+			"ftp_changes_in_window entries marked indoor are the separate, usually lower indoor FTP line, listed when its value changes; delta_watts is the change from the previous entry on the same line. Never compare an indoor entry with an unmarked one.",
 	})
 }
 
