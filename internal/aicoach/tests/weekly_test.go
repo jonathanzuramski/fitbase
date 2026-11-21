@@ -176,6 +176,32 @@ func TestChatSystemPrompt_CarriesPlanningRules(t *testing.T) {
 	}
 }
 
+// The planning rules serve chat as well as the weekly plan. Chat has no
+// review for a rule to point at, and the rules that read rpe and rider_note
+// need chat's planning gather to fetch the rides that carry them.
+func TestChatSystemPrompt_PlanningWorksInChat(t *testing.T) {
+	p := aicoach.ChatSystemPrompt
+	i := strings.Index(p, "Planning —")
+	if i < 0 {
+		t.Fatal("chat prompt has no planning section")
+	}
+	planning := p[i:]
+	if strings.Contains(planning, "in the review") {
+		t.Error("a planning rule points at a review, which chat doesn't write")
+	}
+	var gather string
+	for _, line := range strings.Split(planning, "\n") {
+		if strings.HasPrefix(line, "- Gather context first") {
+			gather = line
+		}
+	}
+	if !strings.Contains(gather, aicoach.ToolListRecentWorkouts) || !strings.Contains(gather, "at minimum") ||
+		strings.Index(gather, aicoach.ToolListRecentWorkouts) > strings.Index(gather, "at minimum") {
+		t.Errorf("chat's planning gather doesn't require %s, which carries rpe and rider_note:\n%s",
+			aicoach.ToolListRecentWorkouts, gather)
+	}
+}
+
 func TestStandingAvailability(t *testing.T) {
 	monWedSat := func(wd time.Weekday) bool {
 		return wd == time.Monday || wd == time.Wednesday || wd == time.Saturday
