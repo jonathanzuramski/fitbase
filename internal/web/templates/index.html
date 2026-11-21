@@ -175,7 +175,7 @@
 						<a class="today-ride" href="/workouts/{{ .Workout.ID }}">
 							<span class="today-ride-check" aria-hidden="true">&#10003;</span>
 							{{ if .Ride.KindLabel }}<span class="ride-kind ride-kind-{{ .Ride.Kind }}">{{ .Ride.KindLabel }}</span>{{ end }}
-							<span class="today-ride-meta">ridden · {{ formatDuration .Workout.DurationSecs }}{{ if .Workout.TSS }} · {{ formatOptFloat .Workout.TSS "TSS" }}{{ end }}</span>
+							<span class="today-ride-meta">done · {{ formatDuration .Workout.DurationSecs }}{{ if .Workout.TSS }} · {{ formatOptFloat .Workout.TSS "TSS" }}{{ end }}</span>
 							{{ if .Ride.Headline }}<span class="today-ride-headline">{{ .Ride.Headline }}</span>{{ end }}
 						</a>
 						{{ if .Feedback.RPE }}
@@ -197,7 +197,7 @@
 							<div><dt>fitness</dt><dd class="ctl-color">{{ printf "%.1f" .Fitness }}</dd></div>
 							<div><dt>fatigue</dt><dd class="atl-color">{{ printf "%.1f" .Fatigue }}</dd></div>
 							<div title="Change in fitness (CTL) over the last 4 weeks"><dt>ramp</dt><dd>{{ if gt .RampRate 0.0 }}+{{ end }}{{ printf "%.1f" .RampRate }}<span class="muted"> / 4 wk</span></dd></div>
-							<div><dt>last ride</dt><dd>{{ if eq .DaysSinceLastWorkout 0 }}today{{ else if eq .DaysSinceLastWorkout 1 }}yesterday{{ else }}{{ .DaysSinceLastWorkout }} days ago{{ end }}</dd></div>
+							<div><dt>last activity</dt><dd>{{ if eq .DaysSinceLastWorkout 0 }}today{{ else if eq .DaysSinceLastWorkout 1 }}yesterday{{ else }}{{ .DaysSinceLastWorkout }} days ago{{ end }}</dd></div>
 						</dl>
 					{{ end }}{{ end }}
 				</div>
@@ -229,9 +229,9 @@
 				{{ end }}
 			</div>
 			<div class="week-foot muted">
-				<span><span class="week-key week-key-done"></span>ridden</span>
+				<span><span class="week-key week-key-done"></span>done</span>
 				<span><span class="week-key week-key-planned"></span>planned</span>
-				<span class="week-year">this year {{ printf "%.0f" .YearSummary.TSS }} TSS · {{ formatDuration .YearSummary.DurationSecs }}</span>
+				<span class="week-year">this year {{ printf "%.0f" .YearSummary.TSS }} TSS · {{ hours .YearSummary.DurationSecs }}</span>
 			</div>
 		</section>
 
@@ -371,7 +371,7 @@
 							{{ $imperial := .Imperial }}
 							{{ range .Workouts }}
 								<tr class="workout-row" onclick="location.href='/workouts/{{ .ID }}'">
-									<td class="date">{{ .RecordedAt.Format "Jan 02 2006" }}</td>
+									<td class="date">{{ .RecordedAt.Format "Jan 02" }}<span class="date-year-long"> {{ .RecordedAt.Format "2006" }}</span><span class="date-year-short"> ’{{ .RecordedAt.Format "06" }}</span></td>
 									<td class="ride-cell">{{ if ne .Sport "cycling" }}<span class="sport-badge sport-{{ .Sport }}">{{ .Sport }}</span> {{ end }}{{ with index $.RideKinds .ID }}{{ if .KindLabel }}<span class="ride-kind ride-kind-{{ .Kind }}">{{ .KindLabel }}</span>{{ end }}{{ if .Headline }} <span class="ride-cell-headline" title="{{ .Headline }}">{{ .Headline }}</span>{{ end }}{{ end }}</td>
 									<td>{{ formatDuration .DurationSecs }}</td>
 									<td>{{ formatDistance .DistanceMeters $imperial }}</td>

@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"database/sql"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/fitbase/fitbase/internal/db"
+	"github.com/fitbase/fitbase/internal/fitness"
 	"github.com/fitbase/fitbase/internal/importer"
 	"github.com/fitbase/fitbase/internal/models"
 
@@ -76,6 +78,130 @@ func buildFITAt(t *testing.T, start time.Time) []byte {
 		t.Fatalf("encode test FIT: %v", err)
 	}
 	return buf.Bytes()
+}
+
+// buildPowerFIT produces a ride of secs seconds held at a steady watts,
+// starting at start; subSport marks it indoor (SubSportIndoorCycling) or not.
+func buildPowerFIT(t *testing.T, start time.Time, subSport typedef.SubSport, watts, secs int) []byte {
+	t.Helper()
+	fileId := mesgdef.NewFileId(nil)
+	fileId.Type = typedef.FileActivity
+	fileId.Manufacturer = typedef.ManufacturerGarmin
+	fileId.TimeCreated = start
+
+	msgs := []proto.Message{fileId.ToMesg(nil)}
+	for i := 0; i < secs; i++ {
+		rec := mesgdef.NewRecord(nil)
+		rec.Timestamp = start.Add(time.Duration(i+1) * time.Second)
+		rec.Power = uint16(watts)
+		msgs = append(msgs, rec.ToMesg(nil))
+	}
+
+	session := mesgdef.NewSession(nil)
+	session.Sport = typedef.SportCycling
+	session.SubSport = subSport
+	session.StartTime = start
+	session.Timestamp = start.Add(time.Duration(secs) * time.Second)
+	session.Event = typedef.EventSession
+	session.EventType = typedef.EventTypeStop
+	session.TotalTimerTime = uint32(secs) * 1000
+	session.AvgPower = uint16(watts)
+
+	activity := mesgdef.NewActivity(nil)
+	activity.Timestamp = session.Timestamp
+	activity.NumSessions = 1
+	activity.Type = typedef.ActivityManual
+	activity.Event = typedef.EventActivity
+	activity.EventType = typedef.EventTypeStop
+	msgs = append(msgs, session.ToMesg(nil), activity.ToMesg(nil))
+
+	var buf bytes.Buffer
+	if err := encoder.New(&buf).Encode(&proto.FIT{Messages: msgs}); err != nil {
+		t.Fatalf("encode test FIT: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// ── Scoring against the ride's FTP ────────────────────────────────────────────
+
+// A ride's IF, TSS and zone times use the FTP it was trained against: the FTP
+// in effect on its date, and for an indoor ride the indoor line. Import used
+// the profile FTP for every ride, so a new indoor ride's TSS disagreed with
+// the %FTP the coach and the ride page showed for it until a manual FTP sync
+// rescored it.
+func TestImportBytes_ScoresRideAgainstItsFTP(t *testing.T) {
+	testScoresRideAgainstItsFTP(t, func(t *testing.T, imp *importer.Importer, data []byte, name string) (string, error) {
+		return imp.ImportBytes(data, name)
+	})
+}
+
+// The path-based Import (the watch folder, Dropbox and archive imports)
+// scores the same way: it has its own copy of the import steps.
+func TestImport_ScoresRideAgainstItsFTP(t *testing.T) {
+	testScoresRideAgainstItsFTP(t, func(t *testing.T, imp *importer.Importer, data []byte, name string) (string, error) {
+		path := filepath.Join(t.TempDir(), name)
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return imp.Import(path)
+	})
+}
+
+func testScoresRideAgainstItsFTP(t *testing.T, importFIT func(t *testing.T, imp *importer.Importer, data []byte, name string) (string, error)) {
+	t.Helper()
+	d := newTestDB(t)
+	imp := importer.NewImporter(d, t.TempDir())
+	if err := d.SetFTP(242); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.LogFTPChangeAt(240, time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.LogFTPChangeAtFor(235, time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC), true); err != nil {
+		t.Fatal(err)
+	}
+
+	// 210 W is sweet spot (88–94%) on a 235 W FTP, but not on 240 or 242.
+	cases := []struct {
+		name     string
+		file     string
+		start    time.Time
+		subSport typedef.SubSport
+		ftp      float64
+		ssSecs   bool
+	}{
+		{"indoor ride: the indoor line", "indoor.fit", time.Date(2024, 3, 15, 8, 0, 0, 0, time.UTC), typedef.SubSportIndoorCycling, 235, true},
+		{"outdoor ride: the FTP on its date", "outdoor.fit", time.Date(2024, 3, 16, 8, 0, 0, 0, time.UTC), typedef.SubSportGeneric, 240, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			id, err := importFIT(t, imp, buildPowerFIT(t, c.start, c.subSport, 210, 1200), c.file)
+			if err != nil || id == "" {
+				t.Fatalf("import: id=%q err=%v", id, err)
+			}
+			w, err := d.GetWorkout(id)
+			if err != nil || w == nil {
+				t.Fatalf("GetWorkout: %v", err)
+			}
+			if w.NormalizedPower == nil || w.IntensityFactor == nil || w.TSS == nil {
+				t.Fatalf("workout lacks NP/IF/TSS: %+v", w)
+			}
+			np := *w.NormalizedPower
+			if want := fitness.IntensityFactor(np, c.ftp); math.Abs(*w.IntensityFactor-want) > 1e-9 {
+				t.Errorf("IF = %.4f, want %.4f (NP %.0f against %.0f W)", *w.IntensityFactor, want, np, c.ftp)
+			}
+			if want := fitness.PowerTSS(w.DurationSecs, np, c.ftp); math.Abs(*w.TSS-want) > 1e-9 {
+				t.Errorf("TSS = %.2f, want %.2f against %.0f W", *w.TSS, want, c.ftp)
+			}
+			_, _, ss, err := d.GetZoneTimes(id)
+			if err != nil || ss == nil {
+				t.Fatalf("GetZoneTimes: ss=%v err=%v", ss, err)
+			}
+			if got := *ss > 0; got != c.ssSecs {
+				t.Errorf("sweet spot secs = %d, want sweet spot %v against %.0f W", *ss, c.ssSecs, c.ftp)
+			}
+		})
+	}
 }
 
 // ── ArchivePath ───────────────────────────────────────────────────────────────

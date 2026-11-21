@@ -124,7 +124,7 @@
 		{{ if .VI }}<div><dt>VI</dt><dd>{{ printf "%.2f" .VI }}</dd></div>{{ end }}
 		{{ if .EF }}<div><dt>EF</dt><dd>{{ printf "%.2f" .EF }}</dd></div>{{ end }}
 		{{ if .ShowEFTP }}<div><dt>eFTP</dt><dd>{{ printf "%.0f" .EFTP }} W</dd></div>{{ end }}
-		{{ if .FTP }}<div><dt>FTP{{ if .FTPIndoor }} (indoor){{ end }}</dt><dd>{{ .FTP }} W</dd></div>{{ end }}
+		{{ if and .FTP $w.AvgPowerWatts }}<div><dt>FTP{{ if .FTPIndoor }} (indoor){{ end }}</dt><dd>{{ .FTP }} W</dd></div>{{ end }}
 		{{ if $w.MaxHeartRate }}<div><dt>max HR</dt><dd>{{ formatOptInt $w.MaxHeartRate "bpm" }}</dd></div>{{ end }}
 		{{ if $w.AvgCadenceRPM }}<div><dt>cadence</dt><dd>{{ formatOptInt $w.AvgCadenceRPM "" }}{{ if .MaxCadence }} / {{ .MaxCadence }}{{ end }} rpm</dd></div>{{ end }}
 		{{ if gt .WorkKJ 0.0 }}<div><dt>work</dt><dd>{{ printf "%.0f" .WorkKJ }} kJ</dd></div><div><dt>calories</dt><dd>{{ printf "%.0f" .Calories }} kcal</dd></div>{{ end }}
@@ -147,14 +147,14 @@
 	</div>
 	<div class="rpe-legend muted"><span>very easy</span><span>moderate</span><span>max effort</span></div>
 	<textarea id="feel-note" class="form-input ride-feel-note" rows="2" maxlength="2000"
-		placeholder="Anything worth remembering? Legs, sleep, why you cut it short… The coach reads this.">{{ .Feedback.Note }}</textarea>
+		placeholder="Legs, sleep, why you cut it short… The coach reads this.">{{ .Feedback.Note }}</textarea>
 </section>
 
 {{/* ── Ride charts: stacked, one crosshair, drag to measure ──────── */}}
 {{ if .Streams }}
 	<section class="card ride-charts" id="ride-charts">
 		<div class="card-header-row ride-charts-head">
-			<h2 class="card-title">ride</h2>
+			<h2 class="card-title">{{ if eq $w.Sport "running" }}run{{ else if eq $w.Sport "swimming" }}swim{{ else }}ride{{ end }}</h2>
 			<div class="ride-readout" id="ride-readout" aria-live="off"></div>
 		</div>
 		<div class="ride-selection" id="ride-selection" hidden>
@@ -168,7 +168,7 @@
 		{{ if $w.AvgPowerWatts }}<div class="ride-panel"><div class="ride-panel-label">power</div><div id="power-chart"></div></div>{{ end }}
 		{{ if $w.AvgHeartRate }}<div class="ride-panel"><div class="ride-panel-label">heart rate</div><div id="hr-chart"></div></div>{{ end }}
 		{{ if $w.AvgCadenceRPM }}<div class="ride-panel"><div class="ride-panel-label">cadence</div><div id="cadence-chart"></div></div>{{ end }}
-		<div class="ride-panel"><div class="ride-panel-label">{{ if eq $w.Sport "running" }}pace{{ else }}speed{{ end }}</div><div id="speed-chart"></div></div>
+		<div class="ride-panel"><div class="ride-panel-label">speed</div><div id="speed-chart"></div></div>
 		{{ if hasGPS .Streams }}<div class="ride-panel"><div class="ride-panel-label">elevation</div><div id="elevation-chart"></div></div>{{ end }}
 		<p class="ride-hint muted">
 			<span class="ride-hint-mouse">Drag across a chart to measure a stretch; double-click to reset the zoom.</span>
@@ -284,7 +284,7 @@
 {{ if and .Streams (or $w.AvgPowerWatts $w.AvgHeartRate) }}
 	<section class="card">
 		<h2 class="card-title">time in zone</h2>
-		<div class="zones-split">
+		<div class="ride-zones">
 			{{ if $w.AvgPowerWatts }}
 				<div>
 					<h3 class="zones-sub">power</h3>

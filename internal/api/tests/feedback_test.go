@@ -50,3 +50,29 @@ func TestWorkoutFeedbackAPI(t *testing.T) {
 		t.Errorf("GET = %d %+v", get.Code, f)
 	}
 }
+
+// A ride without feedback answers with no rating record: the body used to
+// carry updated_at "0001-01-01T00:00:00Z", a rating dated year 1.
+func TestWorkoutFeedbackAPI_NoneHasNoUpdatedAt(t *testing.T) {
+	h, d := newTestHandler(t)
+	insertSampleWorkout(t, d, "w1")
+	req := func(method, body string) *httptest.ResponseRecorder {
+		rr := httptest.NewRecorder()
+		r := withURLParam(httptest.NewRequest(method, "/api/workouts/w1/feedback", strings.NewReader(body)), "id", "w1")
+		if method == http.MethodPut {
+			h.SetWorkoutFeedback(rr, r)
+		} else {
+			h.GetWorkoutFeedback(rr, r)
+		}
+		return rr
+	}
+	if rr := req(http.MethodGet, ""); rr.Code != http.StatusOK || strings.Contains(rr.Body.String(), "updated_at") {
+		t.Errorf("GET with no feedback = %d %s, want no updated_at", rr.Code, rr.Body.String())
+	}
+	if rr := req(http.MethodPut, `{"rpe":6}`); !strings.Contains(rr.Body.String(), `"updated_at"`) {
+		t.Errorf("PUT with a rating = %s, want updated_at", rr.Body.String())
+	}
+	if rr := req(http.MethodPut, `{"rpe":null,"note":""}`); rr.Code != http.StatusOK || strings.Contains(rr.Body.String(), "updated_at") {
+		t.Errorf("clearing PUT = %d %s, want no updated_at", rr.Code, rr.Body.String())
+	}
+}
