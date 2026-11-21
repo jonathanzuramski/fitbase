@@ -269,21 +269,30 @@ func ftpCheckLine(c models.FTPCheck) string {
 		evidence = fmt.Sprintf("best %s in the last %d days %s (%s) → estimate %d W, %.0f%% of FTP",
 			dur, c.WindowDays, watts, b.Day, c.EstimateWatts, c.PctOfFTP)
 	}
-	var line string
+	// A verdict that calls for a new FTP asks the coach to bring it up. A
+	// rider who chose to keep the FTP has heard that: the line drops the ask
+	// and says so, and keeps the rest, because the evidence still holds.
+	// With the ask left in beside "don't press the point", the line told
+	// the model both (aicoach.KeptFTPRule is how the prompts read it).
+	var line, ask string
 	switch c.Status {
 	case models.FTPCheckOK:
-		line = "backed by a recent effort: " + evidence + "."
+		line = "backed by a recent effort: " + evidence
 	case models.FTPCheckRaise:
 		line = "recent rides show more than this FTP: " + evidence +
-			". Zones, IF and TSS overstate effort; suggest raising FTP when it bears on the answer."
+			". Zones, IF and TSS overstate effort"
+		ask = "; suggest raising FTP when it bears on the answer"
 	case models.FTPCheckLower:
 		line = "no recent ride backs this FTP: " + evidence +
-			". Zones, IF and TSS understate effort, and %FTP targets may be beyond what the rider has recently held; anchor interval targets on recent efforts and raise the FTP question when it bears on the answer."
+			". Zones, IF and TSS understate effort, and %FTP targets may be beyond what the rider has recently held; anchor interval targets on recent efforts"
+		ask = " and raise the FTP question when it bears on the answer"
 	default:
-		line = fmt.Sprintf("unverified: no hard 20- or 60-minute effort in the last %d days to check it against; treat %%FTP targets as approximate.", c.WindowDays)
+		line = fmt.Sprintf("unverified: no hard 20- or 60-minute effort in the last %d days to check it against; treat %%FTP targets as approximate", c.WindowDays)
 	}
 	if c.Dismissed {
-		line += " The rider has chosen to keep this FTP for now; don't press the point."
+		line += ". The rider has chosen to keep this FTP for now; don't press the point."
+	} else {
+		line += ask + "."
 	}
 	return "- FTP check: " + line + "\n"
 }

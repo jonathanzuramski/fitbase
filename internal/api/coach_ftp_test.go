@@ -319,13 +319,24 @@ func TestCollectCoachingData_CarriesIndoorFTP(t *testing.T) {
 // or 60-minute effort") also reads as, so a model could both hold back and
 // schedule a test. Each rule now quotes the opening words of its own
 // verdict's line, exactly as ftpCheckLine writes it.
+//
+// The rider can keep their FTP against the two verdicts that ask for a
+// change. Chat read a kept FTP as "plan from it as usual" while insights kept
+// holding %FTP steps, and the lower line itself still asked to raise the FTP
+// question beside "don't press the point".
 func TestPlanningRules_ActOnEachFTPCheckVerdict(t *testing.T) {
+	kept := func(c models.FTPCheck) models.FTPCheck {
+		c.Dismissed = true
+		return c
+	}
 	verdicts := map[string]models.FTPCheck{
 		"ok":         fitness.CheckFTP(245, &models.FTPEffort{DurationSecs: 1200, Watts: 255, Day: "2026-11-01"}, nil),
 		"lower":      fitness.CheckFTP(245, &models.FTPEffort{DurationSecs: 1200, Watts: 226, Day: "2026-09-26"}, nil),
 		"raise":      fitness.CheckFTP(245, nil, &models.FTPEffort{DurationSecs: 3600, Watts: 260, Day: "2026-11-01"}),
 		"unverified": fitness.CheckFTP(245, nil, nil),
 	}
+	verdicts["lower, kept"] = kept(verdicts["lower"])
+	verdicts["raise, kept"] = kept(verdicts["raise"])
 	// rule returns the planning rule that quotes the line's opening words.
 	rule := func(prompt, name string) string {
 		t.Helper()
@@ -361,6 +372,29 @@ func TestPlanningRules_ActOnEachFTPCheckVerdict(t *testing.T) {
 		if opening := `"` + line[:strings.Index(line, ":")] + `"`; !strings.Contains(aicoach.SystemPrompt, opening) {
 			t.Errorf("the insights prompt doesn't act on %s", opening)
 		}
+	}
+
+	// A kept FTP: the line says so in place of its ask, and keeps the rest.
+	const keptWords = "rider has chosen to keep this FTP"
+	for _, name := range []string{"lower, kept", "raise, kept"} {
+		line := ftpCheckLine(verdicts[name])
+		if !strings.Contains(line, keptWords) || strings.Contains(line, "when it bears on the answer") {
+			t.Errorf("%s: the line should say the FTP is kept and stop asking to bring it up:\n%s", name, line)
+		}
+	}
+	if line := ftpCheckLine(verdicts["lower, kept"]); !strings.Contains(line, "anchor interval targets on recent efforts") {
+		t.Errorf("a kept FTP no recent ride backs should still anchor targets on recent efforts:\n%s", line)
+	}
+	// Chat (and the weekly plan) and insights act on it in the same words,
+	// once each, and those words keep the verdict's targets: no %FTP step on
+	// an FTP the rider fell short of, as the line says.
+	for name, prompt := range map[string]string{"chat": aicoach.ChatSystemPrompt, "insights": aicoach.SystemPrompt} {
+		if n := strings.Count(prompt, keptWords); n != 1 || !strings.Contains(prompt, keptWords+", "+aicoach.KeptFTPRule) {
+			t.Errorf("the %s prompt should act on a kept FTP once, with the shared rule (mentions: %d)", name, n)
+		}
+	}
+	if !strings.Contains(aicoach.KeptFTPRule, "power they held rather than a %FTP step up") {
+		t.Errorf("the kept-FTP rule drops the held-power targets its verdict and line keep: %s", aicoach.KeptFTPRule)
 	}
 }
 

@@ -191,7 +191,7 @@ Planning rules — build key sessions from what the rider actually executed:
   - "no recent ride backs this FTP" (the rider's recent best efforts fell short of it): take no %FTP progression step this week — set threshold and VO2 targets from the power they actually held in get_workout_intervals (target_watts is fine) — and say so in one sentence.
   - "recent rides show more than this FTP": tell the rider to raise it before the week starts, since every %FTP target scales with it.
   - "unverified" (no hard 20- or 60-minute effort to check it against — untested, not shown wrong): progress by the rules above as usual, and when form allows make one key session a sustained effort that tests it (e.g. 2×20 min at 95–100%).
-  - If the line adds that the rider has chosen to keep this FTP, plan from it as usual and don't raise it again.
+  - If the line adds that the rider has chosen to keep this FTP, ` + KeptFTPRule + `
 - After a break of a week or more, restart a step below the last proven session (fewer reps or a few % lower), not at it.
 - Never put two key sessions (tempo, threshold, VO2) on consecutive days. When the rider has few training days, plan fewer key sessions rather than stacking them; an easy day or a rest day goes between.
 Name sessions and step kinds by their targets: tempo 76–87% FTP, sweet spot 88–94%, threshold 95–105%, VO2 106–120%. Don't call an 85% session sweet spot.
