@@ -365,6 +365,21 @@ func (h *CoachHandler) Chat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	systemContext := h.chatSystemContext(time.Now().In(h.db.AthleteLocation()))
+	// The training days and hours the rider saved on the calendar page, so a
+	// plan made in chat respects them like a weekly run does. Guidance only:
+	// unlike a weekly run, propose_schedule doesn't enforce it here, since
+	// the rider may override it for a week in this conversation. Added here,
+	// not in chatSystemContext, which the weekly run shares and which then
+	// states availability by date.
+	if prefs, err := h.db.GetWeeklyPlanPrefs(); err == nil {
+		var budget float64
+		if prefs.WeeklyHours != nil {
+			budget = *prefs.WeeklyHours
+		}
+		if s := aicoach.StandingAvailability(prefs.Allows, budget); s != "" {
+			systemContext += "\n\n" + s
+		}
+	}
 
 	// One chat turn at a time: the browser re-attaches to the running turn
 	// rather than racing a second one against it.

@@ -151,6 +151,62 @@ func TestChat_HasNoWeeklyPlaybook(t *testing.T) {
 	}
 }
 
+// postChat sends one plain chat question and waits for the turn to finish.
+func postChat(t *testing.T, h *CoachHandler) aicoach.ChatTurnInput {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/coach/chat",
+		strings.NewReader(`{"messages":[{"role":"user","content":"Plan my next few days"}]}`))
+	rr := httptest.NewRecorder()
+	h.Chat(rr, req)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "event: done") {
+		t.Fatalf("chat failed: %d %s", rr.Code, rr.Body.String())
+	}
+	reqs := fakeCoach.requests()
+	if len(reqs) == 0 {
+		t.Fatal("the chat never reached the model")
+	}
+	return reqs[0]
+}
+
+// A plan made in chat sees the training days and hours the rider saved, as
+// a weekly run does.
+func TestChat_CarriesStandingAvailability(t *testing.T) {
+	h := coachFixture(t)
+	six := 6.0
+	if err := h.db.SaveWeeklyPlanPrefs(models.WeeklyPlanPrefs{Days: []string{"mon", "wed", "sat"}, WeeklyHours: &six}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := postChat(t, h).SystemContext
+	if !strings.Contains(ctx, "Mon, Wed, Sat") || !strings.Contains(ctx, "about 6 hours") {
+		t.Errorf("chat context lacks the rider's availability:\n%s", ctx)
+	}
+}
+
+func TestChat_NoAvailabilityWithDefaults(t *testing.T) {
+	h := coachFixture(t)
+	if ctx := postChat(t, h).SystemContext; strings.Contains(ctx, "standing availability") {
+		t.Errorf("default availability (every day, no budget) still stated:\n%s", ctx)
+	}
+}
+
+// A weekly run states availability by date and enforces it; the chat line,
+// by weekday and advisory, must not ride along.
+func TestGenerateWeeklyPlan_AvailabilityByDateOnly(t *testing.T) {
+	h := coachFixture(t)
+	six := 6.0
+	if err := h.db.SaveWeeklyPlanPrefs(models.WeeklyPlanPrefs{Days: append([]string(nil), models.WeekdayKeys...), WeeklyHours: &six}); err != nil {
+		t.Fatal(err)
+	}
+	fakeCoach.turn = proposingWeek("Review.", "Done.")
+	if _, err := h.generateWeeklyPlan(context.Background(), weeklyPlanRun{trigger: models.WeeklyPlanManual}, discardEvents); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	ctx := fakeCoach.requests()[0].SystemContext
+	if strings.Contains(ctx, "standing availability") || !strings.Contains(ctx, "Rider availability —") {
+		t.Errorf("weekly context should state availability by date only:\n%s", ctx)
+	}
+}
+
 // A revision replays the plan it revises and accumulates the rider's
 // constraints, so "no riding Wednesday" isn't forgotten by the next change.
 func TestGenerateWeeklyPlan_RevisionReplaysPlan(t *testing.T) {

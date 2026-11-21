@@ -27,7 +27,9 @@ func WeeklyPlanWindow(now time.Time) (start, end time.Time) {
 // exact window so the model never has to infer "next week" from a weekday, and
 // spells out the data to gather — in particular grading last week's key
 // sessions with get_workout_intervals, because progressing a plan from
-// whole-ride averages alone is exactly the guesswork it replaces.
+// whole-ride averages alone is exactly the guesswork it replaces. The rules
+// for building the week live in ChatSystemPrompt, which a weekly run also
+// uses: chat plans by the same rules, and they stay in the cached prefix.
 func WeeklyPlanBrief(start, end time.Time) string {
 	return fmt.Sprintf(`Weekly plan request — review how the rider's training has been going, then plan %s through %s (%d days, starting tomorrow). The rider may not be watching (this can run automatically on Sunday night); their message holds any constraints they gave.
 
@@ -44,21 +46,37 @@ What is improving and what is stalling, from performance signals (FTP history, r
 ## Focus for the week
 One or two priorities and why, tied to form (TSB), ctl_ramp_per_week, and what is underdeveloped.
 
-Then call propose_schedule for the window — one entry per training day, rest days skipped, dates %s to %s only (propose_schedule rejects any other date). Build the key sessions from what the rider actually executed:
-- Reps completed fading less than ~3%% (last_vs_first_rep_pct above -3) and HR settling between reps → progress one step: one more rep, +2–3%% target, or longer reps — not all three.
-- Fading more than ~5%%, missed reps, or a session cut short → repeat the same session, or cut a rep.
-- The rider's rating adjusts that call: reps held (fade under ~3%%) but rpe 9–10, or a note saying it was a struggle → repeat the session instead of progressing. Reps held at rpe 6 or below → progress; the top of the step is fine. No rpe → judge from the numbers alone and never assume one.
-- A rider_note from the last 10 days that mentions illness, injury, pain or poor sleep → no key sessions in the first 2–3 days of the plan, Z1–Z2 only, and say why in the review. Don't diagnose.
-- Deeply negative TSB (below about -25) or ctl_ramp_per_week above ~8 (get_readiness) → make it a recovery or consolidation week regardless.
-- FTP check (in the Rider profile): if no recent ride backs the FTP and the rider hasn't chosen to keep it, take no %%FTP progression step this week — set threshold and VO2 targets from the power they actually held in get_workout_intervals (target_watts is fine) — and say so in one sentence. If recent rides show more than the FTP, tell the rider to raise it before the week starts, since every %%FTP target scales with it. If it is unverified, make one key session a sustained effort that tests it (e.g. 2×20 min at 95–100%%) when form allows.
-- After a break of a week or more, restart a step below the last proven session (fewer reps or a few %% lower), not at it.
-- Never put two key sessions (tempo, threshold, VO2) on consecutive days. When the rider has few training days, plan fewer key sessions rather than stacking them; an easy day or a rest day goes between.
-Name sessions and step kinds by their targets: tempo 76–87%% FTP, sweet spot 88–94%%, threshold 95–105%%, VO2 106–120%%. Don't call an 85%% session sweet spot.
+Then call propose_schedule for the window — one entry per training day, rest days skipped, dates %s to %s only (propose_schedule rejects any other date). Build the key sessions from what the rider actually executed, following the Planning rules in your instructions.
 Respect the rider's mileage goals when set, and any constraints they mention in their message or earlier in the conversation.
 
 Finish, without a heading, with two or three sentences on the shape of the week (e.g. "two quality days, a long ride Saturday, 6.5 h in total") and one thing to watch. Do not list the workouts: the proposed week appears as cards next to or under your review (depending on screen size), with buttons to add it to the calendar or ask for changes — call it "the proposed week", without saying where it is. Keep the whole review to roughly 180–280 words; the schedule itself goes in the tool call, not in prose.`,
 		start.Format("Monday, 2006-01-02"), end.Format("Monday, 2006-01-02"), WeeklyPlanDays,
 		start.Format("2006-01-02"), end.Format("2006-01-02"))
+}
+
+// StandingAvailability renders the rider's standing availability for a chat
+// turn, which has no fixed window: weekday names, Monday first, and guidance
+// only — the rider may override it for a week in conversation, so chat does
+// not enforce it. "" for the defaults (every day, no time budget).
+func StandingAvailability(allowed func(time.Weekday) bool, weeklyHours float64) string {
+	var days []string
+	for i := 1; i <= 7; i++ {
+		if wd := time.Weekday(i % 7); allowed(wd) {
+			days = append(days, wd.String()[:3])
+		}
+	}
+	if len(days) == 7 && weeklyHours <= 0 {
+		return ""
+	}
+	which := strings.Join(days, ", ")
+	if len(days) == 7 {
+		which = "any day"
+	}
+	s := "Rider's standing availability (set on the calendar page): usual training days " + which
+	if weeklyHours > 0 {
+		s += "; about " + strconv.FormatFloat(weeklyHours, 'f', -1, 64) + " hours of training a week"
+	}
+	return s + ". Plan within it unless the rider says otherwise in this conversation."
 }
 
 // WeeklyPlanAvailability renders the rider's standing availability for the

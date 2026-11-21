@@ -129,6 +129,47 @@ func TestPlanningRules_FTPCheck(t *testing.T) {
 	}
 }
 
+// The rules for building a plan live in the static chat prompt, so chat plans
+// by the same rules as the weekly run and they sit in the cached prefix; the
+// per-run brief only points at them.
+func TestChatSystemPrompt_CarriesPlanningRules(t *testing.T) {
+	for _, want := range []string{"last_vs_first_rep_pct", "consecutive days", "sweet spot 88–94%", "ctl_ramp_per_week", "rpe 9–10"} {
+		if !strings.Contains(aicoach.ChatSystemPrompt, want) {
+			t.Errorf("chat prompt lacks the planning rule %q", want)
+		}
+	}
+	if strings.Contains(aicoach.ChatSystemPrompt, "%%") {
+		t.Error("chat prompt is a raw string, not a format: it must not escape %")
+	}
+	start, end := aicoach.WeeklyPlanWindow(time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC))
+	brief := aicoach.WeeklyPlanBrief(start, end)
+	if strings.Contains(brief, "consecutive days") {
+		t.Error("the weekly brief still carries the rules: they belong in the cached chat prompt")
+	}
+	if !strings.Contains(brief, "Planning rules") || strings.Contains(brief, "%!") {
+		t.Errorf("brief doesn't point at the planning rules, or is malformed:\n%s", brief)
+	}
+}
+
+func TestStandingAvailability(t *testing.T) {
+	monWedSat := func(wd time.Weekday) bool {
+		return wd == time.Monday || wd == time.Wednesday || wd == time.Saturday
+	}
+	got := aicoach.StandingAvailability(monWedSat, 6)
+	for _, want := range []string{"Mon, Wed, Sat", "about 6 hours"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("availability lacks %q: %s", want, got)
+		}
+	}
+	everyDay := func(time.Weekday) bool { return true }
+	if got := aicoach.StandingAvailability(everyDay, 0); got != "" {
+		t.Errorf("defaults (every day, no budget) = %q, want empty", got)
+	}
+	if got := aicoach.StandingAvailability(everyDay, 8); !strings.Contains(got, "any day") || !strings.Contains(got, "about 8 hours") {
+		t.Errorf("every day with a budget = %q", got)
+	}
+}
+
 func TestWeeklyPlanAvailability(t *testing.T) {
 	start := time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC) // Monday
 	end := start.AddDate(0, 0, 6)
