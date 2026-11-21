@@ -35,8 +35,11 @@ func TestProgress(t *testing.T) {
 			t.Errorf("progress lacks %q", want)
 		}
 	}
-	if !strings.Contains(body, `<a href="/progress" data-also="/heatmap">progress</a>`) {
-		t.Error("the nav should link progress (covering the heatmap)")
+	// The nav lists every page by its own name: the heatmap keeps its link.
+	for _, link := range []string{`<a href="/">dashboard</a>`, `<a href="/heatmap">heatmap</a>`, `<a href="/progress">progress</a>`} {
+		if !strings.Contains(body, link) {
+			t.Errorf("the nav lacks %s", link)
+		}
 	}
 }
 

@@ -27,7 +27,6 @@ type workoutView struct {
 	EF          float64
 	Fitness     models.FitnessPoint
 	FTP         int
-	FTPIndoor   bool // FTP came from the indoor line (it differs from the general one)
 	ThresholdHR int
 
 	AllTimeCurve map[int]models.AllTimeBest
@@ -41,8 +40,6 @@ type workoutView struct {
 	RouteBestPowerID string
 	Achievements     []models.Achievement
 
-	// Ride is what the ride was: kind, headline, intervals, planned workout.
-	Ride rideSummary
 	// Feedback is how the rider says it felt; RPEScale renders the 1–10 picker.
 	Feedback models.WorkoutFeedback
 	RPEScale []rpeOption
@@ -158,9 +155,7 @@ func (th *templateHandler) workout(w http.ResponseWriter, r *http.Request) {
 
 	achievements, _ := th.db.GetWorkoutAchievements(workout.ID)
 
-	// Non-fatal: without them the page just has no header line or table.
-	day := trainingDate(workout)
-	planned, _ := th.db.ListPlannedWorkoutsBetween(day, day)
+	// Non-fatal: without it the feedback card just starts empty.
 	feedback, _, _ := th.db.GetWorkoutFeedback(workout.ID)
 
 	renderTemplate(w, th.templates().workout, "base", workoutView{
@@ -178,7 +173,6 @@ func (th *templateHandler) workout(w http.ResponseWriter, r *http.Request) {
 		EF:          efF,
 		Fitness:     fitnessOnDay,
 		FTP:         ftpAtTime,
-		FTPIndoor:   workout.IsIndoor && ftpAtTime != th.db.GetFTPAtDate(workout.RecordedAt),
 		ThresholdHR: athlete.ThresholdHR,
 
 		AllTimeCurve: allTimeCurve,
@@ -192,7 +186,6 @@ func (th *templateHandler) workout(w http.ResponseWriter, r *http.Request) {
 		RouteBestPowerID: routeBestPowerID,
 		Achievements:     achievements,
 
-		Ride:     th.rideSummaryFor(workout, planned),
 		Feedback: feedback,
 		RPEScale: rpeScale(feedback.RPE),
 

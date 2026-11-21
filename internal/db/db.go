@@ -1553,6 +1553,35 @@ type PeriodSummary struct {
 	TSS          float64
 }
 
+// GetWeekActivityDays returns a 7-element array (Mon=0 … Sun=6) where each
+// entry is true if any workout was recorded on that day of the ISO week.
+func (db *DB) GetWeekActivityDays(weekStart time.Time, tz *time.Location) ([7]bool, error) {
+	var days [7]bool
+	weekEnd := weekStart.AddDate(0, 0, 7)
+	rows, err := db.Query(`
+		SELECT DISTINCT training_day FROM workouts
+		WHERE training_day >= ? AND training_day < ? AND training_day IS NOT NULL`,
+		weekStart.Format("2006-01-02"),
+		weekEnd.Format("2006-01-02"),
+	)
+	if err != nil {
+		return days, err
+	}
+	defer rows.Close() //nolint:errcheck
+	for rows.Next() {
+		var dayStr string
+		if err := rows.Scan(&dayStr); err != nil {
+			return days, err
+		}
+		t, err := time.ParseInLocation("2006-01-02", dayStr, tz)
+		if err != nil {
+			continue
+		}
+		days[timeutil.DaysSinceMonday(t)] = true
+	}
+	return days, rows.Err()
+}
+
 // GetPeriodSummary returns the total duration and TSS across all sports on or
 // after the calendar day of `since` (callers pass local midnights — week or
 // year starts). Cut on training_day so rides count toward the day the athlete

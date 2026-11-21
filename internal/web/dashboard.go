@@ -34,16 +34,23 @@ type indexView struct {
 
 	GoalViews       []sportGoalView
 	ActiveGoalSport string
+	WeekSummary     db.PeriodSummary
 	YearSummary     db.PeriodSummary
-	Today           todayCard
-	Week            weekView
-	// RideKinds says what each listed ride was (kind and headline), by ID.
-	RideKinds map[string]rideSummary
+	TodayFitness    models.FitnessPoint
+	StreakDays      [7]streakDay
+	StreakActive    int
 
 	AIConfigured    bool
 	AIProviderLabel string
 	AIChatCapable   bool
 	AIChatLabels    string
+}
+
+// streakDay is one cell of the "this week" streak widget.
+type streakDay struct {
+	Label   string
+	Active  bool
+	IsToday bool
 }
 
 // weekDayBar is one bar of a goal card's week chart.
@@ -171,13 +178,10 @@ func (th *templateHandler) index(w http.ResponseWriter, r *http.Request) {
 
 	// Sidebar widgets degrade gracefully — a failed query renders an empty
 	// widget rather than failing the whole dashboard, hence the ignored errors.
+	weekSummary, _ := th.db.GetPeriodSummary(weekStart)
 	yearSummary, _ := th.db.GetPeriodSummary(yearStart)
-	week := th.buildWeek(weekStart, now)
-	today := th.buildToday(now, week)
-	rideKinds := map[string]rideSummary{}
-	for i := range workouts {
-		rideKinds[workouts[i].ID] = th.rideSummaryFor(&workouts[i], nil)
-	}
+	todayFitness, _ := th.db.GetFitnessOnDate(now, tz)
+	streakDays, streakActive := th.buildStreak(weekStart, tz, todayIdx)
 
 	goalViews, err := th.buildGoalViews(now, tz, activeSport, todayIdx)
 	if err != nil {
@@ -208,10 +212,11 @@ func (th *templateHandler) index(w http.ResponseWriter, r *http.Request) {
 
 		GoalViews:       goalViews,
 		ActiveGoalSport: activeSport,
+		WeekSummary:     weekSummary,
 		YearSummary:     yearSummary,
-		Today:           today,
-		Week:            week,
-		RideKinds:       rideKinds,
+		TodayFitness:    todayFitness,
+		StreakDays:      streakDays,
+		StreakActive:    streakActive,
 
 		AIConfigured:    aiSettings.Provider != "" && aiSettings.APIKey != "",
 		AIProviderLabel: aicoach.ProviderLabel(aiSettings.Provider),
@@ -220,6 +225,21 @@ func (th *templateHandler) index(w http.ResponseWriter, r *http.Request) {
 		// from the registry so the copy never hardcodes a provider name.
 		AIChatLabels: strings.Join(aicoach.ChatCapableLabels(), " or "),
 	})
+}
+
+// buildStreak assembles the "this week" streak widget: which days had any
+// workout, plus the active-day count.
+func (th *templateHandler) buildStreak(weekStart time.Time, tz *time.Location, todayIdx int) ([7]streakDay, int) {
+	activityDays, _ := th.db.GetWeekActivityDays(weekStart, tz)
+	var days [7]streakDay
+	active := 0
+	for i := 0; i < 7; i++ {
+		days[i] = streakDay{Label: dayLabels[i], Active: activityDays[i], IsToday: i == todayIdx}
+		if activityDays[i] {
+			active++
+		}
+	}
+	return days, active
 }
 
 // buildGoalViews assembles the mileage-goals card: one panel per sport with

@@ -324,3 +324,23 @@ func zoneWindowFrom(label string, workouts int, secs [7]int) zoneWindow {
 	z.Hard = pct(secs[4] + secs[5] + secs[6])
 	return z
 }
+
+// pctOf is v as a percentage of max (0 when max is 0): bar heights.
+func pctOf(v, max float64) float64 {
+	if max <= 0 {
+		return 0
+	}
+	return v / max * 100
+}
+
+// plannedTSS is a planned workout's TSS, estimated from its duration and IF
+// when it has none of its own.
+func plannedTSS(p models.PlannedWorkout) float64 {
+	if p.TSS != nil {
+		return *p.TSS
+	}
+	if p.IntensityFactor != nil {
+		return fitness.EstimateTSS(p.DurationSecs, *p.IntensityFactor)
+	}
+	return 0
+}
