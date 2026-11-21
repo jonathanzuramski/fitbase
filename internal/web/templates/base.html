@@ -25,7 +25,7 @@
 		<link rel="stylesheet" href="/static/css/workout.css" />
 		<link rel="stylesheet" href="/static/css/settings.css" />
 		<link rel="stylesheet" href="/static/css/aicoach.css" />
-		<link rel="stylesheet" href="/static/css/progress.css" />
+		<link rel="stylesheet" href="/static/css/analytics.css" />
 		<!-- responsive.css must load last so its @media rules win -->
 		<link rel="stylesheet" href="/static/css/responsive.css" />
 		{{ block "head" . }}{{ end }}
@@ -38,7 +38,7 @@
 				<a href="/">dashboard</a>
 				<a href="/calendar">calendar</a>
 				<a href="/heatmap">heatmap</a>
-				<a href="/progress">progress</a>
+				<a href="/analytics">analytics</a>
 				<a href="/settings">settings</a>
 				<form method="POST" action="/settings/units" class="units-toggle">
 					{{ if .Imperial }}

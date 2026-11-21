@@ -1,6 +1,7 @@
-/* progress.css — the Progress page only. Its rules used to live in
-   dashboard.css and responsive.css beside the Today page's; they moved here
-   when the dashboard went back to its pre-1.2 look. */
+/* analytics.css — the Analytics page only (Progress, before it grew into
+   Analytics). Its rules used to live in dashboard.css and responsive.css
+   beside the Today page's; they moved here when the dashboard went back
+   to its pre-1.2 look. */
 
 /* ── Weekly load bars (planned against ridden) ───────────────────────── */
 .week-bar {

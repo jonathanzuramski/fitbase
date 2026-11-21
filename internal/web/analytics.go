@@ -10,18 +10,18 @@ import (
 	"github.com/fitbase/fitbase/internal/timeutil"
 )
 
-// progressView is the Progress page: whether the rider is getting fitter, not
+// analyticsView is the Analytics page: whether the rider is getting fitter, not
 // just training more. FTP against what the rides say, the power curve now
 // against all-time, aerobic durability, weekly volume against plan, and how
 // the hard and easy riding is split.
-type progressView struct {
+type analyticsView struct {
 	Imperial bool
 	FTP      int
 	FTPCheck models.FTPCheck
 
 	FTPChart   ftpChart
 	Curve      curveChart
-	Weeks      []progressWeek
+	Weeks      []analyticsWeek
 	WeekMaxTSS float64
 	Durability []durabilityPoint
 	Zones      []zoneWindow
@@ -50,8 +50,8 @@ type curveChart struct {
 	WeightKG  float64 `json:"weight_kg"`
 }
 
-// progressWeek is one week of the volume chart.
-type progressWeek struct {
+// analyticsWeek is one week of the volume chart.
+type analyticsWeek struct {
 	Monday     time.Time
 	TSS        float64
 	PlannedTSS float64
@@ -60,8 +60,8 @@ type progressWeek struct {
 	IsCurrent  bool
 }
 
-func (w progressWeek) DoneHeightPct(maxTSS float64) float64    { return pctOf(w.TSS, maxTSS) }
-func (w progressWeek) PlannedHeightPct(maxTSS float64) float64 { return pctOf(w.PlannedTSS, maxTSS) }
+func (w analyticsWeek) DoneHeightPct(maxTSS float64) float64    { return pctOf(w.TSS, maxTSS) }
+func (w analyticsWeek) PlannedHeightPct(maxTSS float64) float64 { return pctOf(w.PlannedTSS, maxTSS) }
 
 // durabilityPoint is one week of aerobic markers: EF (NP ÷ avg HR) averaged
 // over endurance rides, so weeks compare at similar intensity, and Pw:HR
@@ -90,8 +90,8 @@ type zoneShare struct {
 }
 
 const (
-	progressWeeks = 16
-	ftpChartWeeks = 52
+	analyticsWeeks = 16
+	ftpChartWeeks  = 52
 
 	// Endurance rides for EF: steady enough that weeks compare at a similar
 	// intensity, long enough for HR to settle.
@@ -104,7 +104,7 @@ const (
 // curveDurations are the power-curve points charted, short to long.
 var curveDurations = []int{5, 10, 30, 60, 120, 300, 600, 1200, 1800, 3600, 5400, 7200}
 
-func (th *templateHandler) progress(w http.ResponseWriter, r *http.Request) {
+func (th *templateHandler) analytics(w http.ResponseWriter, r *http.Request) {
 	athlete, err := th.db.GetAthlete()
 	if err != nil {
 		http.Error(w, "database error", http.StatusInternalServerError)
@@ -115,14 +115,14 @@ func (th *templateHandler) progress(w http.ResponseWriter, r *http.Request) {
 
 	// Every section degrades on its own: a failed query leaves it empty.
 	check, _ := th.db.FTPCheck(now)
-	view := progressView{
+	view := analyticsView{
 		Imperial: th.isImperial(),
 		FTP:      athlete.FTPWatts,
 		FTPCheck: check,
 		FTPChart: th.buildFTPChart(now),
 		Curve:    th.buildCurve(now, athlete.WeightKG),
 	}
-	view.Weeks, view.Durability = th.buildProgressWeeks(now)
+	view.Weeks, view.Durability = th.buildAnalyticsWeeks(now)
 	for _, wk := range view.Weeks {
 		view.WeekMaxTSS = max(view.WeekMaxTSS, wk.TSS, wk.PlannedTSS)
 	}
@@ -137,7 +137,7 @@ func (th *templateHandler) progress(w http.ResponseWriter, r *http.Request) {
 	for i, n := range powerZoneNames {
 		view.ZoneLegend = append(view.ZoneLegend, zoneShare{N: i + 1, Name: n})
 	}
-	renderTemplate(w, th.templates().progress, "base", view)
+	renderTemplate(w, th.templates().analytics, "base", view)
 }
 
 func (th *templateHandler) buildFTPChart(now time.Time) ftpChart {
@@ -220,17 +220,17 @@ func (th *templateHandler) buildCurve(now time.Time, weightKG float64) curveChar
 	return c
 }
 
-// buildProgressWeeks buckets the last progressWeeks weeks of rides (and
+// buildAnalyticsWeeks buckets the last analyticsWeeks weeks of rides (and
 // planned workouts) by training week, and computes each week's EF and
 // decoupling.
-func (th *templateHandler) buildProgressWeeks(now time.Time) ([]progressWeek, []durabilityPoint) {
+func (th *templateHandler) buildAnalyticsWeeks(now time.Time) ([]analyticsWeek, []durabilityPoint) {
 	thisMonday := timeutil.MondayOf(now)
-	first := thisMonday.AddDate(0, 0, -7*(progressWeeks-1))
-	weeks := make([]progressWeek, progressWeeks)
+	first := thisMonday.AddDate(0, 0, -7*(analyticsWeeks-1))
+	weeks := make([]analyticsWeek, analyticsWeeks)
 	byMonday := map[string]int{}
 	for i := range weeks {
 		m := first.AddDate(0, 0, 7*i)
-		weeks[i] = progressWeek{Monday: m, IsCurrent: i == progressWeeks-1}
+		weeks[i] = analyticsWeek{Monday: m, IsCurrent: i == analyticsWeeks-1}
 		byMonday[m.Format("2006-01-02")] = i
 	}
 	weekOf := func(day string) (int, bool) {
@@ -246,7 +246,7 @@ func (th *templateHandler) buildProgressWeeks(now time.Time) ([]progressWeek, []
 		efSum, decSum float64
 		efN, decN     int
 	}
-	aggs := make([]agg, progressWeeks)
+	aggs := make([]agg, analyticsWeeks)
 	end := thisMonday.AddDate(0, 0, 7).Format("2006-01-02")
 	if rides, err := th.db.GetWorkoutsBetweenDays(first.Format("2006-01-02"), end); err == nil {
 		for _, w := range rides {
@@ -279,7 +279,7 @@ func (th *templateHandler) buildProgressWeeks(now time.Time) ([]progressWeek, []
 		}
 	}
 	firstDate := time.Date(first.Year(), first.Month(), first.Day(), 0, 0, 0, 0, time.UTC)
-	if planned, err := th.db.ListPlannedWorkoutsBetween(firstDate, firstDate.AddDate(0, 0, 7*progressWeeks-1)); err == nil {
+	if planned, err := th.db.ListPlannedWorkoutsBetween(firstDate, firstDate.AddDate(0, 0, 7*analyticsWeeks-1)); err == nil {
 		for _, p := range planned {
 			if i, ok := weekOf(p.PlannedDate.Format("2006-01-02")); ok {
 				weeks[i].PlannedTSS += plannedTSS(p)

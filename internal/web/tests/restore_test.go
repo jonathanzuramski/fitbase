@@ -7,7 +7,7 @@ import (
 
 // The dashboard is the pre-1.2 dashboard again: its own name, the "this
 // week" streak and the training load card, and no Today card or phone tab
-// bar. The nav names every page as it was, with progress added.
+// bar. The nav names every page as it was, with analytics added.
 func TestDashboard_IsTheDashboardAgain(t *testing.T) {
 	_, h := ftpFixture(t)
 	body := get(t, h, "/")
@@ -26,7 +26,7 @@ func TestDashboard_IsTheDashboardAgain(t *testing.T) {
 		`<a href="/">dashboard</a>`,
 		`<a href="/calendar">calendar</a>`,
 		`<a href="/heatmap">heatmap</a>`,
-		`<a href="/progress">progress</a>`,
+		`<a href="/analytics">analytics</a>`,
 		`<a href="/settings">settings</a>`,
 	}
 	at := 0

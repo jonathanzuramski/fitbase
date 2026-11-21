@@ -1,4 +1,4 @@
-// Progress page charts, on the shared uPlot theme from charts.js (baseOpts,
+// Analytics page charts, on the shared uPlot theme from charts.js (baseOpts,
 // containerWidth, watchResize, COLORS, CHART_THEME).
 
 // progressEmpty says a chart has nothing to show yet, and hides its legend.

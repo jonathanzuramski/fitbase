@@ -1,9 +1,9 @@
-{{ define "title" }}progress — fitbase{{ end }}
+{{ define "title" }}analytics — fitbase{{ end }}
 
 {{ define "content" }}
 <div class="page-header">
 	<div>
-		<h1>progress</h1>
+		<h1>analytics</h1>
 		<div class="page-subtitle">Are you getting fitter, or just training more?</div>
 	</div>
 	<a href="/heatmap" class="btn-secondary">heatmap →</a>
@@ -102,7 +102,7 @@
 {{ end }}
 
 {{ define "scripts" }}
-<script src="/static/js/progress.js"></script>
+<script src="/static/js/analytics.js"></script>
 <script>
 	renderFTPChart('ftp-chart', {{ .FTPChart | toJSON }});
 	renderCurveChart('curve-chart', {{ .Curve | toJSON }});

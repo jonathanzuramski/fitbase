@@ -24,7 +24,7 @@ type pageTemplates struct {
 	welcome   *template.Template
 	calendar  *template.Template
 	heatmap   *template.Template
-	progress  *template.Template
+	analytics *template.Template
 	importing *template.Template
 }
 
@@ -43,7 +43,7 @@ func loadTemplatesFrom(fsys fs.FS) *pageTemplates {
 		welcome:   parse("templates/welcome.html"),
 		calendar:  parse("templates/base.html", "templates/calendar.html"),
 		heatmap:   parse("templates/base.html", "templates/heatmap.html"),
-		progress:  parse("templates/base.html", "templates/ftp_check.html", "templates/progress.html"),
+		analytics: parse("templates/base.html", "templates/ftp_check.html", "templates/analytics.html"),
 		importing: parse("templates/importing.html"),
 	}
 }
@@ -86,7 +86,11 @@ func NewTemplateHandler(database *db.DB, dev bool, webFS fs.FS) http.Handler {
 	mux.HandleFunc("POST /settings/integrations/gdrive/credentials", th.saveIntegrationCredentials("gdrive"))
 	mux.HandleFunc("POST /goals/mileage", th.saveMileageGoal)
 	mux.HandleFunc("GET /heatmap", th.heatmap)
-	mux.HandleFunc("GET /progress", th.progress)
+	mux.HandleFunc("GET /analytics", th.analytics)
+	// Progress became Analytics; old links and bookmarks still land.
+	mux.HandleFunc("GET /progress", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/analytics", http.StatusMovedPermanently)
+	})
 	mux.HandleFunc("POST /settings/ai", th.saveAISettings)
 	mux.HandleFunc("GET /calendar", th.calendar)
 	mux.HandleFunc("GET /importing", th.importing)
