@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"time"
 
 	"github.com/fitbase/fitbase/internal/db"
@@ -27,8 +28,12 @@ type analyticsView struct {
 	Years   models.YearOverYear
 	State   analyticsState
 
-	Ranges     []analyticsOption
-	ZoneLegend []zoneShare
+	// ScopeOptions are the sports in the sport menu: the rider's, plus the
+	// one picked in the URL when they have no workouts in it yet, so it stays
+	// picked and the next change doesn't send scope=all.
+	ScopeOptions []string
+	Ranges       []analyticsOption
+	ZoneLegend   []zoneShare
 }
 
 // analyticsState is what the controls show.
@@ -106,6 +111,10 @@ func (th *templateHandler) analytics(w http.ResponseWriter, r *http.Request) {
 			Against: c.Against, AgainstFrom: c.B.FirstDay(), AgainstTo: c.B.LastDay(),
 			Scope: cmp.Scope, Range: trends.Range, Today: timeutil.DateOf(now).Format("2006-01-02"),
 		},
+	}
+	view.ScopeOptions = cmp.Scopes
+	if cmp.Scope != models.ScopeAll && !slices.Contains(cmp.Scopes, cmp.Scope) {
+		view.ScopeOptions = append(slices.Clone(cmp.Scopes), cmp.Scope)
 	}
 	for _, rk := range db.TrendRanges {
 		view.Ranges = append(view.Ranges, analyticsOption{rk, trendRangeLabels[rk]})

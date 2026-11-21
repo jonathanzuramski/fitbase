@@ -46,7 +46,7 @@
 			<span class="muted">sport</span>
 			<select name="scope">
 				<option value="all"{{ if eq .State.Scope "all" }} selected{{ end }}>all sports</option>
-				{{ range .Compare.Scopes }}<option value="{{ . }}"{{ if eq . $.State.Scope }} selected{{ end }}>{{ . }}</option>{{ end }}
+				{{ range .ScopeOptions }}<option value="{{ . }}"{{ if eq . $.State.Scope }} selected{{ end }}>{{ . }}</option>{{ end }}
 			</select>
 		</label>
 	</form>

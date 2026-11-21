@@ -150,3 +150,17 @@ func TestProgress_RedirectsToAnalytics(t *testing.T) {
 		t.Errorf("GET /progress redirects to %q, want /analytics", loc)
 	}
 }
+
+// A sport in the URL that the rider has no workouts in yet stays picked in
+// the menu, so the next change doesn't quietly switch to all sports.
+func TestAnalytics_ScopeWithoutWorkoutsStaysPicked(t *testing.T) {
+	d, h := ftpFixture(t)
+	steadyRide(t, d, "r", 3, 200)
+	body := get(t, h, "/analytics?scope=hiking")
+	if !strings.Contains(body, `<option value="hiking" selected>hiking</option>`) {
+		t.Error("the sport menu lacks the picked sport, hiking")
+	}
+	if strings.Count(body, `<option value="cycling"`) != 1 {
+		t.Error("the rider's own sports should still be listed once")
+	}
+}
