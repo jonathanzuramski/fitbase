@@ -422,6 +422,95 @@ paths:
                   data:  { type: array, items: { $ref: "#/components/schemas/WeeklyLoad" } }
                   error: { type: string, nullable: true }
 
+  /api/analytics/compare:
+    get:
+      summary: Compare one period with another
+      description: |
+        The Analytics page's period comparison: every metric of one period beside another,
+        with the change. Days are training days (the day the rider rode, in their own
+        timezone), and "today" is the viewer's (the `tz` cookie, else the athlete's timezone).
+
+        A week is Monday to Sunday, a month and a year are calendar ones, and `custom` is any
+        run of days. A period still running is cut at today and the period it is compared
+        against is cut to match (`to_date`): the first 21 days of last month against the
+        first 21 of this one. A period picked with `against=custom` is never cut.
+
+        Built from per-ride aggregates (workout columns, stored power curves, zone times,
+        cached decoupling), never streams. Power-derived numbers (NP, IF, kJ, power zones,
+        best efforts, EF, matched power) read cycling rides only. EF and the matched markers
+        come from steady rides (IF 0.55–0.80, 45 min+), outdoor and indoor kept apart;
+        decoupling from long steady rides (90 min+). Rows exist only for metrics at least one
+        period has: a rider without a power meter or HR strap gets volume rows.
+      parameters:
+        - { name: period, in: query, schema: { type: string, enum: [week, month, year, custom], default: month } }
+        - { name: date, in: query, schema: { type: string, format: date }, description: "A day in the period, for week, month and year. Default today." }
+        - { name: from, in: query, schema: { type: string, format: date }, description: "First day of a custom period (required with period=custom)." }
+        - { name: to, in: query, schema: { type: string, format: date }, description: "Last day of a custom period, inclusive (required with period=custom)." }
+        - { name: against, in: query, schema: { type: string, enum: [previous, year, custom], default: previous }, description: "The period before, the same period a year earlier (52 weeks for a week), or a period of your own." }
+        - { name: against_from, in: query, schema: { type: string, format: date }, description: "First day of the comparison period (required with against=custom)." }
+        - { name: against_to, in: query, schema: { type: string, format: date }, description: "Last day of the comparison period, inclusive (required with against=custom)." }
+        - { name: scope, in: query, schema: { type: string }, description: "`all` or a sport (cycling, running, swimming, hiking). Default cycling when the rider has rides, else all. The sport split always shows every sport." }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:  { $ref: "#/components/schemas/PeriodComparison" }
+                  error: { type: string, nullable: true }
+        "400": { description: "An unknown period, against or scope; a malformed day; a custom range that runs backwards or is longer than 3700 days" }
+
+  /api/analytics/trends:
+    get:
+      summary: Every performance marker over a range of time
+      description: |
+        The Analytics page's trends: FTP history (general and indoor lines) against what the
+        rides implied, the power curve now against all-time, fitness/fatigue/form and the
+        weekly ramp, weekly and monthly load against plan, and per week or month: EF (outdoor
+        and indoor apart), HR at matched power, power at matched HR, decoupling, cadence, IF
+        distribution, intensity split, RPE and active days; best efforts by month at
+        5 s / 1 min / 5 min / 20 min / 60 min; and streaks.
+
+        Ranges end today and start on a bucket boundary: `3m` and `6m` are bucketed by week,
+        `1y`, `2y` and `all` by month. Load and consistency count every sport; power-derived
+        markers read cycling rides only. Matched markers are read at the median power and
+        heart rate of the range's steady rides (`reference`), within 7.5% and 4%. W/kg, where
+        a client shows it, can only use today's weight: fitbase keeps no weight history.
+      parameters:
+        - { name: range, in: query, schema: { type: string, enum: ["3m", "6m", "1y", "2y", all], default: "1y" } }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:  { $ref: "#/components/schemas/AnalyticsTrends" }
+                  error: { type: string, nullable: true }
+        "400": { description: Unknown range }
+
+  /api/analytics/years:
+    get:
+      summary: The last five calendar years, day by day
+      description: |
+        Each year's training per training day (time, distance, elevation, TSS), for
+        cumulative year-over-year charts. Days are placed on a leap-year calendar
+        (`day_of_year` 1–366) so March 1 is day 61 in every year. Years without any activity
+        in scope are left out; `today` marks how far into the current year we are.
+      parameters:
+        - { name: scope, in: query, schema: { type: string }, description: "`all` or a sport. Default cycling when the rider has rides, else all." }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:  { $ref: "#/components/schemas/YearOverYear" }
+                  error: { type: string, nullable: true }
+        "400": { description: Unknown scope }
+
   /api/planned-workouts:
     get:
       summary: List planned workouts
@@ -1601,6 +1690,252 @@ components:
       properties:
         data:  { $ref: "#/components/schemas/Athlete" }
         error: { type: string, nullable: true }
+
+    PeriodComparison:
+      type: object
+      properties:
+        period:  { type: string, enum: [week, month, year, custom] }
+        against: { type: string, enum: [previous, year, custom] }
+        to_date: { type: boolean, description: "The period is still running and was cut at today; the comparison period was cut to match." }
+        scope:   { type: string, example: cycling }
+        scopes:  { type: array, items: { type: string }, description: "The sports the rider has workouts in, most first." }
+        reference: { $ref: "#/components/schemas/MatchReference" }
+        a: { $ref: "#/components/schemas/PeriodStats" }
+        b: { $ref: "#/components/schemas/PeriodStats" }
+        rows: { type: array, items: { $ref: "#/components/schemas/ComparisonRow" } }
+        curve_durations_secs: { type: array, items: { type: integer }, description: "The durations of each period's curve_watts." }
+        weight_kg: { type: number, description: "Today's weight; there is no weight history." }
+
+    MatchReference:
+      type: object
+      description: "The power and heart rate matched markers are read at, per environment: the median of the steady rides. Absent where there were none."
+      properties:
+        power_outdoor_watts: { type: integer, example: 185 }
+        power_indoor_watts:  { type: integer, example: 170 }
+        hr_outdoor_bpm:      { type: integer, example: 138 }
+        hr_indoor_bpm:       { type: integer, example: 142 }
+
+    Marker:
+      type: object
+      properties:
+        value:      { type: number }
+        rides:      { type: integer, description: "How many rides the average is from." }
+        matched_at: { type: number, description: "For a matched marker, the mean power or HR of the rides near the reference." }
+
+    EnvMarkers:
+      type: object
+      description: "A marker with outdoor and indoor rides kept apart; either may be absent."
+      properties:
+        outdoor: { $ref: "#/components/schemas/Marker" }
+        indoor:  { $ref: "#/components/schemas/Marker" }
+
+    IntensitySplit:
+      type: object
+      properties:
+        easy_pct:   { type: number, description: "Z1–Z2 share of power-zone time" }
+        middle_pct: { type: number, description: "Z3–Z4" }
+        hard_pct:   { type: number, description: "Z5 and above" }
+
+    PeriodStats:
+      type: object
+      properties:
+        label:     { type: string, example: "November 2026" }
+        first_day: { type: string, format: date }
+        last_day:  { type: string, format: date }
+        days:      { type: integer }
+        activities:            { type: integer }
+        active_days:           { type: integer }
+        duration_secs:         { type: integer, description: "Moving time" }
+        distance_meters:       { type: number }
+        elevation_gain_meters: { type: number }
+        tss:                   { type: number }
+        work_kj:               { type: number, description: "Cycling rides with power: average power × moving time." }
+        power_rides:           { type: integer, description: "Cycling rides with power." }
+        avg_if:                { type: number, description: "Duration-weighted, cycling rides with power." }
+        avg_np_watts:          { type: number, description: "Duration-weighted, cycling rides with power." }
+        avg_hr_bpm:            { type: number, description: "Duration-weighted, activities in scope with HR." }
+        power_zone_secs:       { type: array, items: { type: integer }, minItems: 7, maxItems: 7, description: "Z1–Z7, cycling" }
+        hr_zone_secs:          { type: array, items: { type: integer }, minItems: 5, maxItems: 5 }
+        intensity_split:       { $ref: "#/components/schemas/IntensitySplit" }
+        ef:                    { $ref: "#/components/schemas/EnvMarkers" }
+        hr_at_power_bpm:       { $ref: "#/components/schemas/EnvMarkers" }
+        power_at_hr_watts:     { $ref: "#/components/schemas/EnvMarkers" }
+        decoupling_pct:        { $ref: "#/components/schemas/Marker" }
+        bests:
+          type: array
+          items:
+            type: object
+            properties:
+              duration_secs: { type: integer, enum: [5, 60, 300, 1200, 3600] }
+              watts:         { type: integer }
+              workout_id:    { type: string }
+        curve_watts: { type: array, items: { type: integer, nullable: true } }
+        avg_rpe:     { type: number }
+        rated_rides: { type: integer }
+        rpe:
+          type: array
+          items:
+            type: object
+            properties:
+              workout_id: { type: string }
+              day:        { type: string, format: date }
+              rpe:        { type: integer, minimum: 1, maximum: 10 }
+              tss:        { type: number }
+        indoor:  { type: object, properties: { activities: { type: integer }, duration_secs: { type: integer } } }
+        outdoor: { type: object, properties: { activities: { type: integer }, duration_secs: { type: integer } } }
+        sports:
+          type: array
+          description: "Every sport, whatever the scope."
+          items:
+            type: object
+            properties:
+              sport:           { type: string }
+              activities:      { type: integer }
+              duration_secs:   { type: integer }
+              distance_meters: { type: number }
+              tss:             { type: number }
+
+    ComparisonRow:
+      type: object
+      properties:
+        group: { type: string, enum: [volume, intensity, efficiency, heart_rate, power, rpe, mix] }
+        key:   { type: string, example: hr_at_power_outdoor }
+        label: { type: string, example: "HR at 185 W · outdoor" }
+        unit:  { type: string, enum: [duration_secs, distance_meters, elevation_meters, count, tss, kj, if, watts, bpm, ef, pct, rpe] }
+        a:     { type: number, nullable: true }
+        b:     { type: number, nullable: true }
+        delta:     { type: number, description: "a − b, when both are present" }
+        delta_pct: { type: number, description: "The change as a percentage of b; absent for percentages and when b is 0" }
+        better:    { type: string, enum: [higher, lower], description: "Present only when that direction is plainly better (power bests, EF, HR at matched power, decoupling). Volume and intensity have none." }
+        rides_a:   { type: integer, description: "How many rides an averaged marker is from" }
+        rides_b:   { type: integer }
+
+    AnalyticsTrends:
+      type: object
+      properties:
+        range:     { type: string, enum: ["3m", "6m", "1y", "2y", all] }
+        first_day: { type: string, format: date }
+        last_day:  { type: string, format: date }
+        bucket:    { type: string, enum: [week, month] }
+        weight_kg: { type: number }
+        reference: { $ref: "#/components/schemas/MatchReference" }
+        ftp:
+          type: object
+          description: "FTP set (step lines) against the FTP the rides implied each week: the higher of 95% of the best 20 min and the best hour over the previous 90 days. The general estimate reads indoor efforts against the general line, as the FTP check does; indoor_estimate is indoor rides against the indoor line, when there is one."
+          properties:
+            general:         { type: array, items: { $ref: "#/components/schemas/FTPPoint" } }
+            indoor:          { type: array, items: { $ref: "#/components/schemas/FTPPoint" } }
+            estimate:        { type: array, items: { $ref: "#/components/schemas/FTPPoint" } }
+            indoor_estimate: { type: array, items: { $ref: "#/components/schemas/FTPPoint" } }
+        power_curve:
+          type: object
+          properties:
+            durations: { type: array, items: { type: integer } }
+            all_time:  { type: array, items: { type: integer, nullable: true } }
+            days_90:   { type: array, items: { type: integer, nullable: true } }
+            days_28:   { type: array, items: { type: integer, nullable: true } }
+        fitness: { type: array, items: { $ref: "#/components/schemas/FitnessPoint" } }
+        ramp:
+          type: array
+          items:
+            type: object
+            properties:
+              week_start: { type: string, format: date }
+              ctl_change: { type: number, description: "How far fitness (CTL) moved that week" }
+        load_weeks:  { type: array, items: { $ref: "#/components/schemas/LoadBucket" } }
+        load_months: { type: array, items: { $ref: "#/components/schemas/LoadBucket" } }
+        buckets:     { type: array, items: { $ref: "#/components/schemas/TrendBucket" } }
+        rides:
+          type: array
+          description: "Per-ride points for scatter charts: rides with an EF (steady), a decoupling (long steady) or an RPE."
+          items:
+            type: object
+            properties:
+              id:             { type: string }
+              day:            { type: string, format: date }
+              indoor:         { type: boolean }
+              ef:             { type: number }
+              decoupling_pct: { type: number }
+              tss:            { type: number }
+              rpe:            { type: integer }
+        best_efforts:
+          type: object
+          properties:
+            durations_secs: { type: array, items: { type: integer } }
+            months:
+              type: array
+              items:
+                type: object
+                properties:
+                  month: { type: string, example: "2026-11" }
+                  watts: { type: array, items: { type: integer, nullable: true } }
+        consistency:
+          type: object
+          properties:
+            current_streak_days: { type: integer }
+            longest_streak_days: { type: integer }
+            longest_streak_end:  { type: string, format: date }
+            current_week_streak: { type: integer, description: "Consecutive weeks with a workout, through this week or last" }
+            longest_week_streak: { type: integer }
+            avg_days_per_week:   { type: number, description: "Over the range" }
+
+    FTPPoint:
+      type: object
+      properties:
+        t: { type: integer, description: "Unix seconds" }
+        w: { type: integer, description: "Watts" }
+
+    LoadBucket:
+      type: object
+      properties:
+        start:                 { type: string, format: date }
+        activities:            { type: integer }
+        duration_secs:         { type: integer }
+        distance_meters:       { type: number }
+        elevation_gain_meters: { type: number }
+        tss:                   { type: number }
+        planned_tss:           { type: number }
+        planned_secs:          { type: integer }
+
+    TrendBucket:
+      type: object
+      properties:
+        start:             { type: string, format: date }
+        ef:                { $ref: "#/components/schemas/EnvMarkers" }
+        hr_at_power_bpm:   { $ref: "#/components/schemas/EnvMarkers" }
+        power_at_hr_watts: { $ref: "#/components/schemas/EnvMarkers" }
+        decoupling_pct:    { $ref: "#/components/schemas/Marker" }
+        cadence_rpm:       { $ref: "#/components/schemas/EnvMarkers" }
+        if_bands:          { type: array, items: { type: integer }, description: "Cycling rides by IF: under 0.65, 0.65–0.75, 0.75–0.85, 0.85–0.95, 0.95 and over" }
+        intensity_split:   { $ref: "#/components/schemas/IntensitySplit" }
+        avg_rpe:           { $ref: "#/components/schemas/Marker" }
+        tss:               { type: number }
+        cycling_days:      { type: integer, description: "Days with a ride" }
+        other_days:        { type: integer, description: "Days with only other workouts" }
+        days:              { type: integer, description: "Days of the bucket inside the range" }
+
+    YearOverYear:
+      type: object
+      properties:
+        scope:  { type: string }
+        scopes: { type: array, items: { type: string } }
+        today:  { type: object, properties: { year: { type: integer }, day_of_year: { type: integer } } }
+        years:
+          type: array
+          items:
+            type: object
+            properties:
+              year: { type: integer }
+              days:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    day_of_year:           { type: integer }
+                    duration_secs:         { type: integer }
+                    distance_meters:       { type: number }
+                    elevation_gain_meters: { type: number }
+                    tss:                   { type: number }
 
     FitnessResponse:
       type: object
