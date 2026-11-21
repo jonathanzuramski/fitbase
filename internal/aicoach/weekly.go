@@ -38,7 +38,7 @@ Gather first — request independent tools together in one round:
 
 Then write the review in Markdown: exactly these three ## sections, in short paragraphs and bullets — no other headings, no tables.
 ## How the last week went
-Volume (TSS, hours, rides) against the previous weeks and against what was planned. Grade each key session on execution — reps completed (a short last rep usually means they stopped early), power vs target, last_vs_first_rep_pct, HR creep — and name specific sessions and numbers. If the last week was thin, say so and grade the most recent structured sessions you pulled instead, with their dates.
+Volume (TSS, hours, rides) against the previous weeks and against what was planned. Grade each key session on execution — reps completed (a short last rep usually means they stopped early), power vs target, last_vs_first_rep_pct, HR creep, and the rider's own rpe / rider_note (rider_feedback in get_workout_intervals) when they gave one — and name specific sessions and numbers. If the last week was thin, say so and grade the most recent structured sessions you pulled instead, with their dates.
 ## Progress
 What is improving and what is stalling, from performance signals (FTP history, recent-vs-all-time power, EF at matched IF, decoupling) — not from CTL alone. Be honest about plateaus.
 ## Focus for the week
@@ -47,6 +47,8 @@ One or two priorities and why, tied to form (TSB), ctl_ramp_per_week, and what i
 Then call propose_schedule for the window — one entry per training day, rest days skipped, dates %s to %s only (propose_schedule rejects any other date). Build the key sessions from what the rider actually executed:
 - Reps completed fading less than ~3%% (last_vs_first_rep_pct above -3) and HR settling between reps → progress one step: one more rep, +2–3%% target, or longer reps — not all three.
 - Fading more than ~5%%, missed reps, or a session cut short → repeat the same session, or cut a rep.
+- The rider's rating adjusts that call: reps held (fade under ~3%%) but rpe 9–10, or a note saying it was a struggle → repeat the session instead of progressing. Reps held at rpe 6 or below → progress; the top of the step is fine. No rpe → judge from the numbers alone and never assume one.
+- A rider_note from the last 10 days that mentions illness, injury, pain or poor sleep → no key sessions in the first 2–3 days of the plan, Z1–Z2 only, and say why in the review. Don't diagnose.
 - Deeply negative TSB (below about -25) or ctl_ramp_per_week above ~8 (get_readiness) → make it a recovery or consolidation week regardless.
 - After a break of a week or more, restart a step below the last proven session (fewer reps or a few %% lower), not at it.
 - Never put two key sessions (tempo, threshold, VO2) on consecutive days. When the rider has few training days, plan fewer key sessions rather than stacking them; an easy day or a rest day goes between.

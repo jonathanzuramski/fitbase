@@ -84,6 +84,33 @@ func TestPlanningRules_RampIsPerWeek(t *testing.T) {
 	}
 }
 
+// The rider's rpe and notes reach the coach; the rules must use them to
+// change the plan, not just mention them in the review.
+func TestPlanningRules_WeighRPEAndNotes(t *testing.T) {
+	rules := planningRules()
+	for _, want := range []string{"rpe 9–10", "never assume one", "illness", "rpe / rider_note"} {
+		if !strings.Contains(rules, want) {
+			t.Errorf("planning rules lack %q", want)
+		}
+	}
+	start, end := aicoach.WeeklyPlanWindow(time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC))
+	brief := aicoach.WeeklyPlanBrief(start, end)
+	if strings.Contains(brief, "%!") || strings.Contains(brief, "%%") {
+		t.Errorf("brief has a formatting error:\n%s", brief)
+	}
+}
+
+// Both coaches that read rider notes say what to do about cardiac-type
+// symptoms: the no-medical-advice rule alone left the model to keep
+// prescribing intensity.
+func TestPrompts_RedFlagSymptoms(t *testing.T) {
+	for name, prompt := range map[string]string{"chat": aicoach.ChatSystemPrompt, "insights": aicoach.SystemPrompt} {
+		if !strings.Contains(prompt, "chest pain") || !strings.Contains(prompt, "doctor") {
+			t.Errorf("%s prompt has no red-flag symptom rule", name)
+		}
+	}
+}
+
 func TestWeeklyPlanAvailability(t *testing.T) {
 	start := time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC) // Monday
 	end := start.AddDate(0, 0, 6)
