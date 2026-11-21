@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -62,6 +63,24 @@ type weeklyPlanRun struct {
 func (h *CoachHandler) generateWeeklyPlan(ctx context.Context, run weeklyPlanRun, emit func(event string, data any)) (models.WeeklyPlan, error) {
 	now := time.Now().In(h.db.AthleteLocation())
 	start, end := aicoach.WeeklyPlanWindow(now)
+
+	// A revision changes the week it revises: what is left of that window,
+	// from today when it comes on a later day, so today's session stays in
+	// the plan as today's. It gets the revision brief, and its text is a
+	// change note added under the review the plan already has. A week that
+	// is over (or can't be read back) is planned afresh instead, with the
+	// full brief and a full review.
+	revising, week := false, ""
+	if run.revise != nil {
+		if s, e, ok := revisionWindow(run.revise, now); ok {
+			if ws, err := planWorkouts(run.revise); err != nil {
+				slog.Warn("weekly plan: could not replay the proposed week", "plan", run.revise.ID, "err", err)
+			} else {
+				start, end, revising = s, e, true
+				week = proposedWeekText(ws, start, end, now)
+			}
+		}
+	}
 	plan := models.WeeklyPlan{
 		Trigger:     run.trigger,
 		WindowStart: start.Format("2006-01-02"),
@@ -81,11 +100,11 @@ func (h *CoachHandler) generateWeeklyPlan(ctx context.Context, run weeklyPlanRun
 	case run.revise != nil:
 		change := "Change the plan: " + run.notes
 		msg := change
-		if ws, err := planWorkouts(run.revise); err != nil {
-			slog.Warn("weekly plan: could not replay the proposed week", "plan", run.revise.ID, "err", err)
-		} else if txt := proposedWeekText(ws, start, end); txt != "" {
-			msg += "\n\nThe week you proposed:\n" + txt +
-				"\n\nApply only this change. Call propose_schedule with the whole window again — it replaces the proposed week — keeping every other session exactly as it was (same date, title, structure and targets) unless the change forces a knock-on, such as two key sessions landing on consecutive days; say what else moved and why. Re-fetch data only if the change needs it."
+		if revising {
+			if week == "" {
+				week = "(no sessions left in it)"
+			}
+			msg += "\n\nThe week you proposed, " + start.Format("Mon 2006-01-02") + " to " + end.Format("Mon 2006-01-02") + ":\n" + week
 		}
 		history = []aicoach.ChatMessage{
 			{Role: aicoach.ChatRoleUser, Content: run.revise.Request},
@@ -132,7 +151,11 @@ func (h *CoachHandler) generateWeeklyPlan(ctx context.Context, run weeklyPlanRun
 	if prefs.WeeklyHours != nil {
 		budget = *prefs.WeeklyHours
 	}
-	systemContext := h.chatSystemContext(now) + "\n\n" + aicoach.WeeklyPlanBrief(start, end) +
+	brief := aicoach.WeeklyPlanBrief(start, end)
+	if revising {
+		brief = aicoach.WeeklyPlanRevisionBrief(start, end)
+	}
+	systemContext := h.chatSystemContext(now) + "\n\n" + brief +
 		"\n\n" + aicoach.WeeklyPlanAvailability(start, end, prefs.Allows, budget)
 
 	// propose_schedule is captured into the plan rather than written to the
@@ -177,6 +200,9 @@ func (h *CoachHandler) generateWeeklyPlan(ctx context.Context, run weeklyPlanRun
 
 	plan.Status = models.WeeklyPlanReady
 	plan.ReviewMD = review
+	if revising {
+		plan.ReviewMD = revisedReview(run.revise.ReviewMD, review)
+	}
 	if len(proposed) > 0 {
 		js, err := json.Marshal(draftPayload{Workouts: proposed})
 		if err != nil {
@@ -211,13 +237,40 @@ func planWorkouts(p *models.WeeklyPlan) ([]models.PlannedWorkout, error) {
 	return out, nil
 }
 
+// revisionWindow returns what is left of a plan's window at now: from its
+// first day, or from today once that has passed (a session dated today is
+// still to be ridden), to its last day. ok is false once the week is over.
+func revisionWindow(p *models.WeeklyPlan, now time.Time) (start, end time.Time, ok bool) {
+	loc := now.Location()
+	start, err1 := time.ParseInLocation("2006-01-02", p.WindowStart, loc)
+	end, err2 := time.ParseInLocation("2006-01-02", p.WindowEnd, loc)
+	if err1 != nil || err2 != nil {
+		return start, end, false
+	}
+	y, m, d := now.Date()
+	if today := time.Date(y, m, d, 0, 0, 0, 0, loc); today.After(start) {
+		start = today
+	}
+	return start, end, !start.After(end)
+}
+
+// revisedReview is the stored review of a revised plan: the review it
+// revises, which the calendar shows and the next revision replays, with the
+// revision's change note under it.
+func revisedReview(previous, note string) string {
+	return strings.TrimSpace(previous) + "\n\n**Revised:** " + strings.TrimSpace(note)
+}
+
 // proposedWeekText renders a plan's proposed week for the coach, one line per
-// workout in [start, end]: date, title, sport (when not cycling), minutes,
-// TSS and IF when set, and the interval structure. Workouts before start (a
+// workout in [start, end] with everything propose_schedule needs to send it
+// again unchanged: date (marked when it is today), title, sport (when not
+// cycling), duration, TSS and IF when set, the interval structure, and the
+// description on a line of its own, quoted. Workouts before start (a
 // revision made on a later day) are left out and counted. "" when no workout
 // falls in the window.
-func proposedWeekText(ws []models.PlannedWorkout, start, end time.Time) string {
+func proposedWeekText(ws []models.PlannedWorkout, start, end, now time.Time) string {
 	from, to := start.Format("2006-01-02"), end.Format("2006-01-02")
+	today := now.Format("2006-01-02")
 	var lines []string
 	past := 0
 	for _, w := range ws {
@@ -229,11 +282,19 @@ func proposedWeekText(ws []models.PlannedWorkout, start, end time.Time) string {
 		if day > to {
 			continue
 		}
-		line := "- " + w.PlannedDate.Format("Mon 2006-01-02") + " · " + w.Title
+		line := "- " + w.PlannedDate.Format("Mon 2006-01-02")
+		if day == today {
+			line += " (today)"
+		}
+		line += " · " + w.Title
 		if w.Sport != "cycling" {
 			line += " · " + w.Sport
 		}
-		line += fmt.Sprintf(" · %d min", w.DurationSecs/60)
+		if w.DurationSecs%60 == 0 {
+			line += fmt.Sprintf(" · %d min", w.DurationSecs/60)
+		} else {
+			line += fmt.Sprintf(" · %d min %d s", w.DurationSecs/60, w.DurationSecs%60)
+		}
 		if w.TSS != nil {
 			line += fmt.Sprintf(" · ~%.0f TSS", *w.TSS)
 		}
@@ -242,6 +303,9 @@ func proposedWeekText(ws []models.PlannedWorkout, start, end time.Time) string {
 		}
 		if s := models.PlannedStructure(w.Intervals); s != "" {
 			line += " · " + s
+		}
+		if w.Description != "" {
+			line += "\n  description: " + strconv.Quote(w.Description)
 		}
 		lines = append(lines, line)
 	}

@@ -698,11 +698,17 @@ paths:
         The coach reviews recent training — grading key sessions rep by rep —
         and proposes the 7 days starting tomorrow (athlete timezone). With
         `revise_id`, it revises that plan per `notes`, replaying the earlier
-        constraints. The run is detached: closing the stream doesn't cancel it;
+        constraints and its proposed week. The revised plan covers what is left of
+        that plan's week (from today when revised on a later day, through its last
+        day); the coach changes only what `notes` asks, and `review_md` keeps the
+        earlier review with the coach's change note added under it. Revising a plan
+        whose week is over plans the 7 days starting tomorrow, with a new review.
+        The run is detached: closing the stream doesn't cancel it;
         re-attach via `/api/coach/weekly-plan/runs/{id}/events`. The result is
         stored as a plan the rider accepts onto the calendar; nothing is added
         automatically.
-        SSE events: `job` (`{"id"}`), `tool`, `chunk` (review text),
+        SSE events: `job` (`{"id"}`), `tool`, `chunk` (review text; on a
+        revision, the change note),
         `done` (`{"plan_id"}`), `error`.
       requestBody:
         content:
@@ -1278,7 +1284,7 @@ components:
         window_end:   { type: string, format: date }
         status:       { type: string, enum: [ready, accepted, discarded, failed] }
         request:      { type: string, description: "The rider's request, including every constraint and revision so far" }
-        review_md:    { type: string, description: "The coach's review and plan summary (Markdown)" }
+        review_md:    { type: string, description: "The coach's review and plan summary (Markdown); a revision keeps the review it revises and adds a \"Revised:\" change note under it" }
         error:        { type: string, nullable: true }
 
     WeeklyPlanPreferences:

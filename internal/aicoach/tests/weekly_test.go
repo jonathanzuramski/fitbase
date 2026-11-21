@@ -58,6 +58,31 @@ func TestWeeklyPlanBrief_PinsWindowAndIntervalGrading(t *testing.T) {
 	}
 }
 
+// A revision changes the rest of the proposed week. Its brief pins that
+// window, which starts today when the revision comes mid-week, and asks for a
+// change note, never a second review: the server keeps the plan's review and
+// adds the note under it.
+func TestWeeklyPlanRevisionBrief(t *testing.T) {
+	start := time.Date(2026, 11, 11, 0, 0, 0, 0, time.UTC)
+	brief := aicoach.WeeklyPlanRevisionBrief(start, start.AddDate(0, 0, 4))
+	for _, want := range []string{
+		"dates 2026-11-11 to 2026-11-15 only",
+		"(5 days)",
+		"(today)",
+		"Don't write the review again",
+		"exactly as listed: same date, title, description",
+		"Planning rules",
+		aicoach.ToolProposeSchedule,
+	} {
+		if !strings.Contains(brief, want) {
+			t.Errorf("revision brief is missing %q:\n%s", want, brief)
+		}
+	}
+	if strings.Contains(brief, "%!") || strings.Contains(brief, "## How the last week went") {
+		t.Errorf("revision brief is malformed or asks for the review:\n%s", brief)
+	}
+}
+
 // planningRules is every planning rule the model sees on a weekly run: the
 // static chat prompt plus the per-run brief. Rule tests assert on both
 // together so they hold wherever a rule lives.

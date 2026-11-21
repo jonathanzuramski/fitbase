@@ -22,8 +22,9 @@ func WeeklyPlanWindow(now time.Time) (start, end time.Time) {
 }
 
 // WeeklyPlanBrief is the playbook for one weekly review-and-plan run (the
-// calendar's "plan my week" button, its revisions, and the Sunday-night
-// auto-plan). It is appended to the per-request system context. It names the
+// calendar's "plan my week" button and the Sunday-night auto-plan; a change
+// to a proposed week uses WeeklyPlanRevisionBrief instead). It is appended to
+// the per-request system context. It names the
 // exact window so the model never has to infer "next week" from a weekday, and
 // spells out the data to gather — in particular grading last week's key
 // sessions with get_workout_intervals, because progressing a plan from
@@ -51,6 +52,37 @@ Respect the rider's mileage goals when set, and any constraints they mention in 
 
 Finish, without a heading, with two or three sentences on the shape of the week (e.g. "two quality days, a long ride Saturday, 6.5 h in total") and one thing to watch. Do not list the workouts: the proposed week appears as cards next to or under your review (depending on screen size), with buttons to add it to the calendar or ask for changes — call it "the proposed week", without saying where it is. Keep the whole review to roughly 180–280 words; the schedule itself goes in the tool call, not in prose.`,
 		start.Format("Monday, 2006-01-02"), end.Format("Monday, 2006-01-02"), WeeklyPlanDays,
+		start.Format("2006-01-02"), end.Format("2006-01-02"))
+}
+
+// WeeklyPlanRevisionBrief is the playbook for changing a proposed week ("move
+// the long ride to Sunday"), in place of WeeklyPlanBrief. The window is what
+// is left of the week being revised, start being today when the revision
+// comes on a later day; the rider's message lists the sessions in it.
+//
+// It asks for no review: the server keeps the one the plan already has and
+// adds this run's text under it as a change note (the stored review is what
+// the calendar shows, and what the next revision replays as the coach's
+// turn), so a revision can't leave the plan with an empty or reduced review.
+// Re-gathering and re-reviewing for a one-session move would also cost a full
+// run and invite the model to rebuild the week it was asked to keep.
+func WeeklyPlanRevisionBrief(start, end time.Time) string {
+	days := 0
+	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
+		days++
+	}
+	span := strconv.Itoa(days) + " days"
+	if days == 1 {
+		span = "1 day"
+	}
+	return fmt.Sprintf(`Weekly plan revision — the rider wants a change to the week you proposed. Their message says what, and lists the proposed week's sessions from %s through %s (%s), the part of the week still ahead; a session marked (today) is still to be ridden and stays in the plan unless the change touches it.
+
+The review you wrote stands: it is kept, and what you write now is added under it as a change note. Don't write the review again or repeat its sections, and fetch data only if the change needs it (for example list_planned_workouts if a session moves onto another day, or get_workout_intervals if the change asks for a different key session).
+
+Call propose_schedule with the whole plan again — dates %s to %s only (propose_schedule rejects any other date); it replaces the proposed week. Copy every session the change doesn't touch exactly as listed: same date, title, description, structure and targets. Whatever the change moves or reshapes follows the Planning rules in your instructions; if it puts two key sessions on consecutive days or breaks the rider's availability, move something else and say so.
+
+Then write the change note, without a heading: what moved, anything else that moved with it and why, and the new weekly total if it changed — two to four sentences. Do not list the workouts: the rider sees them as cards; call them "the proposed week".`,
+		start.Format("Monday, 2006-01-02"), end.Format("Monday, 2006-01-02"), span,
 		start.Format("2006-01-02"), end.Format("2006-01-02"))
 }
 
