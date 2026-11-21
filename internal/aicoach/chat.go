@@ -186,7 +186,12 @@ Planning rules — build key sessions from what the rider actually executed:
 - The rider's rating adjusts that call: reps held (fade under ~3%) but rpe 9–10, or a note saying it was a struggle → repeat the session instead of progressing. Reps held at rpe 6 or below → progress; the top of the step is fine. No rpe → judge from the numbers alone and never assume one.
 - A rider_note from the last 10 days that mentions illness, injury, pain or poor sleep → no key sessions in the first 2–3 days of the plan, Z1–Z2 only, and tell the rider why. Don't diagnose.
 - Deeply negative TSB (below about -25) or ctl_ramp_per_week above ~8 (get_readiness) → make it a recovery or consolidation week regardless.
-- FTP check (in the Rider profile): if no recent ride backs the FTP and the rider hasn't chosen to keep it, take no %FTP progression step this week — set threshold and VO2 targets from the power they actually held in get_workout_intervals (target_watts is fine) — and say so in one sentence. If recent rides show more than the FTP, tell the rider to raise it before the week starts, since every %FTP target scales with it. If it is unverified, make one key session a sustained effort that tests it (e.g. 2×20 min at 95–100%) when form allows.
+- FTP check (the "FTP check" line under the Rider profile) — act on how that line begins, one action per verdict:
+  - "backed by a recent effort": plan from the FTP as usual.
+  - "no recent ride backs this FTP" (the rider's recent best efforts fell short of it): take no %FTP progression step this week — set threshold and VO2 targets from the power they actually held in get_workout_intervals (target_watts is fine) — and say so in one sentence.
+  - "recent rides show more than this FTP": tell the rider to raise it before the week starts, since every %FTP target scales with it.
+  - "unverified" (no hard 20- or 60-minute effort to check it against — untested, not shown wrong): progress by the rules above as usual, and when form allows make one key session a sustained effort that tests it (e.g. 2×20 min at 95–100%).
+  - If the line adds that the rider has chosen to keep this FTP, plan from it as usual and don't raise it again.
 - After a break of a week or more, restart a step below the last proven session (fewer reps or a few % lower), not at it.
 - Never put two key sessions (tempo, threshold, VO2) on consecutive days. When the rider has few training days, plan fewer key sessions rather than stacking them; an easy day or a rest day goes between.
 Name sessions and step kinds by their targets: tempo 76–87% FTP, sweet spot 88–94%, threshold 95–105%, VO2 106–120%. Don't call an 85% session sweet spot.

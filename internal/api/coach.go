@@ -222,13 +222,9 @@ func (h *CoachHandler) chatSystemContext(now time.Time) string {
 			ctx += "\n\n" + block
 			// Indoor rides' %FTP, IF, TSS and structure lines use the indoor
 			// line when there is one; without it the model converts their
-			// percentages to watts against the general FTP. Shown only when
-			// an indoor entry is actually in effect (it differs from the
-			// general line's FTP today).
-			if athlete.FTPWatts > 0 {
-				if indoor := h.db.GetFTPForRide(now, true); indoor > 0 && indoor != athlete.FTPWatts && indoor != h.db.GetFTPAtDate(now) {
-					ctx += fmt.Sprintf("- Indoor FTP: %d W (a separate line for indoor rides: their %%FTP, IF, TSS and structure lines use it — give indoor targets in watts from this number)\n", indoor)
-				}
+			// percentages to watts against the general FTP.
+			if indoor := h.indoorFTPInEffect(athlete, now); indoor > 0 {
+				ctx += fmt.Sprintf("- Indoor FTP: %d W (a separate line for indoor rides: their %%FTP, IF, TSS and structure lines use it — give indoor targets in watts from this number)\n", indoor)
 			}
 			// The FTP verdict rides with the FTP it qualifies. Non-fatal too.
 			if check, err := h.db.FTPCheck(now); err == nil {
@@ -237,6 +233,21 @@ func (h *CoachHandler) chatSystemContext(now time.Time) string {
 		}
 	}
 	return ctx
+}
+
+// indoorFTPInEffect returns the indoor FTP an indoor ride now is scored
+// against, or 0 when the rider has no indoor line in effect (none, or the
+// general FTP has a newer entry). Chat, the weekly plan and insights all
+// state it from here, so they agree on when there is one.
+func (h *CoachHandler) indoorFTPInEffect(athlete *models.Athlete, now time.Time) int {
+	if athlete.FTPWatts <= 0 {
+		return 0
+	}
+	indoor := h.db.GetFTPForRide(now, true)
+	if indoor <= 0 || indoor == athlete.FTPWatts || indoor == h.db.GetFTPAtDate(now) {
+		return 0
+	}
+	return indoor
 }
 
 // ftpCheckLine tells the model how well recent rides back the FTP. Every
@@ -483,10 +494,12 @@ func (h *CoachHandler) collectCoachingData() (*aicoach.CoachingData, error) {
 		return nil, err
 	}
 	profile := aicoach.AthleteProfile{
-		FTPWatts:    athlete.FTPWatts,
-		WeightKG:    athlete.WeightKG,
-		ThresholdHR: athlete.ThresholdHR,
-		MaxHR:       athlete.MaxHR,
+		FTPWatts: athlete.FTPWatts,
+		// Each indoor ride's structure line below is in % of the indoor line.
+		IndoorFTPWatts: h.indoorFTPInEffect(athlete, time.Now()),
+		WeightKG:       athlete.WeightKG,
+		ThresholdHR:    athlete.ThresholdHR,
+		MaxHR:          athlete.MaxHR,
 	}
 
 	fitnessRaw, err := h.db.GetFitnessHistory(90, h.db.AthleteLocation())

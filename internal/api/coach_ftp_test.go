@@ -272,6 +272,98 @@ func TestChatSystemContext_IndoorFTP(t *testing.T) {
 	}
 }
 
+// Insights reads indoor rides' structure lines, which are in % of the indoor
+// FTP line, so it gets that FTP when one is in effect: the same number, under
+// the same condition, as chat's "Indoor FTP" line.
+func TestCollectCoachingData_CarriesIndoorFTP(t *testing.T) {
+	h := coachFixture(t)
+	data, err := h.collectCoachingData()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data.Athlete.IndoorFTPWatts != 0 {
+		t.Errorf("no indoor line, yet indoor_ftp_watts = %d", data.Athlete.IndoorFTPWatts)
+	}
+	if err := h.db.ClearFTPHistory(); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.db.LogFTPChangeAtFor(250, time.Now().AddDate(0, 0, -60), false); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.db.LogFTPChangeAtFor(238, time.Now().AddDate(0, 0, -30), true); err != nil {
+		t.Fatal(err)
+	}
+	data, err = h.collectCoachingData()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(data.Athlete)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"indoor_ftp_watts":238`) {
+		t.Errorf("insights athlete = %s, want indoor_ftp_watts 238", raw)
+	}
+	if !strings.Contains(h.chatSystemContext(time.Now()), "- Indoor FTP: 238 W") {
+		t.Error("chat and insights disagree on the indoor FTP")
+	}
+	if !strings.Contains(aicoach.SystemPrompt, "indoor_ftp_watts") {
+		t.Error("the insights prompt doesn't say what indoor_ftp_watts is for")
+	}
+}
+
+// The FTP check's verdicts call for different plans: one the rider's efforts
+// fell short of (hold %FTP steps), one they beat (raise it first), and one
+// nothing has tested (progress, and test it). The planning rules used to act
+// on "no recent ride backs the FTP", which the unverified line ("no hard 20-
+// or 60-minute effort") also reads as, so a model could both hold back and
+// schedule a test. Each rule now quotes the opening words of its own
+// verdict's line, exactly as ftpCheckLine writes it.
+func TestPlanningRules_ActOnEachFTPCheckVerdict(t *testing.T) {
+	verdicts := map[string]models.FTPCheck{
+		"ok":         fitness.CheckFTP(245, &models.FTPEffort{DurationSecs: 1200, Watts: 255, Day: "2026-11-01"}, nil),
+		"lower":      fitness.CheckFTP(245, &models.FTPEffort{DurationSecs: 1200, Watts: 226, Day: "2026-09-26"}, nil),
+		"raise":      fitness.CheckFTP(245, nil, &models.FTPEffort{DurationSecs: 3600, Watts: 260, Day: "2026-11-01"}),
+		"unverified": fitness.CheckFTP(245, nil, nil),
+	}
+	// rule returns the planning rule that quotes the line's opening words.
+	rule := func(prompt, name string) string {
+		t.Helper()
+		line := strings.TrimPrefix(ftpCheckLine(verdicts[name]), "- FTP check: ")
+		opening := `"` + line[:strings.Index(line, ":")] + `"`
+		var found []string
+		for _, l := range strings.Split(prompt, "\n") {
+			if strings.Contains(l, opening) {
+				found = append(found, l)
+			}
+		}
+		if len(found) != 1 {
+			t.Fatalf("%s: %d planning lines quote %s, want 1", name, len(found), opening)
+		}
+		return found[0]
+	}
+	for name := range verdicts {
+		rule(aicoach.ChatSystemPrompt, name)
+	}
+	if r := rule(aicoach.ChatSystemPrompt, "lower"); !strings.Contains(r, "no %FTP progression step") {
+		t.Errorf("the lower verdict's rule doesn't hold %%FTP steps: %s", r)
+	}
+	if r := rule(aicoach.ChatSystemPrompt, "unverified"); strings.Contains(r, "no %FTP progression") || !strings.Contains(r, "tests it") {
+		t.Errorf("the unverified verdict's rule should test the FTP, not hold progression back: %s", r)
+	}
+	if r := rule(aicoach.ChatSystemPrompt, "raise"); !strings.Contains(r, "raise it") {
+		t.Errorf("the raise verdict's rule doesn't raise the FTP: %s", r)
+	}
+	// Insights acts on the same words (its prompt is one paragraph per
+	// section, so it is checked for the quotes alone).
+	for _, name := range []string{"lower", "raise", "unverified"} {
+		line := strings.TrimPrefix(ftpCheckLine(verdicts[name]), "- FTP check: ")
+		if opening := `"` + line[:strings.Index(line, ":")] + `"`; !strings.Contains(aicoach.SystemPrompt, opening) {
+			t.Errorf("the insights prompt doesn't act on %s", opening)
+		}
+	}
+}
+
 // Insights is the only coach for providers without tool use, and it
 // prescribes %FTP efforts: it gets the same FTP verdict chat does.
 func TestCollectCoachingData_CarriesFTPCheck(t *testing.T) {
