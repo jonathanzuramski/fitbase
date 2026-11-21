@@ -262,8 +262,9 @@ paths:
     get:
       summary: Get all-time power curve
       description: |
-        Returns best power for 6 standard durations (5s, 30s, 1min, 5min, 20min, 60min)
-        with watts/kg and % of FTP. Durations with no recorded effort are omitted.
+        Returns best cycling power for 6 standard durations (5s, 30s, 1min, 5min, 20min, 60min)
+        with watts/kg and % of FTP. Durations with no recorded effort are omitted. Power from
+        other sports (e.g. running power) is not counted.
       responses:
         "200":
           content:
@@ -365,13 +366,15 @@ paths:
     get:
       summary: Check the FTP against recent best efforts
       description: |
-        Estimates FTP from the best efforts of the last 90 days — the higher of 95% of the
+        Estimates FTP from the best cycling efforts of the last 90 days — the higher of 95% of the
         best 20-minute power and the best 60-minute power — and compares it with the set
         FTP. Every power-derived number (zones, IF, TSS, fitness) scales with FTP.
         Statuses: `raise` (estimate above 103% of FTP: the rider produced the power, so FTP
         is low), `ok` (95–103%), `lower` (85–95%: FTP may be set high), `unverified`
         (below 85%, or no 20/60-minute effort: more likely no hard riding than a real loss,
-        so no number is suggested).
+        so no number is suggested). An indoor ride of a rider with a separate indoor FTP
+        line is scored against that line, so its effort is compared in general-line terms
+        (`equivalent_watts` on the basis).
       responses:
         "200":
           content:
@@ -1481,6 +1484,17 @@ components:
         watts:         { type: integer, example: 226 }
         workout_id:    { type: string }
         day:           { type: string, format: date, description: The ride's training day }
+        indoor:        { type: boolean, description: The effort was on an indoor ride }
+        indoor_ftp_watts:
+          type: integer
+          example: 230
+          description: The indoor FTP line the ride was scored against; omitted when the ride had no separate indoor line
+        equivalent_watts:
+          type: integer
+          example: 259
+          description: |
+            The effort against the general FTP line (watts × general FTP ÷ indoor FTP at the ride),
+            which is what the check compares; omitted with indoor_ftp_watts
 
     FTPCheck:
       type: object

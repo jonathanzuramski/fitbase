@@ -59,6 +59,96 @@ func TestFTPCheck_UsesBestEffortInWindow(t *testing.T) {
 	}
 }
 
+// A run with a power meter (Stryd, Garmin running power) gets a power curve
+// too. Running watts aren't cycling watts: a 300 W run used to read as proof
+// a 250 W cycling FTP should go up.
+func TestFTPCheck_IgnoresRunningPower(t *testing.T) {
+	d := newTestDB(t)
+	now := time.Now().UTC()
+	if err := d.SetFTP(250); err != nil {
+		t.Fatal(err)
+	}
+	insertEffort(t, d, "ride", now, 10, 255, 0)
+	run := sampleWorkout("run")
+	run.Sport = "running"
+	run.RecordedAt = now.AddDate(0, 0, -5)
+	if err := d.InsertWorkout(run, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.InsertPowerCurve("run", map[int]int{1200: 300, 3600: 290}); err != nil {
+		t.Fatal(err)
+	}
+
+	check, err := d.FTPCheck(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if check.Status != models.FTPCheckOK || check.EstimateWatts != 242 || check.Basis == nil || check.Basis.WorkoutID != "ride" {
+		t.Fatalf("check = %s %d W basis %+v, want ok 242 W from the ride", check.Status, check.EstimateWatts, check.Basis)
+	}
+	// The coach's power bests come from the same curves.
+	for name, get := range map[string]func() (map[int]models.AllTimeBest, error){
+		"all time": d.GetAllTimePowerCurve,
+		"recent":   func() (map[int]models.AllTimeBest, error) { return d.GetPowerCurveSince(now.AddDate(0, 0, -30)) },
+	} {
+		curve, err := get()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if b := curve[1200]; b.WorkoutID != "ride" || b.Watts != 255 {
+			t.Errorf("%s best 20 min = %+v, want 255 W from the ride", name, b)
+		}
+		if b, ok := curve[3600]; ok {
+			t.Errorf("%s best 60 min = %+v, want none (only the run went that long)", name, b)
+		}
+	}
+}
+
+// Indoor rides are scored against the indoor FTP line. An indoor effort is
+// compared with the general FTP in general-line terms: 238 W for 20 minutes on
+// a 230 W indoor line is what a 250 W rider holds indoors, not a sign the FTP
+// is high. Each line keeps its own best, since the indoor effort can win only
+// after scaling.
+func TestFTPCheck_IndoorEffortOnIndoorLine(t *testing.T) {
+	d := newTestDB(t)
+	now := time.Now().UTC()
+	if err := d.SetFTP(250); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.LogFTPChangeAt(250, now.AddDate(0, 0, -300)); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.LogFTPChangeAtFor(230, now.AddDate(0, 0, -200), true); err != nil {
+		t.Fatal(err)
+	}
+	insertEffort(t, d, "road", now, 10, 240, 0) // 228 W estimate: 91%, "lower" on its own
+	insertEffort(t, d, "trainer", now, 5, 238, 0)
+	if _, err := d.Exec("UPDATE workouts SET is_indoor = 1 WHERE id = 'trainer'"); err != nil {
+		t.Fatal(err)
+	}
+
+	check, err := d.FTPCheck(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if check.Status != models.FTPCheckOK || check.EstimateWatts != 246 {
+		t.Fatalf("check = %s %d W, want ok 246 W (238 W × 250/230 × 0.95)", check.Status, check.EstimateWatts)
+	}
+	b := check.Basis
+	if b == nil || b.WorkoutID != "trainer" || b.Watts != 238 || !b.Indoor || b.IndoorFTPWatts != 230 || b.EquivalentWatts != 259 {
+		t.Errorf("basis = %+v, want the trainer ride's raw 238 W, indoor line 230 W, 259 W equivalent", b)
+	}
+
+	// Without a separate indoor line an indoor effort counts as it is.
+	if err := d.ClearFTPHistory(); err != nil {
+		t.Fatal(err)
+	}
+	check, _ = d.FTPCheck(now)
+	if check.Status != models.FTPCheckLower || check.EstimateWatts != 228 || check.Basis == nil || check.Basis.EquivalentWatts != 0 {
+		t.Errorf("no indoor line: check = %s %d W basis %+v, want lower 228 W from the road ride", check.Status, check.EstimateWatts, check.Basis)
+	}
+}
+
 func TestFTPCheck_NoRidesIsUnverified(t *testing.T) {
 	d := newTestDB(t)
 	check, err := d.FTPCheck(time.Now())

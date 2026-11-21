@@ -23,6 +23,11 @@ func TestFTPCheckLine(t *testing.T) {
 			[]string{"recent rides show more than this FTP", "best 60 min", "overstate effort"}},
 		{"ok", fitness.CheckFTP(245, &models.FTPEffort{DurationSecs: 1200, Watts: 255, Day: "2026-11-01"}, nil),
 			[]string{"backed by a recent effort"}},
+		{"indoor effort says which line it was scored on",
+			fitness.CheckFTP(250, &models.FTPEffort{DurationSecs: 1200, Watts: 238, Day: "2026-11-01",
+				Indoor: true, IndoorFTPWatts: 230, EquivalentWatts: 259}, nil),
+			[]string{"backed by a recent effort", "238 W on an indoor ride, against an indoor FTP of 230 W (259 W against this FTP)",
+				"estimate 246 W, 98% of FTP"}},
 		{"unverified", fitness.CheckFTP(245, nil, nil),
 			[]string{"unverified: no hard 20- or 60-minute effort in the last 90 days", "%FTP targets as approximate"}},
 	}

@@ -239,8 +239,14 @@ func ftpCheckLine(c models.FTPCheck) string {
 		if b.DurationSecs == 3600 {
 			dur = "60 min"
 		}
-		evidence = fmt.Sprintf("best %s in the last %d days %d W (%s) → estimate %d W, %.0f%% of FTP",
-			dur, c.WindowDays, b.Watts, b.Day, c.EstimateWatts, c.PctOfFTP)
+		watts := fmt.Sprintf("%d W", b.Watts)
+		if b.EquivalentWatts > 0 {
+			// Says why the estimate isn't 95% of the watts held.
+			watts = fmt.Sprintf("%d W on an indoor ride, against an indoor FTP of %d W (%d W against this FTP)",
+				b.Watts, b.IndoorFTPWatts, b.EquivalentWatts)
+		}
+		evidence = fmt.Sprintf("best %s in the last %d days %s (%s) → estimate %d W, %.0f%% of FTP",
+			dur, c.WindowDays, watts, b.Day, c.EstimateWatts, c.PctOfFTP)
 	}
 	var line string
 	switch c.Status {

@@ -571,46 +571,45 @@ func (db *DB) GetWorkoutPowerCurve(workoutID string) (map[int]int, error) {
 	return result, rows.Err()
 }
 
-// GetAllTimePowerCurve returns the best watts and source workout per duration across all workouts.
-// Returns a map of duration_secs → AllTimeBest.
+// Power curves are cycling only. A run with a power meter (Stryd, Garmin
+// running power) gets a curve too, but running watts aren't cycling watts:
+// one in the mix put a run's best 20 minutes into the FTP check and the
+// coach's power bests.
+
+// Which rides cyclingPowerCurve reads.
+const (
+	anyRides     = -1
+	outdoorRides = 0
+	indoorRides  = 1
+)
+
+// GetAllTimePowerCurve returns the best watts and source workout per duration
+// across all cycling workouts. Returns a map of duration_secs → AllTimeBest.
 func (db *DB) GetAllTimePowerCurve() (map[int]models.AllTimeBest, error) {
-	rows, err := db.Query(`
-		SELECT wpc.duration_secs, wpc.watts, wpc.workout_id
-		FROM workout_power_curve wpc
-		INNER JOIN (
-			SELECT duration_secs, MAX(watts) AS max_watts
-			FROM workout_power_curve
-			GROUP BY duration_secs
-		) best ON wpc.duration_secs = best.duration_secs AND wpc.watts = best.max_watts
-		GROUP BY wpc.duration_secs`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close() //nolint:errcheck
-	result := map[int]models.AllTimeBest{}
-	for rows.Next() {
-		var dur int
-		var b models.AllTimeBest
-		if err := rows.Scan(&dur, &b.Watts, &b.WorkoutID); err != nil {
-			return nil, err
-		}
-		result[dur] = b
-	}
-	return result, rows.Err()
+	return db.cyclingPowerCurve(time.Time{}, time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC), anyRides)
 }
 
 // GetPowerCurveSince returns the best watts per standard duration across
-// workouts recorded on or after `since` — the recent-form counterpart to
-// GetAllTimePowerCurve, used by the coach to compare current ability against
-// all-time bests.
+// cycling workouts recorded on or after `since` — the recent-form counterpart
+// to GetAllTimePowerCurve, used by the coach to compare current ability
+// against all-time bests.
 func (db *DB) GetPowerCurveSince(since time.Time) (map[int]models.AllTimeBest, error) {
 	return db.GetPowerCurveBetween(since, time.Now().AddDate(1, 0, 0))
 }
 
 // GetPowerCurveBetween returns the best watts per standard duration across
-// workouts recorded in [from, to). The Progress page walks it back through
-// time to chart what the rides said FTP was.
+// cycling workouts recorded in [from, to). The Progress page walks it back
+// through time to chart what the rides said FTP was.
 func (db *DB) GetPowerCurveBetween(from, to time.Time) (map[int]models.AllTimeBest, error) {
+	return db.cyclingPowerCurve(from, to, anyRides)
+}
+
+// cyclingPowerCurve returns the best watts per duration across the cycling
+// workouts recorded in [from, to): every ride, or only outdoor or only indoor
+// ones (rides: anyRides, outdoorRides, indoorRides). The filters sit in the
+// MAX subquery as well as the outer join: on the outer join alone, a
+// filtered-out workout's higher best would drop the duration altogether.
+func (db *DB) cyclingPowerCurve(from, to time.Time, rides int) (map[int]models.AllTimeBest, error) {
 	f, t := from.UTC().Format(time.RFC3339), to.UTC().Format(time.RFC3339)
 	rows, err := db.Query(`
 		SELECT wpc.duration_secs, wpc.watts, wpc.workout_id
@@ -619,12 +618,15 @@ func (db *DB) GetPowerCurveBetween(from, to time.Time) (map[int]models.AllTimeBe
 			SELECT wpc2.duration_secs, MAX(wpc2.watts) AS max_watts
 			FROM workout_power_curve wpc2
 			INNER JOIN workouts w2 ON w2.id = wpc2.workout_id
-			WHERE w2.recorded_at >= ? AND w2.recorded_at < ?
+			WHERE w2.recorded_at >= ?1 AND w2.recorded_at < ?2 AND w2.sport = 'cycling'
+				AND (?3 < 0 OR w2.is_indoor = ?3)
 			GROUP BY wpc2.duration_secs
 		) best ON wpc.duration_secs = best.duration_secs AND wpc.watts = best.max_watts
-		INNER JOIN workouts w ON w.id = wpc.workout_id AND w.recorded_at >= ? AND w.recorded_at < ?
+		INNER JOIN workouts w ON w.id = wpc.workout_id
+			AND w.recorded_at >= ?1 AND w.recorded_at < ?2 AND w.sport = 'cycling'
+			AND (?3 < 0 OR w.is_indoor = ?3)
 		GROUP BY wpc.duration_secs`,
-		f, t, f, t)
+		f, t, rides)
 	if err != nil {
 		return nil, err
 	}
