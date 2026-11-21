@@ -59,8 +59,21 @@
   .nav {
     padding: 0 12px;
   }
+  /* Five links and the units toggle are wider than a phone (~30px over at
+     375px): the links scroll sideways inside the nav, so the page itself
+     never scrolls sideways. The brand stays put. */
+  .nav-brand {
+    flex-shrink: 0;
+  }
   .nav-links {
     gap: 12px;
+    min-width: 0;
+    margin-left: 14px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .nav-links::-webkit-scrollbar {
+    display: none;
   }
   /* ── Dashboard stats & table ── */
   .workout-table th:nth-child(n + 5),
