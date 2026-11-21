@@ -481,6 +481,7 @@ func (db *DB) ComparePeriods(c timeutil.Comparison, scope string) (models.Period
 	var rides [2][]analyticsRide
 	var samples [2]matchSamples
 	var both matchSamples
+	seen := map[string]bool{} // a ride in both periods (picked ranges can overlap) counts once
 	for i, p := range []timeutil.Period{c.A, c.B} {
 		all, err := db.analyticsRides(p.FirstDay(), p.EndDay())
 		if err != nil {
@@ -490,7 +491,10 @@ func (db *DB) ComparePeriods(c timeutil.Comparison, scope string) (models.Period
 		for j := range all {
 			if inScope(&all[j], scope) {
 				samples[i].add(&all[j])
-				both.add(&all[j])
+				if !seen[all[j].ID] {
+					seen[all[j].ID] = true
+					both.add(&all[j])
+				}
 			}
 		}
 	}

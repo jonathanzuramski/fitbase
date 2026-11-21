@@ -733,3 +733,79 @@ func TestComparePeriods_SmallChangeHasNoVerdict(t *testing.T) {
 		t.Errorf("HR at power row = %+v, want a change (140 against 141) but no verdict: under 2%%", row)
 	}
 }
+
+// The ramp's first week needs the fitness of the day before it, which is
+// before the range: it must still be there, while the fitness chart itself
+// starts on the range's first day.
+func TestAnalyticsTrends_RampHasItsFirstWeek(t *testing.T) {
+	d := newTestDB(t)
+	now := time.Now().UTC()
+	for _, rk := range []string{"3m", "1y"} {
+		tr, err := d.AnalyticsTrends(rk, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		from, _ := timeutil.ParseDay(tr.FirstDay)
+		if len(tr.Ramp) == 0 || tr.Ramp[0].WeekStart != dayStr(timeutil.MondayOf(from)) {
+			t.Errorf("%s: ramp starts %v, want the week of %s", rk, tr.Ramp, tr.FirstDay)
+		}
+		if len(tr.Fitness) == 0 || dayStr(timeutil.DateOf(tr.Fitness[0].Date)) != tr.FirstDay {
+			t.Errorf("%s: fitness starts %v, want %s", rk, tr.Fitness[0].Date, tr.FirstDay)
+		}
+	}
+}
+
+// "Last 90 days" is 90 days, today included, and "last 28 days" 28.
+func TestAnalyticsTrends_RecentCurveWindows(t *testing.T) {
+	d := newTestDB(t)
+	now := time.Now().UTC()
+	today := timeutil.DateOf(now)
+	curves := map[string]struct {
+		daysAgo int
+		watts   int
+	}{"d90out": {90, 300}, "d90in": {89, 250}, "d28out": {28, 280}, "d28in": {27, 240}}
+	for id, c := range curves {
+		insertRides(t, d, aRide(id, dayStr(today.AddDate(0, 0, -c.daysAgo))))
+		if err := d.InsertPowerCurve(id, map[int]int{1200: c.watts}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tr, err := d.AnalyticsTrends("3m", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := -1
+	for k, secs := range tr.Curve.Durations {
+		if secs == 1200 {
+			i = k
+		}
+	}
+	if got := tr.Curve.Days90[i]; got == nil || *got != 280 {
+		t.Errorf("last 90 days' best 20 min = %v, want 280 W (the ride 90 days ago is outside)", got)
+	}
+	if got := tr.Curve.Days28[i]; got == nil || *got != 240 {
+		t.Errorf("last 28 days' best 20 min = %v, want 240 W (the ride 28 days ago is outside)", got)
+	}
+}
+
+// When a picked comparison overlaps the period, a ride in both counts once
+// toward the matched-marker reference.
+func TestComparePeriods_OverlapCountsRidesOnce(t *testing.T) {
+	d := newTestDB(t)
+	insertRides(t, d,
+		aRide("a1", "2026-11-02", power(150, 130)),
+		aRide("a2", "2026-11-03", power(160, 133)),
+		aRide("both", "2026-11-20", power(200, 145)), // in both periods
+	)
+	c, err := d.ComparePeriods(timeutil.Comparison{
+		Kind: timeutil.PeriodMonth, Against: timeutil.AgainstCustom,
+		A: period("2026-11-01", "2026-11-30"), B: period("2026-11-15", "2026-12-15"),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Median NP of 150, 160 and 200 is 160; counting 200 twice made it 180.
+	if ref := c.Reference.PowerOutdoorWatts; ref == nil || *ref != 160 {
+		t.Errorf("outdoor reference = %v, want 160 W", ref)
+	}
+}

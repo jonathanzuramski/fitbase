@@ -247,15 +247,20 @@ func (db *DB) AnalyticsTrends(rangeKey string, now time.Time) (models.AnalyticsT
 
 	// ── Fitness and ramp ──
 	days := int(today.Sub(from).Hours()/24 + 0.5)
-	fitnessPts, err := db.GetFitnessHistory(days, tz)
+	// The ramp's first week is measured from the day before its Monday, which
+	// can be up to a week before the range: fetch from there, chart from `from`.
+	rampFrom := timeutil.MondayOf(from).AddDate(0, 0, -1)
+	fitnessPts, err := db.GetFitnessHistory(int(today.Sub(rampFrom).Hours()/24+0.5), tz)
 	if err != nil {
 		return out, err
 	}
-	out.Fitness = fitnessPts
-	if out.Fitness == nil {
-		out.Fitness = []models.FitnessPoint{}
-	}
 	out.Ramp = weeklyRamp(fitnessPts, from, today)
+	out.Fitness = []models.FitnessPoint{}
+	for _, p := range fitnessPts {
+		if !timeutil.DateOf(p.Date).Before(from) {
+			out.Fitness = append(out.Fitness, p)
+		}
+	}
 
 	// ── FTP ──
 	if out.FTP, err = db.ftpTrend(from, today, now); err != nil {
@@ -273,7 +278,7 @@ func (db *DB) AnalyticsTrends(rangeKey string, now time.Time) (models.AnalyticsT
 		days int
 		dst  *[]*int
 	}{{90, &out.Curve.Days90}, {28, &out.Curve.Days28}} {
-		c, err := db.cyclingBestsBetweenDays(today.AddDate(0, 0, -w.days).Format(dayFmt), end.Format(dayFmt))
+		c, err := db.cyclingBestsBetweenDays(today.AddDate(0, 0, 1-w.days).Format(dayFmt), end.Format(dayFmt)) // w.days days, today included
 		if err != nil {
 			return out, err
 		}
