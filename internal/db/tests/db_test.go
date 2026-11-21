@@ -388,10 +388,46 @@ func TestLogFTPChangeAt(t *testing.T) {
 		t.Errorf("GetFTPAtDate after change: got %d, want 280", got)
 	}
 
-	// A workout recorded before the change should fall back to the athlete default (250).
+	// A workout recorded before the change falls back to the profile FTP,
+	// which follows the entry in effect now (LogFTPChangeAtFor).
 	got = d.GetFTPAtDate(at.Add(-24 * time.Hour))
-	if got != 250 {
-		t.Errorf("GetFTPAtDate before change: got %d, want 250 (default)", got)
+	if got != 280 {
+		t.Errorf("GetFTPAtDate before change: got %d, want the profile's 280", got)
+	}
+}
+
+// A general entry added with a past date that makes it the one in effect now
+// (the settings page's FTP history form) becomes the profile FTP: the profile
+// is what the settings form shows and re-submits, what the FTP check and the
+// coach read. Older, future-dated and indoor entries leave it alone.
+func TestLogFTPChangeAt_ProfileFollowsEntryInEffect(t *testing.T) {
+	d := newTestDB(t)
+	now := time.Now()
+	profileFTP := func() int {
+		t.Helper()
+		a, err := d.GetAthlete()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return a.FTPWatts
+	}
+	if err := d.LogFTPChangeAt(270, now.AddDate(0, 0, -10)); err != nil {
+		t.Fatal(err)
+	}
+	if got := profileFTP(); got != 270 {
+		t.Errorf("profile FTP after adding 270 ten days ago = %d, want 270", got)
+	}
+	if err := d.LogFTPChangeAt(230, now.AddDate(-1, 0, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.LogFTPChangeAt(290, now.AddDate(0, 1, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.LogFTPChangeAtFor(255, now.AddDate(0, 0, -5), true); err != nil {
+		t.Fatal(err)
+	}
+	if got := profileFTP(); got != 270 {
+		t.Errorf("profile FTP after an older, a future and an indoor entry = %d, want 270", got)
 	}
 }
 

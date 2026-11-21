@@ -17,7 +17,7 @@ type WorkoutFeedback struct {
 	WorkoutID string    `json:"workout_id"`
 	RPE       *int      `json:"rpe,omitempty"` // 1–10; nil = not rated
 	Note      string    `json:"note,omitempty"`
-	UpdatedAt time.Time `json:"updated_at"`
+	UpdatedAt time.Time `json:"updated_at,omitzero"` // omitted when there is no feedback
 }
 
 // RPELabel names an RPE rating in words.

@@ -29,6 +29,13 @@ func TestCheckFTP(t *testing.T) {
 		{"large shortfall is unverified", 245, effort(1200, 180), effort(3600, 150), models.FTPCheckUnverified, 171, 1200},
 		{"60-minute effort wins when higher", 220, effort(1200, 220), effort(3600, 214), models.FTPCheckOK, 214, 3600},
 		{"only a 60-minute effort", 220, nil, effort(3600, 200), models.FTPCheckLower, 200, 3600},
+		// 238 W indoors on a 230 W indoor line is 259 W against the general FTP.
+		{"indoor effort counts in general-line terms", 250,
+			&models.FTPEffort{DurationSecs: 1200, Watts: 238, Indoor: true, IndoorFTPWatts: 230, EquivalentWatts: 259},
+			nil, models.FTPCheckOK, 246, 1200},
+		{"scaled indoor 60 minutes beats a raw 20", 250, effort(1200, 240),
+			&models.FTPEffort{DurationSecs: 3600, Watts: 225, Indoor: true, IndoorFTPWatts: 230, EquivalentWatts: 245},
+			models.FTPCheckOK, 245, 3600},
 		{"no efforts", 245, nil, nil, models.FTPCheckUnverified, 0, 0},
 		{"no FTP set", 0, effort(1200, 250), nil, models.FTPCheckUnverified, 0, 0},
 	}
