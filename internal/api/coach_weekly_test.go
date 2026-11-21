@@ -177,8 +177,53 @@ func TestGenerateWeeklyPlan_RevisionReplaysPlan(t *testing.T) {
 		!strings.Contains(hist[2].Content, "move the long ride to Sunday") {
 		t.Fatalf("revision history = %+v, want [first request, first review, the change]", hist)
 	}
+	// The change carries the week it changes: the review never lists the
+	// workouts, so without them the coach rebuilt the week from scratch.
+	for _, want := range []string{
+		firstPlanDay().Format("Mon 2006-01-02"),
+		"3x10 tempo",
+		"45 min", // toModel sums the intervals: 3×(10+5) min
+		"3×(work 10:00 @ 86% + recovery 5:00 @ 50%)",
+		"keeping every other session",
+	} {
+		if !strings.Contains(hist[2].Content, want) {
+			t.Errorf("revision message lacks %q:\n%s", want, hist[2].Content)
+		}
+	}
 	if !strings.Contains(second.Request, "no riding Wednesday") || !strings.Contains(second.Request, "long ride to Sunday") {
 		t.Errorf("revised request = %q, want both constraints", second.Request)
+	}
+	if strings.Contains(second.Request, "3×(") {
+		t.Errorf("revised request = %q — the replayed week must not accumulate into Request", second.Request)
+	}
+}
+
+// A revision made on a later day replays only the sessions still ahead.
+func TestProposedWeekText_DropsPastSessions(t *testing.T) {
+	start := time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC)
+	end := start.AddDate(0, 0, 6)
+	tss, ifactor := 55.0, 0.72
+	ws := []models.PlannedWorkout{
+		{PlannedDate: start.AddDate(0, 0, -1), Title: "Yesterday's VO2", Sport: "cycling", DurationSecs: 3600},
+		{PlannedDate: start, Title: "Endurance Z2", Sport: "cycling", DurationSecs: 5400, TSS: &tss, IntensityFactor: &ifactor,
+			Intervals: []models.PlannedInterval{{Kind: "endurance", DurationSecs: 5400, TargetZone: "Z2"}}},
+		{PlannedDate: start.AddDate(0, 0, 2), Title: "Easy run", Sport: "running", DurationSecs: 1800},
+	}
+	got := proposedWeekText(ws, start, end)
+	for _, want := range []string{
+		"- Tue 2026-11-10 · Endurance Z2 · 90 min · ~55 TSS · IF 0.72 · endurance 90:00 @ Z2",
+		"- Thu 2026-11-12 · Easy run · running · 30 min",
+		"(1 earlier session(s) are now in the past",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("proposed week lacks %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Yesterday's VO2") {
+		t.Errorf("a past session was replayed:\n%s", got)
+	}
+	if got := proposedWeekText(ws[:1], start, end); got != "" {
+		t.Errorf("only past sessions: got %q, want empty", got)
 	}
 }
 

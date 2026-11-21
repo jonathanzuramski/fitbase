@@ -71,14 +71,26 @@ func (h *CoachHandler) generateWeeklyPlan(ctx context.Context, run weeklyPlanRun
 	// The request the coach answers. A revision replays the plan it revises —
 	// the rider's earlier constraints and the coach's review — then asks for
 	// the change, and the new plan's Request carries every constraint so far.
+	//
+	// The review never lists the workouts and an unaccepted plan isn't on the
+	// calendar, so the change message carries the proposed week itself:
+	// without it "move the long ride to Sunday" rebuilt the week from scratch.
+	// It stays out of Request, which would otherwise accumulate every week.
 	history := []aicoach.ChatMessage{{Role: aicoach.ChatRoleUser}}
 	switch {
 	case run.revise != nil:
 		change := "Change the plan: " + run.notes
+		msg := change
+		if ws, err := planWorkouts(run.revise); err != nil {
+			slog.Warn("weekly plan: could not replay the proposed week", "plan", run.revise.ID, "err", err)
+		} else if txt := proposedWeekText(ws, start, end); txt != "" {
+			msg += "\n\nThe week you proposed:\n" + txt +
+				"\n\nApply only this change. Call propose_schedule with the whole window again — it replaces the proposed week — keeping every other session exactly as it was (same date, title, structure and targets) unless the change forces a knock-on, such as two key sessions landing on consecutive days; say what else moved and why. Re-fetch data only if the change needs it."
+		}
 		history = []aicoach.ChatMessage{
 			{Role: aicoach.ChatRoleUser, Content: run.revise.Request},
 			{Role: aicoach.ChatRoleAssistant, Content: run.revise.ReviewMD},
-			{Role: aicoach.ChatRoleUser, Content: change},
+			{Role: aicoach.ChatRoleUser, Content: msg},
 		}
 		plan.Request = run.revise.Request + "\n\n" + change
 	case run.notes != "":
@@ -197,6 +209,49 @@ func planWorkouts(p *models.WeeklyPlan) ([]models.PlannedWorkout, error) {
 		out = append(out, w)
 	}
 	return out, nil
+}
+
+// proposedWeekText renders a plan's proposed week for the coach, one line per
+// workout in [start, end]: date, title, sport (when not cycling), minutes,
+// TSS and IF when set, and the interval structure. Workouts before start (a
+// revision made on a later day) are left out and counted. "" when no workout
+// falls in the window.
+func proposedWeekText(ws []models.PlannedWorkout, start, end time.Time) string {
+	from, to := start.Format("2006-01-02"), end.Format("2006-01-02")
+	var lines []string
+	past := 0
+	for _, w := range ws {
+		day := w.PlannedDate.Format("2006-01-02")
+		if day < from {
+			past++
+			continue
+		}
+		if day > to {
+			continue
+		}
+		line := "- " + w.PlannedDate.Format("Mon 2006-01-02") + " · " + w.Title
+		if w.Sport != "cycling" {
+			line += " · " + w.Sport
+		}
+		line += fmt.Sprintf(" · %d min", w.DurationSecs/60)
+		if w.TSS != nil {
+			line += fmt.Sprintf(" · ~%.0f TSS", *w.TSS)
+		}
+		if w.IntensityFactor != nil {
+			line += fmt.Sprintf(" · IF %.2f", *w.IntensityFactor)
+		}
+		if s := models.PlannedStructure(w.Intervals); s != "" {
+			line += " · " + s
+		}
+		lines = append(lines, line)
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	if past > 0 {
+		lines = append(lines, fmt.Sprintf("(%d earlier session(s) are now in the past and not part of this plan.)", past))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // ── Schedule ──────────────────────────────────────────────────────────────────
