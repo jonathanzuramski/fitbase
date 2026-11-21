@@ -139,3 +139,16 @@ func TestValidateCredentials_UsesBasicAuth(t *testing.T) {
 		t.Errorf("basic auth password = %q, want %q", gotPass, "test-api-key")
 	}
 }
+
+// The FTP history sync counts rides only: a run's icu_ftp is its running FTP.
+func TestActivityIsRide(t *testing.T) {
+	for typ, want := range map[string]bool{
+		"Ride": true, "VirtualRide": true, "GravelRide": true, "MountainBikeRide": true, "EBikeRide": true,
+		"Run": false, "VirtualRun": false, "TrailRun": false, "Walk": false, "Swim": false, "Rowing": false,
+		"": true, // no type: kept, as before types were checked
+	} {
+		if got := (intervals.Activity{Type: typ}).IsRide(); got != want {
+			t.Errorf("IsRide(%q) = %v, want %v", typ, got, want)
+		}
+	}
+}

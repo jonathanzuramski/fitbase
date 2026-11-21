@@ -36,6 +36,8 @@ var FuncMap = template.FuncMap{
 	"goalDisplayDist": goalDisplayDist,
 	"tsbClass":        tsbClass,
 	"dayLabel":        dayLabel,
+	"rpeLabel":        rpeLabel,
+	"hours":           hours,
 	"achievementText": achievementText,
 	"achievementIcon": achievementIcon,
 }
@@ -242,6 +244,19 @@ func hasGPS(streams []models.Stream) bool {
 		}
 	}
 	return false
+}
+
+// hours renders a long total as whole hours: "231 h".
+func hours(secs int) string {
+	return strconv.Itoa(int(math.Round(float64(secs)/3600))) + " h"
+}
+
+// rpeLabel names an RPE rating in words ("" when unrated).
+func rpeLabel(rpe *int) string {
+	if rpe == nil {
+		return ""
+	}
+	return models.RPELabel(*rpe)
 }
 
 // dayLabel formats a YYYY-MM-DD day as "Sep 26"; anything else passes through.

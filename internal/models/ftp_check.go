@@ -16,6 +16,22 @@ type FTPEffort struct {
 	Watts        int    `json:"watts"`
 	WorkoutID    string `json:"workout_id"`
 	Day          string `json:"day,omitempty"` // the ride's training day, YYYY-MM-DD
+	Indoor       bool   `json:"indoor,omitempty"`
+	// An indoor ride of a rider with a separate indoor FTP line is scored
+	// against that line (IndoorFTPWatts at the ride). EquivalentWatts is the
+	// effort against the general line: Watts × the general FTP ÷ the indoor
+	// FTP at the ride. Both are 0 when the ride had no separate line.
+	IndoorFTPWatts  int `json:"indoor_ftp_watts,omitempty"`
+	EquivalentWatts int `json:"equivalent_watts,omitempty"`
+}
+
+// CheckWatts is the effort as the FTP check compares it with the (general)
+// FTP: EquivalentWatts when the ride was on a separate indoor line, else Watts.
+func (e FTPEffort) CheckWatts() float64 {
+	if e.EquivalentWatts > 0 {
+		return float64(e.EquivalentWatts)
+	}
+	return float64(e.Watts)
 }
 
 // FTPCheck compares the athlete's FTP with an estimate from their best recent

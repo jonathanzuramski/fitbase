@@ -256,11 +256,17 @@ const CHART_OPTS = {
   padding: [8, 0, 0, 0],
 };
 
-function baseOpts(width, height) {
+// Ride page mode, set by renderWorkoutCharts while it builds the stacked
+// ride panels: they share one crosshair (uPlot cursor sync) and a drag
+// selects a stretch (measured by ride.js) instead of zooming. Null for every
+// other chart.
+let rideChartMode = null;
+
+function baseOpts(width, height, el) {
   const mobile = isMobile();
   const axisFont = mobile ? "10px system-ui" : "11px system-ui";
   const yAxisSize = mobile ? 40 : undefined; // let uPlot auto-size on desktop
-  return {
+  const opts = {
     width,
     height,
     ...CHART_OPTS,
@@ -289,6 +295,17 @@ function baseOpts(width, height) {
       show: !mobile,
     },
   };
+  if (rideChartMode) {
+    // Equal y-axis widths line the stacked plots up; only the bottom panel
+    // labels the time axis (the others keep its grid lines).
+    opts.axes[1].size = 52;
+    if (el && el.id !== rideChartMode.lastId) {
+      opts.axes[0] = { ...opts.axes[0], size: 4, ticks: { show: false }, values: (_u, splits) => splits.map(() => "") };
+    }
+    opts.cursor = { ...opts.cursor, sync: { key: "ride", setSeries: false }, drag: { x: true, y: false, setScale: false } };
+    opts.legend = { show: false };
+  }
+  return opts;
 }
 
 function containerWidth(el) {
@@ -444,7 +461,7 @@ function renderFitnessChart(containerId, data) {
 // ── Workout charts ──────────────────────────────────────────────────────────
 
 function renderWorkoutCharts(streams, ftp, lthr) {
-  if (!streams || streams.length === 0) return;
+  if (!streams || streams.length === 0) return null;
 
   ftp = ftp || 0;
   lthr = lthr || 0;
@@ -462,12 +479,28 @@ function renderWorkoutCharts(streams, ftp, lthr) {
   const hasAlt = altitude.some((v) => v !== null);
   const altBg = hasAlt ? altitude : null;
 
-  renderPowerChart(timestamps, power, ftp, altBg);
-  renderHRChart(timestamps, hr, lthr, altBg);
-  renderCadenceChart(timestamps, cadence, altBg);
-  renderSpeedChart(timestamps, speed, altBg);
-
-  if (hasAlt) renderElevationChart(timestamps, altitude);
+  // The bottom panel that will actually draw labels the shared time axis.
+  const drawn = [
+    ["power-chart", power],
+    ["hr-chart", hr],
+    ["cadence-chart", cadence],
+    ["speed-chart", speed],
+    ["elevation-chart", altitude],
+  ].filter(([id, data]) => document.getElementById(id) && data.some((v) => v !== null));
+  rideChartMode = { lastId: drawn.length ? drawn[drawn.length - 1][0] : null };
+  let charts;
+  try {
+    charts = [
+      renderPowerChart(timestamps, power, ftp, altBg),
+      renderHRChart(timestamps, hr, lthr, altBg),
+      renderCadenceChart(timestamps, cadence, altBg),
+      renderSpeedChart(timestamps, speed, altBg),
+      hasAlt ? renderElevationChart(timestamps, altitude) : null,
+    ].filter(Boolean);
+  } finally {
+    rideChartMode = null;
+  }
+  return { charts, timestamps, power, hr, cadence, speed, altitude };
 }
 
 // Returns a uPlot `draw` hook that paints a ghost elevation fill behind all
@@ -546,8 +579,8 @@ function renderPowerChart(timestamps, power, ftp, altData) {
   let fullScale = false;
 
   const w = containerWidth(el);
-  const h = chartHeight(320);
-  const base = baseOpts(w, h);
+  const h = chartHeight(220);
+  const base = baseOpts(w, h, el);
   const elevHook = elevBgHook(altData);
   const opts = {
     ...base,
@@ -589,6 +622,7 @@ function renderPowerChart(timestamps, power, ftp, altData) {
     el.style.position = "relative";
     el.appendChild(btn);
   }
+  return u;
 }
 
 function renderHRChart(timestamps, hr, lthr, altData) {
@@ -599,8 +633,8 @@ function renderHRChart(timestamps, hr, lthr, altData) {
   if (!hasHR) return;
 
   const w = containerWidth(el);
-  const h = chartHeight(320);
-  const base = baseOpts(w, h);
+  const h = chartHeight(150);
+  const base = baseOpts(w, h, el);
   const elevHook = elevBgHook(altData);
   const opts = {
     ...base,
@@ -626,6 +660,7 @@ function renderHRChart(timestamps, hr, lthr, altData) {
 
   const u = new uPlot(opts, [timestamps, hr], el);
   watchResize(el, u, h);
+  return u;
 }
 
 function renderCadenceChart(timestamps, cadence, altData) {
@@ -636,8 +671,8 @@ function renderCadenceChart(timestamps, cadence, altData) {
   if (!hasCadence) return;
 
   const w = containerWidth(el);
-  const h = chartHeight(160);
-  const base = baseOpts(w, h);
+  const h = chartHeight(100);
+  const base = baseOpts(w, h, el);
 
   const elevHook = elevBgHook(altData);
   const opts = {
@@ -658,7 +693,8 @@ function renderCadenceChart(timestamps, cadence, altData) {
   };
 
   const u = new uPlot(opts, [timestamps, cadence], el);
-  watchResize(el, u, 160);
+  watchResize(el, u, 100);
+  return u;
 }
 
 function renderSpeedChart(timestamps, speed, altData) {
@@ -669,8 +705,8 @@ function renderSpeedChart(timestamps, speed, altData) {
   if (!hasSpeed) return;
 
   const w = containerWidth(el);
-  const h = chartHeight(160);
-  const base = baseOpts(w, h);
+  const h = chartHeight(100);
+  const base = baseOpts(w, h, el);
   const label = IMPERIAL ? "Speed (mph)" : "Speed (km/h)";
   const elevHook = elevBgHook(altData);
   const opts = {
@@ -682,7 +718,8 @@ function renderSpeedChart(timestamps, speed, altData) {
   };
 
   const u = new uPlot(opts, [timestamps, speed], el);
-  watchResize(el, u, 160);
+  watchResize(el, u, 100);
+  return u;
 }
 
 function renderElevationChart(timestamps, altitude) {
@@ -690,9 +727,9 @@ function renderElevationChart(timestamps, altitude) {
   if (!el) return;
 
   const w = containerWidth(el);
-  const h = chartHeight(120);
+  const h = chartHeight(100);
   const opts = {
-    ...baseOpts(w, h),
+    ...baseOpts(w, h, el),
     series: [
       {},
       {
@@ -707,7 +744,8 @@ function renderElevationChart(timestamps, altitude) {
   };
 
   const u = new uPlot(opts, [timestamps, altitude], el);
-  watchResize(el, u, 120);
+  watchResize(el, u, 100);
+  return u;
 }
 
 // ── Zone distribution ────────────────────────────────────────────────────────
@@ -1120,6 +1158,7 @@ function renderRouteMap(containerId, streams, ftp, lthr) {
     ];
     map.fitBounds(bounds, { padding: 40 });
   });
+  return map;
 }
 
 // ── Activities map (heatmap page) ────────────────────────────────────────────

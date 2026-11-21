@@ -81,6 +81,7 @@ func TestPagesRender(t *testing.T) {
 		"/calendar",
 		"/calendar?year=2024&month=5",
 		"/heatmap",
+		"/progress",
 		"/welcome",
 		"/importing",
 	} {

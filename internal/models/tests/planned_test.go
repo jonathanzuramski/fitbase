@@ -82,3 +82,41 @@ func TestPlannedIntervalDepthLimit(t *testing.T) {
 		t.Error("expected depth-limit error for 4-level nesting, got nil")
 	}
 }
+
+// PlannedStructure is how a proposed week is replayed to the coach on a
+// revision, so it must carry every target the model needs to keep a session
+// exactly as it was.
+func TestPlannedStructure(t *testing.T) {
+	warmup := models.PlannedInterval{Kind: "warmup", DurationSecs: 600, TargetPctFTPStart: ptr(50), TargetPctFTPEnd: ptr(70)}
+	set := models.PlannedInterval{Repeat: 4, Steps: []models.PlannedInterval{
+		{Kind: "work", DurationSecs: 480, TargetPctFTP: ptr(90)},
+		{Kind: "recovery", DurationSecs: 180, TargetPctFTP: ptr(55)},
+	}}
+	cooldown := models.PlannedInterval{Kind: "cooldown", DurationSecs: 600}
+
+	cases := []struct {
+		name string
+		iv   models.PlannedInterval
+		want string
+	}{
+		{"ramp", warmup, "warmup 10:00 50→70%"},
+		{"repeat group", set, "4×(work 8:00 @ 90% + recovery 3:00 @ 55%)"},
+		{"repeated leaf in watts", models.PlannedInterval{Kind: "vo2max", DurationSecs: 30, TargetWatts: ptr(400), Repeat: 10}, "10×(vo2max 0:30 @ 400 W)"},
+		{"zone, minutes past an hour", models.PlannedInterval{Kind: "endurance", DurationSecs: 5400, TargetZone: "Z2"}, "endurance 90:00 @ Z2"},
+		{"no target", cooldown, "cooldown 10:00"},
+		{"note", models.PlannedInterval{Kind: "work", DurationSecs: 600, TargetPctFTP: ptr(95), Note: "high cadence"}, "work 10:00 @ 95% [high cadence]"},
+	}
+	for _, tc := range cases {
+		if got := tc.iv.Summary(); got != tc.want {
+			t.Errorf("%s: Summary() = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+
+	want := "warmup 10:00 50→70% · 4×(work 8:00 @ 90% + recovery 3:00 @ 55%) · cooldown 10:00"
+	if got := models.PlannedStructure([]models.PlannedInterval{warmup, set, cooldown}); got != want {
+		t.Errorf("PlannedStructure = %q, want %q", got, want)
+	}
+	if got := models.PlannedStructure(nil); got != "" {
+		t.Errorf("PlannedStructure(nil) = %q, want empty", got)
+	}
+}

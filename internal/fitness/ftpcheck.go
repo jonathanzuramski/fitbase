@@ -30,15 +30,16 @@ const (
 // EstimateFTP returns the FTP implied by best efforts, and the effort it came
 // from: the higher of 95% of the best 20-minute power (the standard field
 // estimate) and the best 60-minute power (FTP by definition). Either effort
-// may be nil; with neither it returns 0, nil.
+// may be nil; with neither it returns 0, nil. An indoor effort on a separate
+// indoor FTP line counts against the general line (FTPEffort.CheckWatts).
 func EstimateFTP(best20, best60 *models.FTPEffort) (float64, *models.FTPEffort) {
 	var est float64
 	var basis *models.FTPEffort
 	if best20 != nil && best20.Watts > 0 {
-		est, basis = 0.95*float64(best20.Watts), best20
+		est, basis = 0.95*best20.CheckWatts(), best20
 	}
-	if best60 != nil && float64(best60.Watts) > est {
-		est, basis = float64(best60.Watts), best60
+	if best60 != nil && best60.CheckWatts() > est {
+		est, basis = best60.CheckWatts(), best60
 	}
 	return est, basis
 }
