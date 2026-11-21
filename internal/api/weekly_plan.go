@@ -153,7 +153,7 @@ func (h *CoachHandler) generateWeeklyPlan(ctx context.Context, run weeklyPlanRun
 	}
 	brief := aicoach.WeeklyPlanBrief(start, end)
 	if revising {
-		brief = aicoach.WeeklyPlanRevisionBrief(start, end)
+		brief = aicoach.WeeklyPlanRevisionBrief(start, end, now)
 	}
 	systemContext := h.chatSystemContext(now) + "\n\n" + brief +
 		"\n\n" + aicoach.WeeklyPlanAvailability(start, end, prefs.Allows, budget)

@@ -57,8 +57,9 @@ Finish, without a heading, with two or three sentences on the shape of the week 
 
 // WeeklyPlanRevisionBrief is the playbook for changing a proposed week ("move
 // the long ride to Sunday"), in place of WeeklyPlanBrief. The window is what
-// is left of the week being revised, start being today when the revision
-// comes on a later day; the rider's message lists the sessions in it.
+// is left of the week being revised, start being today (the date of now)
+// when the revision comes on a later day; the rider's message lists the
+// sessions in it.
 //
 // It asks for no review: the server keeps the one the plan already has and
 // adds this run's text under it as a change note (the stored review is what
@@ -66,7 +67,16 @@ Finish, without a heading, with two or three sentences on the shape of the week 
 // turn), so a revision can't leave the plan with an empty or reduced review.
 // Re-gathering and re-reviewing for a one-session move would also cost a full
 // run and invite the model to rebuild the week it was asked to keep.
-func WeeklyPlanRevisionBrief(start, end time.Time) string {
+//
+// The run's static prompt is ChatSystemPrompt, whose Planning section weekly
+// plans follow too, and two of its lines say otherwise: its gather (recent
+// rides among others, "at minimum") and its start-tomorrow default. The
+// brief names both, quoting them, and says it replaces them, so the model
+// doesn't have to guess which wins. A model that ran the gather would re-read
+// rpe and rider_note and let the rules that read them reshape sessions the
+// rider didn't ask to change; one that started tomorrow would argue against
+// today's session.
+func WeeklyPlanRevisionBrief(start, end, now time.Time) string {
 	days := 0
 	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
 		days++
@@ -75,15 +85,24 @@ func WeeklyPlanRevisionBrief(start, end time.Time) string {
 	if days == 1 {
 		span = "1 day"
 	}
-	return fmt.Sprintf(`Weekly plan revision — the rider wants a change to the week you proposed. Their message says what, and lists the proposed week's sessions from %s through %s (%s), the part of the week still ahead; a session marked (today) is still to be ridden and stays in the plan unless the change touches it.
+	from, to := start.Format("2006-01-02"), end.Format("2006-01-02")
+	window := "the plan covers what is left of the week, " + from + " to " + to
+	if from == now.In(start.Location()).Format("2006-01-02") {
+		window += ", today included"
+	}
+	return fmt.Sprintf(`Weekly plan revision — the rider wants a change to the week you proposed. Their message says what, and lists the proposed week's sessions from %[1]s through %[2]s (%[3]s), the part of the week still ahead; a session marked (today) is still to be ridden and stays in the plan unless the change touches it.
 
-The review you wrote stands: it is kept, and what you write now is added under it as a change note. Don't write the review again or repeat its sections, and fetch data only if the change needs it (for example list_planned_workouts if a session moves onto another day, or get_workout_intervals if the change asks for a different key session).
+A revision replaces two parts of the Planning section in your instructions:
+- "Gather context first": the week was built on that gather, and the rules that read rpe and rider_note have already shaped it, so don't gather again. Fetch only what the change needs (for example list_planned_workouts if a session moves onto another day, or get_workout_intervals if the change asks for a different key session).
+- "start tomorrow unless the rider names a start date": %[6]s.
 
-Call propose_schedule with the whole plan again — dates %s to %s only (propose_schedule rejects any other date); it replaces the proposed week. Copy every session the change doesn't touch exactly as listed: same date, title, description, structure and targets. Whatever the change moves or reshapes follows the Planning rules in your instructions; if it puts two key sessions on consecutive days or breaks the rider's availability, move something else and say so.
+The review you wrote stands: it is kept, and what you write now is added under it as a change note. Don't write the review again or repeat its sections.
+
+Call propose_schedule with the whole plan again — dates %[4]s to %[5]s only (propose_schedule rejects any other date); it replaces the proposed week. Copy every session the change doesn't touch exactly as listed: same date, title, description, structure and targets. Whatever the change moves or reshapes follows the Planning rules in your instructions; if it puts two key sessions on consecutive days or breaks the rider's availability, move something else and say so.
 
 Then write the change note, without a heading: what moved, anything else that moved with it and why, and the new weekly total if it changed — two to four sentences. Do not list the workouts: the rider sees them as cards; call them "the proposed week".`,
 		start.Format("Monday, 2006-01-02"), end.Format("Monday, 2006-01-02"), span,
-		start.Format("2006-01-02"), end.Format("2006-01-02"))
+		from, to, window)
 }
 
 // StandingAvailability renders the rider's standing availability for a chat

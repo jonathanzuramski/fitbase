@@ -64,7 +64,7 @@ func TestWeeklyPlanBrief_PinsWindowAndIntervalGrading(t *testing.T) {
 // adds the note under it.
 func TestWeeklyPlanRevisionBrief(t *testing.T) {
 	start := time.Date(2026, 11, 11, 0, 0, 0, 0, time.UTC)
-	brief := aicoach.WeeklyPlanRevisionBrief(start, start.AddDate(0, 0, 4))
+	brief := aicoach.WeeklyPlanRevisionBrief(start, start.AddDate(0, 0, 4), start.Add(9*time.Hour))
 	for _, want := range []string{
 		"dates 2026-11-11 to 2026-11-15 only",
 		"(5 days)",
@@ -80,6 +80,48 @@ func TestWeeklyPlanRevisionBrief(t *testing.T) {
 	}
 	if strings.Contains(brief, "%!") || strings.Contains(brief, "## How the last week went") {
 		t.Errorf("revision brief is malformed or asks for the review:\n%s", brief)
+	}
+}
+
+// A revision runs under ChatSystemPrompt, whose Planning section weekly plans
+// follow too: it gathers recent rides "at minimum" and starts a plan
+// tomorrow. The revision brief must say it replaces both, or a model that
+// followed the shared gather re-read rpe and rider_note and reshaped
+// sessions the rider didn't ask to change, and the start-tomorrow default
+// argued against today's session. The brief names each line by quoting it;
+// this holds the quotes to the chat prompt, so rewording either side fails
+// here instead of silently leaving two instructions that disagree.
+func TestWeeklyPlanRevisionBrief_ReplacesPlanningGatherAndStart(t *testing.T) {
+	i := strings.Index(aicoach.ChatSystemPrompt, "Planning —")
+	if i < 0 {
+		t.Fatal("chat prompt has no planning section")
+	}
+	planning := aicoach.ChatSystemPrompt[i:]
+	start := time.Date(2026, 11, 11, 0, 0, 0, 0, time.UTC)
+	end := start.AddDate(0, 0, 4)
+	midWeek := aicoach.WeeklyPlanRevisionBrief(start, end, start.Add(9*time.Hour))
+
+	if !strings.Contains(midWeek, "A revision replaces two parts of the Planning section") {
+		t.Errorf("revision brief doesn't say it takes precedence over the Planning section:\n%s", midWeek)
+	}
+	for _, line := range []string{"Gather context first", "start tomorrow unless the rider names a start date"} {
+		if !strings.Contains(planning, line) {
+			t.Errorf("the Planning section no longer says %q, which the revision brief replaces by name", line)
+		}
+		if !strings.Contains(midWeek, `- "`+line+`": `) {
+			t.Errorf("revision brief doesn't replace the Planning section's %q:\n%s", line, midWeek)
+		}
+	}
+	for _, want := range []string{"don't gather again", "Fetch only what the change needs", "2026-11-11 to 2026-11-15, today included."} {
+		if !strings.Contains(midWeek, want) {
+			t.Errorf("revision brief lacks %q:\n%s", want, midWeek)
+		}
+	}
+
+	// Revised before the week starts, the window starts tomorrow: today isn't in it.
+	early := aicoach.WeeklyPlanRevisionBrief(start, end, start.Add(-3*time.Hour))
+	if strings.Contains(early, "today included") || !strings.Contains(early, "2026-11-11 to 2026-11-15.") {
+		t.Errorf("a revision before the week starts should cover the week, not today:\n%s", early)
 	}
 }
 

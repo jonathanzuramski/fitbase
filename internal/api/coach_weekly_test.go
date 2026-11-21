@@ -252,6 +252,16 @@ func TestGenerateWeeklyPlan_RevisionReplaysPlan(t *testing.T) {
 		!strings.Contains(req.SystemContext, "Copy every session the change doesn't touch exactly as listed") {
 		t.Errorf("revision system context should carry the revision brief only:\n%s", req.SystemContext)
 	}
+	// The static prompt's Planning section, which weekly plans follow too,
+	// gathers recent rides "at minimum" and starts tomorrow; the revision
+	// context settles that its own gather and window win. Revised the day it
+	// was made, the week still starts tomorrow, so today isn't in it.
+	if !strings.Contains(req.System, "Gather context first") ||
+		!strings.Contains(req.SystemContext, `- "Gather context first": the week was built on that gather`) ||
+		!strings.Contains(req.SystemContext, `- "start tomorrow unless the rider names a start date": the plan covers what is left of the week, `+
+			first.WindowStart+" to "+first.WindowEnd+".") {
+		t.Errorf("revision context doesn't replace the Planning section's gather and start date:\n%s", req.SystemContext)
+	}
 	if !strings.Contains(second.Request, "no riding Wednesday") || !strings.Contains(second.Request, "long ride to Sunday") {
 		t.Errorf("revised request = %q, want both constraints", second.Request)
 	}
@@ -319,8 +329,9 @@ func TestGenerateWeeklyPlan_RevisionOnALaterDayKeepsToday(t *testing.T) {
 			t.Errorf("revision message lacks %q:\n%s", want, msg)
 		}
 	}
-	if !strings.Contains(req.SystemContext, "dates "+day(0)+" to "+day(4)+" only") {
-		t.Errorf("revision brief should cover today through the week's last day:\n%s", req.SystemContext)
+	if !strings.Contains(req.SystemContext, "dates "+day(0)+" to "+day(4)+" only") ||
+		!strings.Contains(req.SystemContext, day(0)+" to "+day(4)+", today included.") {
+		t.Errorf("revision brief should cover today through the week's last day, in place of the start-tomorrow default:\n%s", req.SystemContext)
 	}
 	if plan.WindowStart != day(0) || plan.WindowEnd != day(4) {
 		t.Errorf("revised window = %s..%s, want %s..%s", plan.WindowStart, plan.WindowEnd, day(0), day(4))
