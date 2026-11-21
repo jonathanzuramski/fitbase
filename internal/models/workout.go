@@ -205,6 +205,8 @@ type ReadinessReport struct {
 	RampRate             float64 `json:"ramp_rate"`
 	Recommendation       string  `json:"recommendation"`
 	RecommendationDetail string  `json:"recommendation_detail"`
+	// RecommendationTone groups the label for display: go, train, ease, rest.
+	RecommendationTone string `json:"recommendation_tone"`
 }
 
 // AllTimeBest holds the best power for a given duration and which workout set it.
@@ -301,21 +303,21 @@ type EffortSummary struct {
 // EffortSetSummary condenses a run of similar efforts ("5×4min") into the
 // numbers a coach reads first: per-rep power and HR, fade, and HR creep.
 type EffortSetSummary struct {
-	FirstEffort      int     `json:"first_effort"` // N of the first rep
-	Reps             int     `json:"reps"`
-	AvgDurationSecs  int     `json:"avg_duration_secs"`
-	AvgWatts         int     `json:"avg_watts"`
-	AvgPctFTP        int     `json:"avg_pct_ftp"`
-	RepDurationSecs  []int   `json:"rep_duration_secs"`
-	RepAvgWatts      []int   `json:"rep_avg_watts"`
-	RepMaxHR         []int   `json:"rep_max_hr_bpm,omitempty"`
+	FirstEffort     int   `json:"first_effort"` // N of the first rep
+	Reps            int   `json:"reps"`
+	AvgDurationSecs int   `json:"avg_duration_secs"`
+	AvgWatts        int   `json:"avg_watts"`
+	AvgPctFTP       int   `json:"avg_pct_ftp"`
+	RepDurationSecs []int `json:"rep_duration_secs"`
+	RepAvgWatts     []int `json:"rep_avg_watts"`
+	RepMaxHR        []int `json:"rep_max_hr_bpm,omitempty"`
 	// LastVsFirstRepPct is the last rep's avg power relative to the first's:
 	// negative means the rider faded, positive that they built. Named for the
 	// comparison, not "fade", so a positive value can't be read as a fade.
 	LastVsFirstRepPct float64 `json:"last_vs_first_rep_pct"`
 	HRCreepBPM        *int    `json:"hr_creep_bpm,omitempty"` // last rep max HR minus first rep's
-	AvgRecoverySecs  *int    `json:"avg_recovery_secs,omitempty"`
-	AvgRecoveryWatts *int    `json:"avg_recovery_watts,omitempty"`
+	AvgRecoverySecs   *int    `json:"avg_recovery_secs,omitempty"`
+	AvgRecoveryWatts  *int    `json:"avg_recovery_watts,omitempty"`
 }
 
 // ShapeProfile is the ride cut into fixed-length buckets (≤ 30). Buckets that

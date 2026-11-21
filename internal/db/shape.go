@@ -53,3 +53,20 @@ func (db *DB) SaveWorkoutShape(workoutID string, ftp int, shape fitness.RideShap
 		workoutID, ftp, fitness.ShapeVersion, string(js))
 	return err
 }
+
+// RideShape returns a workout's shape against ftp — from the workout_shape
+// cache when a row for this FTP and detector version exists, otherwise
+// computed from the streams and cached. A stream-read failure is returned
+// without caching so the next call retries.
+func (db *DB) RideShape(workoutID string, ftp int) (fitness.RideShape, error) {
+	if s, ok, err := db.GetWorkoutShape(workoutID, ftp); err == nil && ok {
+		return s, nil
+	}
+	streams, err := db.GetStreams(workoutID)
+	if err != nil {
+		return fitness.RideShape{}, err
+	}
+	s := fitness.AnalyzeShape(streams, ftp)
+	_ = db.SaveWorkoutShape(workoutID, ftp, s) // best-effort: a miss just recomputes
+	return s, nil
+}

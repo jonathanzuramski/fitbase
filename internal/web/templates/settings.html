@@ -94,7 +94,7 @@
 					FTP history <span class="muted">historical FTP for past-workout TSS</span>
 				</h2>
 				<p class="muted ftp-history-help">
-					TSS for a workout uses the FTP active on its date. The profile FTP above stays the source of truth for new workouts.
+					TSS for a workout uses the FTP active on its date; indoor rides use the indoor entries when there are any. The profile FTP above stays the source of truth for new workouts.
 				</p>
 				{{ if .FTPHistory }}
 					<div class="ftp-history-table-wrap">
@@ -110,7 +110,7 @@
 								{{ range .FTPHistory }}
 									<tr>
 										<td>{{ .EffectiveFrom.Format "2006-01-02" }}</td>
-										<td>{{ .FTPWatts }} W</td>
+										<td>{{ .FTPWatts }} W{{ if .Indoor }} <span class="ftp-history-indoor" title="Used for indoor rides only">indoor</span>{{ end }}</td>
 										<td>
 											<form method="POST" action="/settings/ftp-history/delete" class="ftp-history-delete-form"
 												onsubmit="return confirm('Delete this FTP history entry?');">
@@ -134,6 +134,9 @@
 							placeholder="FTP" aria-label="FTP watts" required />
 						<span class="form-unit">W</span>
 					</div>
+					<label class="ftp-history-indoor-toggle" title="An indoor FTP applies to indoor rides only; outdoor rides keep the general line.">
+						<input type="checkbox" name="indoor" value="1" /> indoor
+					</label>
 					<button type="submit" class="btn-secondary">add entry</button>
 				</form>
 				<div class="ftp-history-actions">
