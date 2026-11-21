@@ -111,6 +111,24 @@ func TestPrompts_RedFlagSymptoms(t *testing.T) {
 	}
 }
 
+// Every planning rule is in %FTP: an FTP no recent ride backs must change
+// how the week is built, in the weekly plan and in insights alike.
+func TestPlanningRules_FTPCheck(t *testing.T) {
+	rules := planningRules()
+	for _, want := range []string{"FTP check", "target_watts"} {
+		if !strings.Contains(rules, want) {
+			t.Errorf("planning rules lack %q", want)
+		}
+	}
+	if !strings.Contains(aicoach.SystemPrompt, "ftp_check") {
+		t.Error("the insights prompt doesn't use ftp_check")
+	}
+	start, end := aicoach.WeeklyPlanWindow(time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC))
+	if brief := aicoach.WeeklyPlanBrief(start, end); strings.Contains(brief, "%!") {
+		t.Errorf("brief has a formatting error:\n%s", brief)
+	}
+}
+
 func TestWeeklyPlanAvailability(t *testing.T) {
 	start := time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC) // Monday
 	end := start.AddDate(0, 0, 6)

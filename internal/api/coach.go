@@ -220,6 +220,16 @@ func (h *CoachHandler) chatSystemContext(now time.Time) string {
 	if athlete, err := h.db.GetAthlete(); err == nil && athlete != nil {
 		if block := buildRiderProfileBlock(athlete); block != "" {
 			ctx += "\n\n" + block
+			// Indoor rides' %FTP, IF, TSS and structure lines use the indoor
+			// line when there is one; without it the model converts their
+			// percentages to watts against the general FTP. Shown only when
+			// an indoor entry is actually in effect (it differs from the
+			// general line's FTP today).
+			if athlete.FTPWatts > 0 {
+				if indoor := h.db.GetFTPForRide(now, true); indoor > 0 && indoor != athlete.FTPWatts && indoor != h.db.GetFTPAtDate(now) {
+					ctx += fmt.Sprintf("- Indoor FTP: %d W (a separate line for indoor rides: their %%FTP, IF, TSS and structure lines use it — give indoor targets in watts from this number)\n", indoor)
+				}
+			}
 			// The FTP verdict rides with the FTP it qualifies. Non-fatal too.
 			if check, err := h.db.FTPCheck(now); err == nil {
 				ctx += ftpCheckLine(check)
@@ -550,7 +560,15 @@ func (h *CoachHandler) collectCoachingData() (*aicoach.CoachingData, error) {
 		}
 	}
 
-	return aicoach.BuildData(profile, fitnessPts, workouts, weekly, powerBests, zones, ftpHistory), nil
+	data := aicoach.BuildData(profile, fitnessPts, workouts, weekly, powerBests, zones, ftpHistory)
+	// The FTP verdict, in the exact words chat gets: insights is the only
+	// coach for providers without tool use, and it prescribes %FTP efforts.
+	if athlete.FTPWatts > 0 {
+		if check, err := h.db.FTPCheck(time.Now().In(h.db.AthleteLocation())); err == nil {
+			data.FTPCheck = strings.TrimSuffix(strings.TrimPrefix(ftpCheckLine(check), "- FTP check: "), "\n")
+		}
+	}
+	return data, nil
 }
 
 // round2/round1 use math.Round (not int truncation) so negative values — TSB

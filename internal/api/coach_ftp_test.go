@@ -165,3 +165,47 @@ func TestCoachFTPHistory_ComparesWithinALine(t *testing.T) {
 	}
 	check("get_ftp_history", history.Changes)
 }
+
+// Indoor rides are scored against the indoor FTP line when the rider has
+// one, so the model needs that number to turn their %FTP into watts. The
+// general line's entry is older than the indoor one, the shape the
+// intervals.icu sync writes (a newer general entry would override it).
+func TestChatSystemContext_IndoorFTP(t *testing.T) {
+	h := coachFixture(t)
+	if ctx := h.chatSystemContext(time.Now()); strings.Contains(ctx, "Indoor FTP") {
+		t.Errorf("no indoor line, yet the context names one:\n%s", ctx)
+	}
+	if err := h.db.ClearFTPHistory(); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.db.LogFTPChangeAtFor(250, time.Now().AddDate(0, 0, -60), false); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.db.LogFTPChangeAtFor(238, time.Now().AddDate(0, 0, -30), true); err != nil {
+		t.Fatal(err)
+	}
+	ctx := h.chatSystemContext(time.Now())
+	if !strings.Contains(ctx, "- Indoor FTP: 238 W") || !strings.Contains(ctx, "- FTP check:") {
+		t.Errorf("system context lacks the indoor FTP:\n%s", ctx)
+	}
+}
+
+// Insights is the only coach for providers without tool use, and it
+// prescribes %FTP efforts: it gets the same FTP verdict chat does.
+func TestCollectCoachingData_CarriesFTPCheck(t *testing.T) {
+	h := coachFixture(t)
+	data, err := h.collectCoachingData()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(data.FTPCheck, "unverified") || strings.Contains(data.FTPCheck, "- FTP check:") {
+		t.Errorf("ftp_check = %q, want the unverified verdict without the chat bullet", data.FTPCheck)
+	}
+	raw, err := json.Marshal(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"ftp_check":`) {
+		t.Errorf("insights payload lacks ftp_check: %s", raw)
+	}
+}
