@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -164,6 +165,87 @@ func TestCoachFTPHistory_ComparesWithinALine(t *testing.T) {
 		t.Fatal(err)
 	}
 	check("get_ftp_history", history.Changes)
+}
+
+// The intervals.icu sync re-logs the indoor FTP after every general change
+// (242, 235i, 250, 235i, ...), with delta_watts 0. In the payloads that
+// summarize progression those repeats are noise, and under the insights cap
+// of 12 they crowded out half the general line. A real indoor change stays.
+func TestCoachFTPHistory_DropsRepeatedIndoorEntries(t *testing.T) {
+	h := coachFixture(t)
+	if err := h.db.ClearFTPHistory(); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	log := func(ftp, daysAgo int, indoor bool) {
+		t.Helper()
+		if err := h.db.LogFTPChangeAtFor(ftp, now.AddDate(0, 0, -daysAgo), indoor); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Fourteen general changes, 230 to 256, each followed by the indoor line
+	// logged again at 235, and one real indoor change to 240 near the end.
+	for i := range 14 {
+		daysAgo := 150 - i*10
+		log(230+2*i, daysAgo, false)
+		indoor := 235
+		if i >= 12 {
+			indoor = 240
+		}
+		log(indoor, daysAgo-2, true)
+	}
+	type point struct {
+		FTPWatts   int  `json:"ftp_watts"`
+		Indoor     bool `json:"indoor"`
+		DeltaWatts *int `json:"delta_watts"`
+	}
+	render := func(ps []point) string {
+		var parts []string
+		for _, p := range ps {
+			s := fmt.Sprint(p.FTPWatts)
+			if p.Indoor {
+				s += "i"
+			}
+			parts = append(parts, s)
+		}
+		return strings.Join(parts, " ")
+	}
+
+	data, err := h.collectCoachingData()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(data.FTPHistory)
+	var insights []point
+	if err := json.Unmarshal(raw, &insights); err != nil {
+		t.Fatal(err)
+	}
+	// The newest 12 after the repeats go: eleven general changes and the
+	// indoor change to 240 (+5 on the indoor line).
+	if got, want := render(insights), "236 238 240 242 244 246 248 250 252 254 240i 256"; got != want {
+		t.Fatalf("insights ftp_history = %s, want %s", got, want)
+	}
+	if d := insights[10].DeltaWatts; d == nil || *d != 5 {
+		got := "none"
+		if d != nil {
+			got = fmt.Sprint(*d)
+		}
+		t.Errorf("indoor 240 delta_watts = %s, want 5", got)
+	}
+
+	out, err := h.toolPerformanceTrend([]byte(`{"days":45}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var trend struct {
+		Changes []point `json:"ftp_changes_in_window"`
+	}
+	if err := json.Unmarshal([]byte(out), &trend); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := render(trend.Changes), "252 254 240i 256"; got != want {
+		t.Errorf("get_performance_trend ftp_changes_in_window = %s, want %s", got, want)
+	}
 }
 
 // Indoor rides are scored against the indoor FTP line when the rider has

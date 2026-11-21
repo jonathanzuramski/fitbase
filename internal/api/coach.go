@@ -559,9 +559,11 @@ func (h *CoachHandler) collectCoachingData() (*aicoach.CoachingData, error) {
 	// FTP history, oldest-first, capped to the last 12 changes so the payload
 	// stays small. This is what lets the model separate "trained more" from
 	// "got faster" in the performance section. Deltas are per line, from the
-	// whole history.
+	// whole history. Indoor entries that repeat the indoor value go before
+	// the cap, or they fill half of it.
 	var ftpHistory []aicoach.FTPPoint
 	if hist, deltas, err := ftpHistoryWithDeltas(h.db); err == nil {
+		hist, deltas = withoutRepeatedIndoor(hist, deltas)
 		if n := len(hist) - 12; n > 0 {
 			hist, deltas = hist[n:], deltas[n:]
 		}

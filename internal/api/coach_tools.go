@@ -672,6 +672,30 @@ func ftpHistoryWithDeltas(database *db.DB) ([]db.FTPHistoryEntry, []*int, error)
 	return entries, deltas, nil
 }
 
+// withoutRepeatedIndoor drops the indoor entries that leave the indoor line's
+// value as it was (delta_watts 0), for the coach payloads that summarize FTP
+// progression (insights, get_performance_trend). The intervals.icu sync
+// re-logs the indoor FTP after every general change, because a general entry
+// ends the indoor line for GetFTPForRide, so a history reads 242, 235i, 250,
+// 235i: half of it says nothing about progression, and under the insights
+// cap it crowds out the general line. Run it before any cap or window, on
+// deltas from the whole history; a dropped entry repeats the value the next
+// one on its line is compared with, so no other delta changes.
+// get_ftp_history keeps every entry: its note explains the line rule they
+// follow.
+func withoutRepeatedIndoor(entries []db.FTPHistoryEntry, deltas []*int) ([]db.FTPHistoryEntry, []*int) {
+	keptEntries := make([]db.FTPHistoryEntry, 0, len(entries))
+	keptDeltas := make([]*int, 0, len(deltas))
+	for i, e := range entries {
+		if e.Indoor && deltas[i] != nil && *deltas[i] == 0 {
+			continue
+		}
+		keptEntries = append(keptEntries, e)
+		keptDeltas = append(keptDeltas, deltas[i])
+	}
+	return keptEntries, keptDeltas
+}
+
 // toolFTPHistory returns every recorded FTP change oldest-first with the delta
 // from the previous setting, so the progression reads chronologically.
 func (h *CoachHandler) toolFTPHistory() (string, error) {
@@ -792,6 +816,7 @@ func (h *CoachHandler) toolPerformanceTrend(input json.RawMessage) (string, erro
 	// Deltas come from the whole history, so the first change in the window
 	// still says how far it moved.
 	if hist, deltas, err := ftpHistoryWithDeltas(h.db); err == nil {
+		hist, deltas = withoutRepeatedIndoor(hist, deltas)
 		loc := h.db.AthleteLocation()
 		for i, e := range hist {
 			if e.EffectiveFrom.After(since) {
@@ -810,7 +835,7 @@ func (h *CoachHandler) toolPerformanceTrend(input json.RawMessage) (string, erro
 		"weeks":                 out,
 		"ftp_changes_in_window": ftpChanges,
 		"note": "EF = normalized power ÷ avg HR. Compare EF only across weeks with similar avg_if — rising EF at matched IF is real aerobic gain. Decoupling under 5% on long rides indicates durability. " +
-			"ftp_changes_in_window entries marked indoor are the separate, usually lower indoor FTP line; delta_watts is the change from the previous entry on the same line. Never compare an indoor entry with an unmarked one.",
+			"ftp_changes_in_window entries marked indoor are the separate, usually lower indoor FTP line, listed when its value changes; delta_watts is the change from the previous entry on the same line. Never compare an indoor entry with an unmarked one.",
 	})
 }
 
