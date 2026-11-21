@@ -130,6 +130,25 @@ func buildPowerFIT(t *testing.T, start time.Time, subSport typedef.SubSport, wat
 // the %FTP the coach and the ride page showed for it until a manual FTP sync
 // rescored it.
 func TestImportBytes_ScoresRideAgainstItsFTP(t *testing.T) {
+	testScoresRideAgainstItsFTP(t, func(t *testing.T, imp *importer.Importer, data []byte, name string) (string, error) {
+		return imp.ImportBytes(data, name)
+	})
+}
+
+// The path-based Import (the watch folder, Dropbox and archive imports)
+// scores the same way: it has its own copy of the import steps.
+func TestImport_ScoresRideAgainstItsFTP(t *testing.T) {
+	testScoresRideAgainstItsFTP(t, func(t *testing.T, imp *importer.Importer, data []byte, name string) (string, error) {
+		path := filepath.Join(t.TempDir(), name)
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return imp.Import(path)
+	})
+}
+
+func testScoresRideAgainstItsFTP(t *testing.T, importFIT func(t *testing.T, imp *importer.Importer, data []byte, name string) (string, error)) {
+	t.Helper()
 	d := newTestDB(t)
 	imp := importer.NewImporter(d, t.TempDir())
 	if err := d.SetFTP(242); err != nil {
@@ -145,19 +164,20 @@ func TestImportBytes_ScoresRideAgainstItsFTP(t *testing.T) {
 	// 210 W is sweet spot (88–94%) on a 235 W FTP, but not on 240 or 242.
 	cases := []struct {
 		name     string
+		file     string
 		start    time.Time
 		subSport typedef.SubSport
 		ftp      float64
 		ssSecs   bool
 	}{
-		{"indoor ride: the indoor line", time.Date(2024, 3, 15, 8, 0, 0, 0, time.UTC), typedef.SubSportIndoorCycling, 235, true},
-		{"outdoor ride: the FTP on its date", time.Date(2024, 3, 16, 8, 0, 0, 0, time.UTC), typedef.SubSportGeneric, 240, false},
+		{"indoor ride: the indoor line", "indoor.fit", time.Date(2024, 3, 15, 8, 0, 0, 0, time.UTC), typedef.SubSportIndoorCycling, 235, true},
+		{"outdoor ride: the FTP on its date", "outdoor.fit", time.Date(2024, 3, 16, 8, 0, 0, 0, time.UTC), typedef.SubSportGeneric, 240, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			id, err := imp.ImportBytes(buildPowerFIT(t, c.start, c.subSport, 210, 1200), c.name+".fit")
+			id, err := importFIT(t, imp, buildPowerFIT(t, c.start, c.subSport, 210, 1200), c.file)
 			if err != nil || id == "" {
-				t.Fatalf("ImportBytes: id=%q err=%v", id, err)
+				t.Fatalf("import: id=%q err=%v", id, err)
 			}
 			w, err := d.GetWorkout(id)
 			if err != nil || w == nil {
